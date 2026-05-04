@@ -294,7 +294,11 @@ const Scan = (() => {
 
     try {
       _stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: {
+          facingMode: 'environment',
+          width:  { ideal: 1280 },
+          height: { ideal: 720 },
+        },
         audio: false,
       });
     } catch (e) {

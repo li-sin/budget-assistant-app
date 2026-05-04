@@ -82,6 +82,7 @@ const Add = (() => {
         </div>
 
         <div class="modal-footer">
+          <button class="btn-secondary" id="add-scan">📷 掃描發票</button>
           <button class="btn-secondary" id="add-cancel">取消</button>
           <button class="btn-primary" id="add-submit">新增</button>
         </div>
@@ -111,6 +112,12 @@ const Add = (() => {
     document.getElementById('add-cancel').addEventListener('click', close);
     el.addEventListener('click', e => { if (e.target === el) close(); });
     document.getElementById('add-submit').addEventListener('click', _submit);
+    document.getElementById('add-scan').addEventListener('click', () => {
+      Scan.start((amount, storeName) => {
+        if (amount)    document.getElementById('add-amount').value = amount;
+        if (storeName) document.getElementById('add-item').value   = storeName;
+      });
+    });
   }
 
   // ── Open / Close ───────────────────────────────────────────────

@@ -39,6 +39,7 @@ const Add = (() => {
       <div class="modal-sheet">
         <div class="modal-header">
           <span class="modal-title">新增支出</span>
+          <button class="btn-scan-header" id="add-scan">📷 掃描發票</button>
           <button class="modal-close" id="add-close">✕</button>
         </div>
 
@@ -82,7 +83,6 @@ const Add = (() => {
         </div>
 
         <div class="modal-footer">
-          <button class="btn-secondary" id="add-scan">📷 掃描發票</button>
           <button class="btn-secondary" id="add-cancel">取消</button>
           <button class="btn-primary" id="add-submit">新增</button>
         </div>

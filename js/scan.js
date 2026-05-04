@@ -19,14 +19,28 @@ const Scan = (() => {
       return _buildResult(invNum, dateStr, rand, total);
     }
 
-    // 右側 QR：固定長度前綴（10+7+4+8+8 = 37碼），發票號碼為英數
+    // 右側 QR：固定長度前綴（10+7+4+8+8+8+8+24 = 69碼）+ :*****:[itemCount]:[name]:[qty]:[price]:...
     if (/^[A-Z]{2}\d{8}/.test(text)) {
       const invNum  = text.slice(0, 10);
       const dateStr = text.slice(10, 17);
       const rand    = text.slice(17, 21);
       const total   = parseInt(text.slice(29, 37), 10);
       if (!invNum || !dateStr || isNaN(total)) return null;
-      return _buildResult(invNum, dateStr, rand, total);
+      const result = _buildResult(invNum, dateStr, rand, total);
+
+      // 嘗試從 QR 內容解析第一個品項名稱作為商店名
+      // 格式：...:[verify]:*****:[itemCount]:[name1]:[qty1]:[price1]:...
+      const afterFixed = text.slice(69);  // 固定前綴後的字串
+      const colonIdx = afterFixed.indexOf(':');  // 跳過 *****
+      if (colonIdx !== -1) {
+        const itemsPart = afterFixed.slice(colonIdx + 1);  // [itemCount]:[name]:[qty]:[price]:...
+        const itemFields = itemsPart.split(':');
+        // itemFields[0]=itemCount, itemFields[1]=name1
+        if (itemFields.length >= 2 && itemFields[1]) {
+          result.storeName = itemFields[1].trim();
+        }
+      }
+      return result;
     }
 
     return null;
@@ -117,6 +131,14 @@ const Scan = (() => {
       return;
     }
 
+    // 右側 QR 已含商店名，直接回填不需呼叫 API
+    if (parsed.storeName) {
+      stop();
+      if (_onFill) _onFill(parsed.total, parsed.storeName);
+      return;
+    }
+
+    // 左側 QR：呼叫財政部 API 取商店名
     try {
       const data = await Promise.race([
         _queryInvoice(parsed),
@@ -137,7 +159,6 @@ const Scan = (() => {
     } catch (e) {
       const msg = e.message === 'timeout' ? 'API 逾時，已帶入 QR 金額' : `查詢失敗：${e.message}`;
       _setStatus(msg);
-      // 降級：直接回填 QR 內的金額
       setTimeout(() => {
         stop();
         if (_onFill) _onFill(parsed.total, '');

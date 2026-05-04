@@ -194,3 +194,5 @@ const Add = (() => {
 
   return { open, close };
 })();
+
+window.Add = Add;

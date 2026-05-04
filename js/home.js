@@ -153,3 +153,5 @@ const Home = (() => {
 
   return { init, reload: _load };
 })();
+
+window.Home = Home;

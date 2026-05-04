@@ -155,3 +155,5 @@ const Ledger = (() => {
 
   return { init, reload: _load };
 })();
+
+window.Ledger = Ledger;

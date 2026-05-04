@@ -290,22 +290,23 @@ const Scan = (() => {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const videoDevices = devices.filter(d => d.kind === 'videoinput');
 
-    // 逐一試每個鏡頭，取最高解析度的後鏡頭（主鏡頭通常解析度最高）
+    // 逐一試每個鏡頭，取 maxWidth capability 最高的
+    // Samsung 等機型 getSettings().facingMode 可能為空，改用 getCapabilities().width.max 判斷
     let bestStream = null;
-    let bestWidth  = 0;
+    let bestMaxW   = 0;
     for (const dev of videoDevices) {
       try {
         const s = await navigator.mediaDevices.getUserMedia({
-          video: { deviceId: { exact: dev.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: { deviceId: { exact: dev.deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } },
           audio: false,
         });
         const track = s.getVideoTracks()[0];
-        const settings = track.getSettings();
-        // 只考慮後鏡頭（facingMode === 'environment'）
-        if (settings.facingMode === 'environment' && (settings.width || 0) > bestWidth) {
+        const caps  = track.getCapabilities?.() || {};
+        const maxW  = caps.width?.max || track.getSettings().width || 0;
+        if (maxW > bestMaxW) {
           if (bestStream) bestStream.getTracks().forEach(t => t.stop());
           bestStream = s;
-          bestWidth  = settings.width || 0;
+          bestMaxW   = maxW;
         } else {
           s.getTracks().forEach(t => t.stop());
         }

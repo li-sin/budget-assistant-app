@@ -123,10 +123,7 @@ const Add = (() => {
     el.addEventListener('click', e => { if (e.target === el) close(); });
     document.getElementById('add-submit').addEventListener('click', _submit);
     document.getElementById('add-scan').addEventListener('click', () => {
-      Scan.start((amount, storeName) => {
-        if (amount)    document.getElementById('add-amount').value = amount;
-        if (storeName) document.getElementById('add-item').value   = storeName;
-      });
+      Scan.start();
     });
   }
 

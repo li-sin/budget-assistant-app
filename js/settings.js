@@ -61,6 +61,7 @@ const Settings = (() => {
         <div class="settings-logout-wrap">
           <button class="btn-logout" id="settings-logout">登出</button>
         </div>
+        <p class="settings-version">v${CONFIG.APP_VERSION}</p>
       </div>
     `;
   }

@@ -424,10 +424,61 @@
   pointer-events: none;
 }
 
+.scan-progress {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  padding: 10px;
+  background: rgba(0,0,0,0.7);
+}
+.scan-dot {
+  font-size: 13px;
+  color: rgba(255,255,255,0.5);
+}
+.scan-dot-done { color: var(--teal); font-weight: 600; }
+
 .scan-status {
   text-align: center;
   color: #fff;
   font-size: 14px;
-  padding: 16px;
+  padding: 10px 16px 16px;
   background: rgba(0,0,0,0.7);
+}
+
+/* ── Scan Confirm Modal ─────────────────────────── */
+.sconf-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--divider);
+}
+.sconf-row:last-of-type { border-bottom: none; }
+.sconf-label { font-size: 13px; color: var(--text-sub); }
+.sconf-val   { font-size: 14px; font-weight: 500; }
+
+.sconf-items {
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 4px 12px;
+  margin-top: 4px;
+}
+.sconf-item-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--divider);
+  font-size: 13px;
+}
+.sconf-item-row:last-child { border-bottom: none; }
+.sconf-item-name   { color: var(--text); flex: 1; }
+.sconf-item-amount { color: var(--text-sub); margin-left: 12px; }
+
+/* ── Settings version ───────────────────────────── */
+.settings-version {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-sub);
+  opacity: 0.5;
+  padding: 8px 0 24px;
 }

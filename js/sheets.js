@@ -189,9 +189,28 @@ const Sheets = (() => {
     await _update(range, [[attribution]]);
   }
 
+  // ── 新增發票明細列（掃描發票用）──────────────────────
+  // row: [carrier, date, invNum, shop, amount, status, category, shared, note, imported]
+  // A=載具 B=日期 C=發票號碼 D=商店 E=金額 F=狀態 G=類別 H=是否共用 I=備註 J=已匯入
+  async function appendInvoiceRow(row) {
+    await _append(`${CONFIG.TABS.INVOICE}!A:J`, [row]);
+  }
+
+  // ── 新增品項明細列（掃描發票用）──────────────────────
+  // items: [{ name, amount }]，其餘欄位從 invoiceInfo 帶入
+  // A=載具 B=日期 C=發票號碼 D=商店 E=品項名稱 F=品項金額 G=歸屬 H=Bear負擔 I=自訂 J=備註
+  async function appendItemRows(invoiceInfo, items) {
+    const { carrier, date, invNum, shop } = invoiceInfo;
+    const rows = items.map(({ name, amount }) => [
+      carrier, date, invNum, shop, name, amount, '', '', '', '',
+    ]);
+    await _append(`${CONFIG.TABS.ITEMS}!A:J`, rows);
+  }
+
   return {
     getMonthlyData, getSettlement, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
     getInvoiceData, getItemData, updateItemRow,
+    appendInvoiceRow, appendItemRows,
   };
 })();

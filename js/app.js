@@ -1,0 +1,30 @@
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  Auth.init((email) => {
+    document.getElementById('screen-login').classList.add('hidden');
+    document.getElementById('screen-app').classList.remove('hidden');
+
+    const inited = new Set();
+    const tabModules = { home: Home, ledger: Ledger, stats: Stats, settings: Settings };
+
+    Router.init();
+
+    Router.onNavigate = (tab) => {
+      if (!inited.has(tab) && tabModules[tab]) {
+        tabModules[tab].init();
+        inited.add(tab);
+      }
+    };
+
+    // 掛到 window 供 add.js 呼叫 reload
+    window.Home   = Home;
+    window.Ledger = Ledger;
+
+    // 初始化首頁
+    tabModules.home.init();
+    inited.add('home');
+  });
+});

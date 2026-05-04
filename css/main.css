@@ -1,0 +1,98 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #1C1C1E;
+  --bg-card:   #2C2C2E;
+  --divider:   #3A3A3C;
+  --teal:      #00C9A7;
+  --salmon:    #FF6B6B;
+  --text:      #FFFFFF;
+  --text-sub:  #8E8E93;
+  --nav-h:     60px;
+  --font:      -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app { height: 100%; display: flex; flex-direction: column; }
+
+/* ── Screens ───────────────────────────────────── */
+.screen { display: flex; flex-direction: column; flex: 1; }
+.screen.hidden { display: none; }
+
+/* ── Login ─────────────────────────────────────── */
+.login-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex: 1;
+  padding: 32px;
+  text-align: center;
+}
+.login-container h1 { font-size: 28px; font-weight: 700; }
+.login-container p  { color: var(--text-sub); font-size: 15px; }
+.login-error        { color: var(--salmon); font-size: 13px; }
+
+/* ── Main App ───────────────────────────────────── */
+#screen-app { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+main#content {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tab-content { min-height: 100%; padding: 16px 16px calc(var(--nav-h) + 16px); }
+.tab-content.hidden { display: none; }
+
+/* ── Bottom Nav ─────────────────────────────────── */
+#bottom-nav {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: var(--nav-h);
+  background: var(--bg-card);
+  border-top: 1px solid var(--divider);
+  display: flex;
+  z-index: 100;
+}
+
+.nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  color: var(--text-sub);
+  cursor: pointer;
+  font-family: var(--font);
+  transition: color 0.15s;
+}
+.nav-item.active { color: var(--teal); }
+.nav-icon  { font-size: 20px; line-height: 1; }
+.nav-label { font-size: 10px; font-weight: 500; }
+
+/* ── Buttons ────────────────────────────────────── */
+.btn-primary {
+  background: var(--teal);
+  color: #000;
+  border: none;
+  border-radius: 12px;
+  padding: 14px 32px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font);
+}
+.btn-primary:active { opacity: 0.8; }

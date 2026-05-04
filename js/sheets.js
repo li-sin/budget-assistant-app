@@ -15,7 +15,7 @@ const Sheets = (() => {
 
   async function _append(range, values) {
     const url = `${BASE}/values/${encodeURIComponent(range)}:append`
-      + '?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS';
+      + '?valueInputOption=USER_ENTERED&insertDataOption=OVERWRITE';
     const res = await fetch(url, {
       method: 'POST',
       headers: { ..._authHeader(), 'Content-Type': 'application/json' },

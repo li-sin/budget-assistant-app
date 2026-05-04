@@ -3,27 +3,41 @@ const Scan = (() => {
   let _rafId  = null;
   let _onFill = null;  // callback(amount, storeName)
 
-  // ── QR Code 解析（財政部左側 QR 格式）─────────────────────────
-  // 格式：:[invNum10]:[yyyMMdd7]:[rand4]:[salesAmt]:[totalAmt]:[buyId]:[sellId]:[verify]...
+  // ── QR Code 解析（財政部左側 / 右側 QR 格式）────────────────────
+  // 左側格式：:[invNum10]:[yyyMMdd7]:[rand4]:[salesAmt]:[totalAmt]:...
+  // 右側格式：[invNum10][yyyMMdd7][rand4][salesAmt8][totalAmt8][buyId8][sellId8][verify24]:*****:[itemCount]:...
   function _parseInvoiceQR(text) {
-    // 左側 QR 以 ':' 開頭
-    if (!text.startsWith(':')) return null;
-    const parts = text.split(':');
-    // parts[0]="" parts[1]=invNum parts[2]=date parts[3]=rand parts[4]=salesAmt parts[5]=totalAmt
-    if (parts.length < 6) return null;
-    const invNum  = parts[1];       // e.g. AB12345678
-    const dateStr = parts[2];       // 民國 yyyMMdd，e.g. 1140430
-    const rand    = parts[3];
-    const total   = parseInt(parts[5], 10);
-    if (!invNum || !dateStr || isNaN(total)) return null;
+    // 左側 QR：以 ':' 開頭
+    if (text.startsWith(':')) {
+      const parts = text.split(':');
+      if (parts.length < 6) return null;
+      const invNum  = parts[1];
+      const dateStr = parts[2];
+      const rand    = parts[3];
+      const total   = parseInt(parts[5], 10);
+      if (!invNum || !dateStr || isNaN(total)) return null;
+      return _buildResult(invNum, dateStr, rand, total);
+    }
 
-    // 民國年轉西元日期
+    // 右側 QR：固定長度前綴（10+7+4+8+8 = 37碼），發票號碼為英數
+    if (/^[A-Z]{2}\d{8}/.test(text)) {
+      const invNum  = text.slice(0, 10);
+      const dateStr = text.slice(10, 17);
+      const rand    = text.slice(17, 21);
+      const total   = parseInt(text.slice(29, 37), 10);
+      if (!invNum || !dateStr || isNaN(total)) return null;
+      return _buildResult(invNum, dateStr, rand, total);
+    }
+
+    return null;
+  }
+
+  function _buildResult(invNum, dateStr, rand, total) {
     const yyy  = parseInt(dateStr.slice(0, 3), 10);
     const mm   = dateStr.slice(3, 5);
     const dd   = dateStr.slice(5, 7);
     const year = yyy + 1911;
-    const invDate = `${year}.${mm}.${dd}`;  // 財政部 API 格式
-
+    const invDate = `${year}.${mm}.${dd}`;
     return { invNum, invDate, rand, total };
   }
 

@@ -99,15 +99,19 @@ const Scan = (() => {
     else                       statusEl.textContent = '對準發票，左右兩個 QR Code 都掃';
   }
 
+  // 縮小至 640px 寬再解碼，降低 CPU 負擔提升 frame rate
+  const DECODE_W = 640;
+
   function _drawFrame(video, canvas, ctx) {
     if (!_stream || _mode !== 'scanning') return;
     if (video.readyState === video.HAVE_ENOUGH_DATA) {
-      canvas.width  = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0);
+      const scale   = DECODE_W / video.videoWidth;
+      canvas.width  = DECODE_W;
+      canvas.height = Math.round(video.videoHeight * scale);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code    = window.jsQR(imgData.data, imgData.width, imgData.height, {
-        inversionAttempts: 'dontInvert',
+        inversionAttempts: 'attemptBoth',
       });
       if (code) _onQR(code.data);
     }
@@ -353,6 +357,7 @@ const Scan = (() => {
 
     const video = document.getElementById('scan-video');
     video.srcObject = _stream;
+    video.play().catch(() => {});  // iOS PWA 需要明確呼叫 play()
 
     let canvas = document.getElementById('scan-canvas');
     if (!canvas) {
@@ -363,6 +368,7 @@ const Scan = (() => {
     }
 
     video.addEventListener('loadedmetadata', () => {
+      video.play().catch(() => {});
       _rafId = requestAnimationFrame(() => _drawFrame(video, canvas, canvas.getContext('2d')));
     }, { once: true });
   }

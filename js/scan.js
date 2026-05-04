@@ -293,14 +293,22 @@ const Scan = (() => {
     _updateProgress();
 
     try {
-      _stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment',
-          width:  { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
+      // 優先嘗試精確指定後鏡頭（避免 Android 選到廣角）；失敗再 fallback
+      try {
+        _stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { exact: 'environment' },
+            width:  { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch {
+        _stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+          audio: false,
+        });
+      }
     } catch (e) {
       document.getElementById('scan-status').textContent = '無法開啟鏡頭，請手動填寫';
       setTimeout(stop, 2000);

@@ -1,4 +1,4 @@
-const CACHE = 'ba-v10';
+const CACHE = 'ba-v11';
 const SHELL = [
   './index.html',
   './css/main.css',
@@ -31,18 +31,30 @@ self.addEventListener('activate', e => {
   );
 });
 
-// App shell + network-first for Google APIs
+// Network-first：先從網路拿，失敗才用快取
+// 好處：更新後自動生效，不需手動清快取
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
-  // Google Sheets API → network only（不快取）
-  if (url.hostname.includes('googleapis.com') || url.hostname.includes('accounts.google.com')) {
+  // Google API → network only（不快取）
+  if (
+    url.hostname.includes('googleapis.com') ||
+    url.hostname.includes('accounts.google.com') ||
+    url.hostname.includes('workers.dev')
+  ) {
     e.respondWith(fetch(e.request));
     return;
   }
 
-  // App shell → cache first, fallback to network
+  // App shell → network first, fallback to cache
   e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request))
+    fetch(e.request)
+      .then(res => {
+        // 成功則同步更新快取
+        const clone = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, clone));
+        return res;
+      })
+      .catch(() => caches.match(e.request))
   );
 });

@@ -285,17 +285,28 @@ const Scan = (() => {
     _right = null;
   }
 
-  // ── 選主後鏡頭（避免三星多鏡頭選到廣角）────────────────────────
+  // ── 選主後鏡頭（iOS 直接用 environment，Android 枚舉選最高解析度）──
+  function _isIOS() {
+    return /iP(hone|ad|od)/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
+
   async function _openBestBackCamera() {
-    // 先取得權限，否則 enumerateDevices 不會回傳 deviceId
+    // iOS：getUserMedia 中間不能有多餘 await，否則被視為非使用者手勢，相機全黑
+    if (_isIOS()) {
+      return navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+    }
+
+    // Android：先取得權限，再枚舉鏡頭選最高解析度（避免三星廣角）
     const tempStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
     tempStream.getTracks().forEach(t => t.stop());
 
-    const devices = await navigator.mediaDevices.enumerateDevices();
+    const devices     = await navigator.mediaDevices.enumerateDevices();
     const videoDevices = devices.filter(d => d.kind === 'videoinput');
 
-    // 逐一試每個鏡頭，取 maxWidth capability 最高的
-    // Samsung 等機型 getSettings().facingMode 可能為空，改用 getCapabilities().width.max 判斷
     let bestStream = null;
     let bestMaxW   = 0;
     for (const dev of videoDevices) {
@@ -317,7 +328,6 @@ const Scan = (() => {
       } catch { /* 跳過無法開啟的鏡頭 */ }
     }
 
-    // fallback：直接用 environment
     if (!bestStream) {
       bestStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },

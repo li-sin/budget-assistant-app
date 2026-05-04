@@ -8,57 +8,44 @@ const Scan = (() => {
   let _mode    = 'idle'; // idle | scanning | confirm
 
   // ── QR 解析 ──────────────────────────────────────────────────
-  function _parseLeft(text) {
-    // 左側 QR：以 ':' 開頭
-    // 格式：:[invNum10]:[yyyMMdd7]:[rand4]:[salesAmt]:[totalAmt]:...
-    if (!text.startsWith(':')) return null;
-    const parts = text.split(':');
-    if (parts.length < 6) return null;
-    const invNum  = parts[1];
-    const dateStr = parts[2];
-    const rand    = parts[3];
-    const total   = parseInt(parts[5], 10);
-    if (!invNum || !dateStr || isNaN(total)) return null;
-    return _buildInvResult(invNum, dateStr, rand, total);
-  }
+  // 左側 QR：[invNum10][date7][rand4][sales8][total8][buyId8][sellId8][verify(base64)]:*****:品項數:...
+  // 右側 QR：**[name]:[qty]:[price]:[name]:[qty]:[price]:...（純品項列表）
 
-  function _parseRight(text) {
-    // 右側 QR：[invNum10][date7][rand4][sales8][total8][buyId8][sellId8][verify(base64)]:*****:[itemCount]:...
+  function _parseLeft(text) {
     if (!/^[A-Z]{2}\d{8}/.test(text)) return null;
     const invNum  = text.slice(0, 10);
     const dateStr = text.slice(10, 17);
     const rand    = text.slice(17, 21);
     const total   = parseInt(text.slice(29, 37), 10);
     if (!invNum || !dateStr || isNaN(total)) return null;
-    const base = _buildInvResult(invNum, dateStr, rand, total);
 
-    // 解析品項：找 :*** 區段後取品項
-    const starIdx = text.indexOf(':*');
+    // 商店名：找 :*** 後解析品項，取第一個非數字欄位
     let storeName = '';
-    let items     = [];
+    const starIdx = text.indexOf(':*');
     if (starIdx !== -1) {
       const afterStar = text.indexOf(':', starIdx + 1);
       if (afterStar !== -1) {
-        const itemsPart = text.slice(afterStar + 1);
-        const fields    = itemsPart.split(':').filter(f => f !== '');
-        // 跳過純數字欄位取第一個文字欄位作為商店名
+        const fields = text.slice(afterStar + 1).split(':').filter(f => f !== '');
         storeName = fields.find(f => !/^\d+$/.test(f.trim())) || '';
-
-        // 品項格式：[itemCount]:[name]:[qty]:[price]: 循環
-        // 跳過前面純數字（itemCount 等）後，每3個一組（name/qty/price）
-        const textStart = fields.findIndex(f => !/^\d+$/.test(f.trim()));
-        if (textStart !== -1) {
-          for (let i = textStart; i + 2 < fields.length; i += 3) {
-            const name   = fields[i].trim();
-            const amount = parseInt(fields[i + 2], 10);
-            if (name && !isNaN(amount)) {
-              items.push({ name, amount });
-            }
-          }
-        }
       }
     }
-    return { ...base, storeName, items };
+
+    return { ..._buildInvResult(invNum, dateStr, rand, total), storeName };
+  }
+
+  function _parseRight(text) {
+    // 右側 QR 以 '**' 開頭，格式：**[name]:[qty]:[price]:[name]:[qty]:[price]:...
+    if (!text.startsWith('**')) return null;
+    const content = text.slice(2);  // 去掉 **
+    const fields  = content.split(':').filter(f => f !== '');
+    // 每 3 個一組：name / qty / price
+    const items = [];
+    for (let i = 0; i + 2 < fields.length; i += 3) {
+      const name   = fields[i].trim();
+      const amount = parseInt(fields[i + 2], 10);
+      if (name && !isNaN(amount)) items.push({ name, amount });
+    }
+    return items.length ? { items } : null;
   }
 
   function _buildInvResult(invNum, dateStr, rand, total) {
@@ -165,11 +152,11 @@ const Scan = (() => {
   // ── 確認 Modal ────────────────────────────────────────────────
   function _showConfirm() {
     _mode = 'confirm';
-    const invNum   = _left?.invNum   || _right?.invNum   || '—';
-    const date     = _left?.dateForSheet || _right?.dateForSheet || '';
-    const total    = _left?.total    || _right?.total    || 0;
-    const shop     = _right?.storeName || '';
-    const items    = _right?.items   || [];
+    const invNum   = _left?.invNum        || '—';
+    const date     = _left?.dateForSheet  || '';
+    const total    = _left?.total         || 0;
+    const shop     = _left?.storeName     || '';
+    const items    = _right?.items        || [];
     const dateDisp = date ? `${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}` : '—';
 
     let el = document.getElementById('scan-confirm-modal');

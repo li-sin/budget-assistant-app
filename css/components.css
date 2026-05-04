@@ -58,19 +58,13 @@
 }
 .chip.active { background: var(--teal); color: #000; font-weight: 600; }
 .filter-row { display: flex; align-items: center; gap: 8px; }
-.cat-select {
-  flex: 1;
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--divider);
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-size: 15px;
-  font-family: var(--font);
-  width: 100%;
-  outline: none;
+.cat-chip-row {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
 }
-.cat-select:focus { border-color: var(--teal); }
+.cat-chip { font-size: 18px; padding: 6px 12px; }
 .ledger-count { font-size: 12px; color: var(--text-sub); white-space: nowrap; }
 
 /* ── Badge ──────────────────────────────────────── */

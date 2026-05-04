@@ -58,10 +58,11 @@ const Add = (() => {
           <input type="text" id="add-item" class="field-input" placeholder="商店或品項名稱">
 
           <label class="field-label">類別</label>
-          <select id="add-cat" class="field-input cat-select">
-            <option value="">（未分類）</option>
-            ${CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}
-          </select>
+          <div class="chip-row cat-chip-row" id="add-cat-chips">
+            <button class="chip cat-chip active" data-cat="">✕</button>
+            ${CATEGORIES.map(c => `<button class="chip cat-chip" data-cat="${c}">${c}</button>`).join('')}
+          </div>
+          <input type="hidden" id="add-cat" value="">
 
           <label class="field-label">負責人</label>
           <div class="chip-row">
@@ -89,6 +90,15 @@ const Add = (() => {
       </div>
     `;
     document.body.appendChild(el);
+
+    // Category chips
+    el.querySelectorAll('.cat-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        el.querySelectorAll('.cat-chip').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('add-cat').value = btn.dataset.cat;
+      });
+    });
 
     // Payer chips
     el.querySelectorAll('.chip[data-payer]').forEach(btn => {
@@ -139,6 +149,8 @@ const Add = (() => {
     document.getElementById('add-item').value   = '';
     document.getElementById('add-cat').value    = '';
     document.getElementById('add-note').value   = '';
+    document.querySelectorAll('#add-modal .cat-chip')
+      .forEach(b => b.classList.toggle('active', b.dataset.cat === ''));
 
     _payer  = '🌟 Star';
     _shared = '是';

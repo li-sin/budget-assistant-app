@@ -19,7 +19,7 @@ const Scan = (() => {
       return _buildResult(invNum, dateStr, rand, total);
     }
 
-    // 右側 QR：固定長度前綴（10+7+4+8+8+8+8+24 = 69碼）+ :*****:[itemCount]:[name]:[qty]:[price]:...
+    // 右側 QR：[invNum10][date7][rand4][sales8][total8][buyId8][sellId8][verify(base64)]:*****:[itemCount]:[name]:[qty]:[price]:...
     if (/^[A-Z]{2}\d{8}/.test(text)) {
       const invNum  = text.slice(0, 10);
       const dateStr = text.slice(10, 17);
@@ -28,16 +28,25 @@ const Scan = (() => {
       if (!invNum || !dateStr || isNaN(total)) return null;
       const result = _buildResult(invNum, dateStr, rand, total);
 
-      // 嘗試從 QR 內容解析第一個品項名稱作為商店名
-      // 格式：...:[verify]:*****:[itemCount]:[name1]:[qty1]:[price1]:...
-      const afterFixed = text.slice(69);  // 固定前綴後的字串
-      const colonIdx = afterFixed.indexOf(':');  // 跳過 *****
-      if (colonIdx !== -1) {
-        const itemsPart = afterFixed.slice(colonIdx + 1);  // [itemCount]:[name]:[qty]:[price]:...
-        const itemFields = itemsPart.split(':');
-        // itemFields[0]=itemCount, itemFields[1]=name1
-        if (itemFields.length >= 2 && itemFields[1]) {
-          result.storeName = itemFields[1].trim();
+      // verify 為 base64 長度不固定，用 ':' 定位品項區段
+      // 格式：...verify:*****:[itemCount]:[name1]:[qty1]:[price1]:...
+      // 找第一個 ':' 後面跟著 '*' 的位置（即 :*** 區段）
+      const starIdx = text.indexOf(':*');
+      if (starIdx !== -1) {
+        // 跳過 :***** 再找下一個 ':'
+        const afterStar = text.indexOf(':', starIdx + 1);
+        if (afterStar !== -1) {
+          // afterStar 之後：[itemCount]:[name1]:[qty1]:[price1]:...
+          // afterStar 之後：[itemCount]:[unknown]:[qty1]:[name1]:[unitPrice1]:[price1]:...
+          // 實際格式（從財政部規格）：itemCount:sellerName?:itemCount2:name:qty:price
+          // 用範例反推：8:13:1:UBER EATS訂單:0:0:餐-雙層牛肉3PO:1:82
+          // → 跳過純數字欄位，取第一個非純數字的欄位作為商店/品項名
+          const itemsPart = text.slice(afterStar + 1);
+          const fields = itemsPart.split(':');
+          const nameField = fields.find(f => f && !/^\d+$/.test(f.trim()));
+          if (nameField) {
+            result.storeName = nameField.trim();
+          }
         }
       }
       return result;

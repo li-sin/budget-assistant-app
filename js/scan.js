@@ -205,6 +205,9 @@ const Scan = (() => {
             <button class="chip sconf-shared" data-shared="x">x 跳過</button>
           </div>
 
+          <label class="field-label">備註</label>
+          <input type="text" id="sconf-note" class="field-input" placeholder="（選填）">
+
           <p id="sconf-error" class="add-error hidden"></p>
         </div>
         <div class="modal-footer">
@@ -241,6 +244,7 @@ const Scan = (() => {
 
     document.getElementById('sconf-submit').addEventListener('click', async () => {
       const category = document.getElementById('sconf-cat').value;
+        const note     = document.getElementById('sconf-note').value.trim();
       const btn = document.getElementById('sconf-submit');
       btn.disabled = true;
       btn.textContent = '寫入中…';
@@ -250,7 +254,7 @@ const Scan = (() => {
 
       try {
         // 發票明細列：[carrier, date, invNum, shop, amount, status, category, shared, note, imported]
-        const invoiceRow = ['掃描發票', date, invNum, shop, total, '開立', category, _shared, '', 'FALSE'];
+        const invoiceRow = ['掃描發票', date, invNum, shop, total, '開立', category, _shared, note, 'FALSE'];
         await Sheets.appendInvoiceRow(invoiceRow);
 
         // 品項明細

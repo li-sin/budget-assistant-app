@@ -197,10 +197,12 @@ const Scan = (() => {
           <input type="hidden" id="sconf-cat" value="">
 
           <label class="field-label">是否共用</label>
-          <div class="chip-row">
-            <button class="chip sconf-shared active" data-shared="是">是（各半）</button>
-            <button class="chip sconf-shared" data-shared="否">否（對方全欠）</button>
+          <div class="chip-row cat-chip-row">
+            <button class="chip sconf-shared active" data-shared="是">是</button>
+            <button class="chip sconf-shared" data-shared="否">否</button>
+            <button class="chip sconf-shared" data-shared="部分共用">部分</button>
             <button class="chip sconf-shared" data-shared="-">- 個人</button>
+            <button class="chip sconf-shared" data-shared="x">x 跳過</button>
           </div>
 
           <p id="sconf-error" class="add-error hidden"></p>

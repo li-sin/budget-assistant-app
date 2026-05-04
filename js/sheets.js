@@ -41,8 +41,9 @@ const Sheets = (() => {
 
   // ── 月度帳本 ──────────────────────────────────────────────────
 
-  function _parseRow(r) {
+  function _parseRow(r, rowIndex) {
     return {
+      rowIndex,
       date:       r[0]  || '',
       item:       r[1]  || '',
       amount:     parseFloat(r[2])  || 0,
@@ -72,8 +73,8 @@ const Sheets = (() => {
     const data = await _get(`${CONFIG.TABS.MONTHLY}!A:L`);
     const rows = (data.values || []).slice(1);  // skip header
     const filtered = rows
-      .filter(r => r[0] && r[0].startsWith(ym))
-      .map(_parseRow);
+      .map((r, i) => _parseRow(r, i + 2))  // rowIndex: header=1, data starts at 2
+      .filter(r => r.date.startsWith(ym));
 
     sessionStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: filtered }));
     return filtered;
@@ -104,5 +105,93 @@ const Sheets = (() => {
     if (ym) invalidateMonth(ym);
   }
 
-  return { getMonthlyData, getSettlement, appendMonthlyRow, invalidateMonth };
+  // ── 修改月度帳本指定列 ────────────────────────────
+  async function updateMonthlyRow(rowIndex, row) {
+    const range = `${CONFIG.TABS.MONTHLY}!A${rowIndex}:L${rowIndex}`;
+    await _update(range, [row]);
+    const ym = (row[0] || '').slice(0, 7);
+    if (ym) invalidateMonth(ym);
+  }
+
+  // ── 刪除月度帳本指定列 ────────────────────────────
+  async function deleteMonthlyRow(rowIndex, ym) {
+    const url = `${BASE}:batchUpdate`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { ..._authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: [{
+          deleteDimension: {
+            range: {
+              sheetId: CONFIG.MONTHLY_SHEET_ID,
+              dimension: 'ROWS',
+              startIndex: rowIndex - 1,  // 0-based
+              endIndex: rowIndex,
+            },
+          },
+        }],
+      }),
+    });
+    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
+    if (!res.ok) throw new Error(`Sheets API ${res.status}`);
+    if (ym) invalidateMonth(ym);
+    return res.json();
+  }
+
+  // ── 發票明細 ──────────────────────────────────────
+  function _parseInvoiceRow(r, rowIndex) {
+    return {
+      rowIndex,
+      carrier:   r[0]  || '',
+      date:      r[1]  || '',
+      invNum:    r[2]  || '',
+      shop:      r[3]  || '',
+      amount:    parseFloat(r[4]) || 0,
+      status:    r[5]  || '',
+      category:  r[6]  || '',
+      shared:    r[7]  || '',
+      note:      r[8]  || '',
+      imported:  r[9]  || '',
+      bearShare: r[10] || '',
+    };
+  }
+
+  async function getInvoiceData() {
+    const data = await _get(`${CONFIG.TABS.INVOICE}!A:K`);
+    return (data.values || []).slice(1).map((r, i) => _parseInvoiceRow(r, i + 2));
+  }
+
+  // ── 品項明細 ──────────────────────────────────────
+  function _parseItemRow(r, rowIndex) {
+    return {
+      rowIndex,
+      carrier:     r[0]  || '',
+      date:        r[1]  || '',
+      invNum:      r[2]  || '',
+      shop:        r[3]  || '',
+      itemName:    r[4]  || '',
+      itemAmount:  parseFloat(r[5]) || 0,
+      attribution: r[6]  || '',
+      bearShare:   r[7]  || '',
+      custom:      r[8]  || '',
+      note:        r[9]  || '',
+      invStatus:   r[10] || '',
+    };
+  }
+
+  async function getItemData() {
+    const data = await _get(`${CONFIG.TABS.ITEMS}!A:K`);
+    return (data.values || []).slice(1).map((r, i) => _parseItemRow(r, i + 2));
+  }
+
+  async function updateItemRow(rowIndex, attribution) {
+    const range = `${CONFIG.TABS.ITEMS}!G${rowIndex}`;
+    await _update(range, [[attribution]]);
+  }
+
+  return {
+    getMonthlyData, getSettlement, appendMonthlyRow, invalidateMonth,
+    updateMonthlyRow, deleteMonthlyRow,
+    getInvoiceData, getItemData, updateItemRow,
+  };
 })();

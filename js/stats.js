@@ -122,9 +122,12 @@ const Stats = (() => {
   function _buildShell() {
     document.getElementById('tab-stats').innerHTML = `
       <div class="stats-header">
-        <div class="chip-row">
-          <button class="chip active" data-mode="month">本月</button>
-          <button class="chip" data-mode="year">本年</button>
+        <div class="stats-top-row">
+          <div class="chip-row">
+            <button class="chip active" data-mode="month">本月</button>
+            <button class="chip" data-mode="year">本年</button>
+          </div>
+          <button class="settings-gear-btn" id="stats-settings-btn" title="設定">⚙️</button>
         </div>
         <div class="home-nav">
           <button class="month-btn" id="stats-prev">◀</button>
@@ -136,6 +139,10 @@ const Stats = (() => {
       <div class="card stats-chart-card" id="stats-chart"></div>
       <div class="card stats-legend-card" id="stats-legend"></div>
     `;
+
+    document.getElementById('stats-settings-btn').addEventListener('click', () => {
+      window.Settings?.open();
+    });
 
     document.querySelectorAll('#tab-stats .chip[data-mode]').forEach(btn => {
       btn.addEventListener('click', () => {

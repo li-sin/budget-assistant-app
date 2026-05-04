@@ -257,6 +257,13 @@
 
 /* ── Stats ──────────────────────────────────────── */
 .stats-header { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.stats-top-row { display: flex; align-items: center; justify-content: space-between; }
+.settings-gear-btn {
+  background: none; border: none;
+  font-size: 22px; cursor: pointer;
+  padding: 4px; opacity: 0.7;
+}
+.settings-gear-btn:active { opacity: 1; }
 .stats-chart-card {
   display: flex; justify-content: center; align-items: center;
   padding: 24px; margin-bottom: 8px;
@@ -309,6 +316,53 @@
   font-family: var(--font);
 }
 .btn-logout:active { opacity: 0.7; }
+
+/* ── Pending ────────────────────────────────────── */
+.pending-badge {
+  display: inline-block;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+.pending-item-row {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--divider);
+}
+.pending-item-row:last-child { border-bottom: none; }
+.pending-item-name   { font-size: 14px; }
+.pending-item-amount { font-size: 13px; color: var(--text-sub); margin-top: 2px; }
+
+/* ── Ledger Edit ────────────────────────────────── */
+.tag-shared {
+  display: inline-block;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+  background: rgba(0,201,167,0.15);
+  color: var(--teal);
+  margin-left: 4px;
+}
+.ledger-note {
+  color: var(--text-sub);
+  font-style: italic;
+}
+.edit-btn {
+  background: none;
+  border: none;
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px;
+  margin-top: 4px;
+  display: block;
+  opacity: 0.5;
+}
+.edit-btn:active { opacity: 1; }
 
 /* ── Empty State ────────────────────────────────── */
 .empty-state {

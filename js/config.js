@@ -15,4 +15,5 @@ const CONFIG = {
     ITEMS:      '品項明細',
   },
   SETTLEMENT_CELL: 'D3',  // 淨額 = B3(Bear欠Sin) - C3(Sin欠Bear)
+  MONTHLY_SHEET_ID: 0,   // 月度帳本工作表的數字 ID（從 Sheets URL #gid= 取得）
 };

@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('screen-app').classList.remove('hidden');
 
     const inited = new Set();
-    const tabModules = { home: Home, ledger: Ledger, stats: Stats, settings: Settings };
+    const tabModules = { home: Home, ledger: Ledger, pending: Pending, stats: Stats };
 
     Router.init();
 
@@ -19,9 +19,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     };
 
-    // 掛到 window 供 add.js 呼叫 reload
-    window.Home   = Home;
-    window.Ledger = Ledger;
+    window.Home     = Home;
+    window.Ledger   = Ledger;
+    window.Settings = Settings;
 
     // 初始化首頁
     tabModules.home.init();

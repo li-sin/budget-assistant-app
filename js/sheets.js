@@ -26,6 +26,19 @@ const Sheets = (() => {
     return res.json();
   }
 
+  async function _update(range, values) {
+    const url = `${BASE}/values/${encodeURIComponent(range)}`
+      + '?valueInputOption=USER_ENTERED';
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { ..._authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ range, values }),
+    });
+    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
+    if (!res.ok) throw new Error(`Sheets API ${res.status}`);
+    return res.json();
+  }
+
   // ── 月度帳本 ──────────────────────────────────────────────────
 
   function _parseRow(r) {
@@ -77,7 +90,11 @@ const Sheets = (() => {
   // [date, item, amount, payer, shared, category, sinShare, bearShare, note, source, sourceLink, importedAt]
 
   async function appendMonthlyRow(row) {
-    await _append(`${CONFIG.TABS.MONTHLY}!A:L`, [row]);
+    // 讀 A 欄找最後一筆有值的列，避免 ARRAYFORMULA 延伸造成 append 位置錯誤
+    const data = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
+    const lastRow = (data.values || []).length;  // 含 header，下一列 = lastRow + 1
+    const range = `${CONFIG.TABS.MONTHLY}!A${lastRow + 1}`;
+    await _update(range, [row]);
     const ym = (row[0] || '').slice(0, 7);
     if (ym) invalidateMonth(ym);
   }

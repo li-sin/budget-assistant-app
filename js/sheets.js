@@ -193,7 +193,9 @@ const Sheets = (() => {
   // row: [carrier, date, invNum, shop, amount, status, category, shared, note, imported]
   // A=載具 B=日期 C=發票號碼 D=商店 E=金額 F=狀態 G=類別 H=是否共用 I=備註 J=已匯入
   async function appendInvoiceRow(row) {
-    await _append(`${CONFIG.TABS.INVOICE}!A:J`, [row]);
+    const data    = await _get(`${CONFIG.TABS.INVOICE}!A:A`);
+    const lastRow = (data.values || []).length;
+    await _update(`${CONFIG.TABS.INVOICE}!A${lastRow + 1}`, [row]);
   }
 
   // ── 新增品項明細列（掃描發票用）──────────────────────
@@ -201,10 +203,12 @@ const Sheets = (() => {
   // A=載具 B=日期 C=發票號碼 D=商店 E=品項名稱 F=品項金額 G=歸屬 H=Bear負擔 I=自訂 J=備註
   async function appendItemRows(invoiceInfo, items) {
     const { carrier, date, invNum, shop } = invoiceInfo;
-    const rows = items.map(({ name, amount }) => [
+    const data    = await _get(`${CONFIG.TABS.ITEMS}!A:A`);
+    const lastRow = (data.values || []).length;
+    const rows    = items.map(({ name, amount }) => [
       carrier, date, invNum, shop, name, amount, '', '', '', '',
     ]);
-    await _append(`${CONFIG.TABS.ITEMS}!A:J`, rows);
+    await _update(`${CONFIG.TABS.ITEMS}!A${lastRow + 1}:J${lastRow + rows.length}`, rows);
   }
 
   return {

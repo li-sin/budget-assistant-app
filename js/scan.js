@@ -307,6 +307,15 @@ const Scan = (() => {
       return;
     }
 
+    // 嘗試啟用連續自動對焦（Android Chrome 支援）
+    const track = _stream.getVideoTracks()[0];
+    if (track && typeof track.applyConstraints === 'function') {
+      const caps = track.getCapabilities?.() || {};
+      if (caps.focusMode?.includes?.('continuous')) {
+        track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+      }
+    }
+
     const video = document.getElementById('scan-video');
     video.srcObject = _stream;
 

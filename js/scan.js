@@ -281,6 +281,47 @@ const Scan = (() => {
     _right = null;
   }
 
+  // ── 選主後鏡頭（避免三星多鏡頭選到廣角）────────────────────────
+  async function _openBestBackCamera() {
+    // 先取得權限，否則 enumerateDevices 不會回傳 deviceId
+    const tempStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    tempStream.getTracks().forEach(t => t.stop());
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = devices.filter(d => d.kind === 'videoinput');
+
+    // 逐一試每個鏡頭，取最高解析度的後鏡頭（主鏡頭通常解析度最高）
+    let bestStream = null;
+    let bestWidth  = 0;
+    for (const dev of videoDevices) {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: dev.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+        const track = s.getVideoTracks()[0];
+        const settings = track.getSettings();
+        // 只考慮後鏡頭（facingMode === 'environment'）
+        if (settings.facingMode === 'environment' && (settings.width || 0) > bestWidth) {
+          if (bestStream) bestStream.getTracks().forEach(t => t.stop());
+          bestStream = s;
+          bestWidth  = settings.width || 0;
+        } else {
+          s.getTracks().forEach(t => t.stop());
+        }
+      } catch { /* 跳過無法開啟的鏡頭 */ }
+    }
+
+    // fallback：直接用 environment
+    if (!bestStream) {
+      bestStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+    }
+    return bestStream;
+  }
+
   // ── 公開 API ──────────────────────────────────────────────────
   async function start() {
     _left  = null;
@@ -293,22 +334,7 @@ const Scan = (() => {
     _updateProgress();
 
     try {
-      // 優先嘗試精確指定後鏡頭（避免 Android 選到廣角）；失敗再 fallback
-      try {
-        _stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { exact: 'environment' },
-            width:  { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false,
-        });
-      } catch {
-        _stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false,
-        });
-      }
+      _stream = await _openBestBackCamera();
     } catch (e) {
       document.getElementById('scan-status').textContent = '無法開啟鏡頭，請手動填寫';
       setTimeout(stop, 2000);

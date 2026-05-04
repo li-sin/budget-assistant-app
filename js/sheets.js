@@ -58,11 +58,16 @@ const Sheets = (() => {
     };
   }
 
+  const CACHE_TTL = 5 * 60 * 1000;  // 5 分鐘
+
   async function getMonthlyData(year, month) {
     const ym  = `${year}-${String(month).padStart(2, '0')}`;
     const key = `ba_monthly_${ym}`;
     const hit = sessionStorage.getItem(key);
-    if (hit) return JSON.parse(hit);
+    if (hit) {
+      const { ts, data } = JSON.parse(hit);
+      if (Date.now() - ts < CACHE_TTL) return data;
+    }
 
     const data = await _get(`${CONFIG.TABS.MONTHLY}!A:L`);
     const rows = (data.values || []).slice(1);  // skip header
@@ -70,7 +75,7 @@ const Sheets = (() => {
       .filter(r => r[0] && r[0].startsWith(ym))
       .map(_parseRow);
 
-    sessionStorage.setItem(key, JSON.stringify(filtered));
+    sessionStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: filtered }));
     return filtered;
   }
 

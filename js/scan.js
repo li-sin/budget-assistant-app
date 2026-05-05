@@ -132,22 +132,25 @@ const Scan = (() => {
       const code    = window.jsQR(imgData.data, imgData.width, imgData.height, {
         inversionAttempts: 'attemptBoth',
       });
-      if (code) _onQR(code.binaryData);
+      if (code) _onQR(code.binaryData, code.data);
     }
     _rafId = requestAnimationFrame(() => _drawFrame(video, canvas, ctx));
   }
 
   function _decodeQR(bytes) {
+    // jsQR binaryData 可能是普通陣列（非 Uint8Array），TextDecoder 需要 BufferSource
+    const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     // 先嘗試 UTF-8（fatal=true，失敗 throw），失敗改 Big5
     try {
-      return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      return new TextDecoder('utf-8', { fatal: true }).decode(buf);
     } catch {
-      return new TextDecoder('big5').decode(bytes);
+      return new TextDecoder('big5').decode(buf);
     }
   }
 
-  function _onQR(bytes) {
-    const text = _decodeQR(bytes);
+  function _onQR(bytes, fallbackStr) {
+    // binaryData 可能不存在（舊版 jsQR），fallback 到 code.data string
+    const text = bytes ? _decodeQR(bytes) : (fallbackStr || '');
     let changed = false;
 
     if (!_left) {

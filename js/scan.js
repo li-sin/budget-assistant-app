@@ -16,7 +16,7 @@ const Scan = (() => {
     const invNum  = text.slice(0, 10);
     const dateStr = text.slice(10, 17);
     const rand    = text.slice(17, 21);
-    const total   = parseInt(text.slice(29, 37), 10);
+    const total   = parseInt(text.slice(29, 37), 16);  // 含稅總計為 hex 編碼
     if (!invNum || !dateStr || isNaN(total)) return null;
 
     // 商店名：找 :*** 後解析品項，取第一個非數字欄位

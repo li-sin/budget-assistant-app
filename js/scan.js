@@ -64,7 +64,8 @@ const Scan = (() => {
         items.push({ name, qty, price, amount: qty * price });
       }
     }
-    return items.length ? { items } : null;
+    // '**' 開頭即視為右側 QR（items 可為空，品項全在左側 QR 的情況）
+    return { items };
   }
 
   function _buildInvResult(invNum, dateStr, rand, total) {

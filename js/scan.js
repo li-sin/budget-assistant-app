@@ -22,6 +22,7 @@ const Scan = (() => {
 
     // 77碼固定欄位後，以冒號分隔：自用區:完整筆數:總筆數:編碼參數:品名:數量:單價:...
     const leftItems = [];
+    let orderNote = '';  // qty=0 & price=0 的標示列（如「UBER EATS訂單」）
     const starIdx = text.indexOf(':*');
     if (starIdx !== -1) {
       const afterStar = text.indexOf(':', starIdx + 1);
@@ -33,14 +34,19 @@ const Scan = (() => {
           const name  = itemFields[i].trim();
           const qty   = parseInt(itemFields[i + 1], 10);
           const price = parseInt(itemFields[i + 2], 10);
-          if (name && !isNaN(qty) && !isNaN(price) && !(qty === 0 && price === 0)) {
-            leftItems.push({ name, qty, price, amount: qty * price });
+          if (name && !isNaN(qty) && !isNaN(price)) {
+            if (qty === 0 && price === 0) {
+              // 標示列（如「UBER EATS訂單」），取第一個當 orderNote
+              if (!orderNote) orderNote = name;
+            } else {
+              leftItems.push({ name, qty, price, amount: qty * price });
+            }
           }
         }
       }
     }
 
-    return { ..._buildInvResult(invNum, dateStr, rand, total), sellerId, leftItems };
+    return { ..._buildInvResult(invNum, dateStr, rand, total), sellerId, leftItems, orderNote };
   }
 
   function _parseRight(text) {
@@ -187,8 +193,9 @@ const Scan = (() => {
     _mode = 'confirm';
     const invNum   = _left?.invNum       || '—';
     const date     = _left?.dateForSheet || '';   // YYYY-MM-DD
-    const sellerId = _left?.sellerId     || '';
-    const total    = _left?.total        || 0;
+    const sellerId  = _left?.sellerId   || '';
+    const total     = _left?.total      || 0;
+    const orderNote = _left?.orderNote  || '';
     // 用賣方統編查經濟部公司名稱；失敗則留空讓使用者手動填
     const shop = await _fetchSellerName(sellerId) || '';
     // 合併左側品項（leftItems）與右側品項（_right.items），去除數量/單價均為 0 的標示列
@@ -243,7 +250,7 @@ const Scan = (() => {
           </div>
 
           <label class="field-label">備註</label>
-          <input type="text" id="sconf-note" class="field-input" placeholder="（選填）" value="">
+          <input type="text" id="sconf-note" class="field-input" placeholder="（選填）" value="${orderNote}">
 
           <p id="sconf-error" class="add-error hidden"></p>
         </div>

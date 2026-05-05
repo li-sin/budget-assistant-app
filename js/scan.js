@@ -1,11 +1,12 @@
 const Scan = (() => {
   const CATEGORIES = ['🍴', '🛒', '⛽', '📦', '🎬', '👗', '🏠', '💊'];
 
-  let _stream  = null;
-  let _rafId   = null;
-  let _left    = null;  // { invNum, invDate, rand, total }
-  let _right   = null;  // { storeName, items: [{name, amount}] }
-  let _mode    = 'idle'; // idle | scanning | confirm
+  let _stream    = null;
+  let _rafId     = null;
+  let _left      = null;  // { invNum, invDate, rand, total }
+  let _right     = null;  // { storeName, items: [{name, amount}] }
+  let _mode      = 'idle'; // idle | scanning | confirm
+  let _debugNote = '';
 
   // ── QR 解析 ──────────────────────────────────────────────────
   // 左側 QR：[invNum10][date7][rand4][sales8][total8][buyId8][sellId8][verify(base64)]:*****:品項數:...
@@ -184,10 +185,15 @@ const Scan = (() => {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString(),
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        _debugNote = `API ${res.status} | invNum:${invNum} date:${dateForApi} rand:${rand}`;
+        return null;
+      }
       const json = await res.json();
+      _debugNote = `API OK | seller:${json.sellerName || '(空)'} | res:${JSON.stringify(json).slice(0, 100)}`;
       return json.sellerName || null;
-    } catch {
+    } catch (e) {
+      _debugNote = `API ERR:${e.message} | invNum:${invNum} date:${dateForApi} rand:${rand}`;
       return null;
     }
   }
@@ -195,11 +201,12 @@ const Scan = (() => {
   // ── 確認 Modal ────────────────────────────────────────────────
   async function _showConfirm() {
     _mode = 'confirm';
-    const invNum    = _left?.invNum       || '—';
-    const date      = _left?.dateForSheet || '';   // YYYY-MM-DD
-    const dateForApi = _left?.dateForApi  || '';
-    const rand      = _left?.rand         || '';
-    const total     = _left?.total        || 0;
+    _debugNote = '';
+    const invNum     = _left?.invNum       || '—';
+    const date       = _left?.dateForSheet || '';   // YYYY-MM-DD
+    const dateForApi = _left?.dateForApi   || '';
+    const rand       = _left?.rand         || '';
+    const total      = _left?.total        || 0;
     // 嘗試從財政部 API 取商店名；失敗則 fallback 到左側 QR 的 storeName
     const apiName = await _fetchSellerName(invNum, dateForApi, rand);
     const shop    = apiName || _left?.storeName || '';
@@ -255,7 +262,7 @@ const Scan = (() => {
           </div>
 
           <label class="field-label">備註</label>
-          <input type="text" id="sconf-note" class="field-input" placeholder="（選填）">
+          <input type="text" id="sconf-note" class="field-input" placeholder="（選填）" value="${_debugNote}">
 
           <p id="sconf-error" class="add-error hidden"></p>
         </div>

@@ -132,12 +132,22 @@ const Scan = (() => {
       const code    = window.jsQR(imgData.data, imgData.width, imgData.height, {
         inversionAttempts: 'attemptBoth',
       });
-      if (code) _onQR(code.data);
+      if (code) _onQR(code.binaryData);
     }
     _rafId = requestAnimationFrame(() => _drawFrame(video, canvas, ctx));
   }
 
-  function _onQR(text) {
+  function _decodeQR(bytes) {
+    // 先嘗試 UTF-8（fatal=true，失敗 throw），失敗改 Big5
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      return new TextDecoder('big5').decode(bytes);
+    }
+  }
+
+  function _onQR(bytes) {
+    const text = _decodeQR(bytes);
     let changed = false;
 
     if (!_left) {

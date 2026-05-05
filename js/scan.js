@@ -16,34 +16,48 @@ const Scan = (() => {
     const invNum  = text.slice(0, 10);
     const dateStr = text.slice(10, 17);
     const rand    = text.slice(17, 21);
-    const total   = parseInt(text.slice(29, 37), 16);  // 含稅總計為 hex 編碼
+    const total   = parseInt(text.slice(29, 37), 16);  // 含稅總計為 hex 編碼（規格書 p.5）
     if (!invNum || !dateStr || isNaN(total)) return null;
 
-    // 商店名：找 :*** 後解析品項，取第一個非數字欄位
+    // 77碼固定欄位後，以冒號分隔：自用區:完整筆數:總筆數:編碼參數:品名:數量:單價:...
     let storeName = '';
+    const leftItems = [];
     const starIdx = text.indexOf(':*');
     if (starIdx !== -1) {
       const afterStar = text.indexOf(':', starIdx + 1);
       if (afterStar !== -1) {
         const fields = text.slice(afterStar + 1).split(':').filter(f => f !== '');
-        storeName = fields.find(f => !/^\d+$/.test(f.trim())) || '';
+        // fields[0]=完整筆數, fields[1]=總筆數, fields[2]=編碼參數, fields[3+]=品名/數量/單價
+        const itemFields = fields.slice(3);
+        for (let i = 0; i + 2 < itemFields.length; i += 3) {
+          const name  = itemFields[i].trim();
+          const qty   = parseInt(itemFields[i + 1], 10);
+          const price = parseInt(itemFields[i + 2], 10);
+          if (name && !isNaN(qty) && !isNaN(price) && !(qty === 0 && price === 0)) {
+            if (!storeName) storeName = name;  // 第一個非零品項視為商店標示（如 UBER EATS 訂單）
+            leftItems.push({ name, qty, price, amount: qty * price });
+          }
+        }
       }
     }
 
-    return { ..._buildInvResult(invNum, dateStr, rand, total), storeName };
+    return { ..._buildInvResult(invNum, dateStr, rand, total), storeName, leftItems };
   }
 
   function _parseRight(text) {
-    // 右側 QR 以 '**' 開頭，格式：**[name]:[qty]:[price]:[name]:[qty]:[price]:...
+    // 右側 QR 以 '**' 開頭，格式：**[name]:[qty]:[price]:...（單價為十進位，規格書 p.6）
     if (!text.startsWith('**')) return null;
-    const content = text.slice(2);  // 去掉 **
+    const content = text.slice(2);
     const fields  = content.split(':').filter(f => f !== '');
-    // 每 3 個一組：name / qty / price
+    // 每 3 個一組：name / qty / price，金額 = qty × price
     const items = [];
     for (let i = 0; i + 2 < fields.length; i += 3) {
-      const name   = fields[i].trim();
-      const amount = parseInt(fields[i + 2], 10);
-      if (name && !isNaN(amount)) items.push({ name, amount });
+      const name  = fields[i].trim();
+      const qty   = parseInt(fields[i + 1], 10);
+      const price = parseInt(fields[i + 2], 10);
+      if (name && !isNaN(qty) && !isNaN(price)) {
+        items.push({ name, qty, price, amount: qty * price });
+      }
     }
     return items.length ? { items } : null;
   }
@@ -156,12 +170,14 @@ const Scan = (() => {
   // ── 確認 Modal ────────────────────────────────────────────────
   function _showConfirm() {
     _mode = 'confirm';
-    const invNum   = _left?.invNum        || '—';
-    const date     = _left?.dateForSheet  || '';
-    const total    = _left?.total         || 0;
-    const shop     = _left?.storeName     || '';
-    const items    = _right?.items        || [];
-    const dateDisp = date ? `${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}` : '—';
+    const invNum = _left?.invNum       || '—';
+    const date   = _left?.dateForSheet || '';   // YYYY-MM-DD
+    const total  = _left?.total        || 0;
+    const shop   = _left?.storeName    || '';
+    // 合併左側品項（leftItems）與右側品項（_right.items），去除數量/單價均為 0 的標示列
+    const leftItems  = (_left?.leftItems  || []).filter(it => !(it.qty === 0 && it.price === 0));
+    const rightItems = _right?.items || [];
+    const items = [...leftItems, ...rightItems];
 
     let el = document.getElementById('scan-confirm-modal');
     if (!el) {
@@ -179,7 +195,7 @@ const Scan = (() => {
         </div>
         <div class="modal-body">
           <div class="sconf-row"><span class="sconf-label">發票號碼</span><span class="sconf-val">${invNum}</span></div>
-          <div class="sconf-row"><span class="sconf-label">日期</span><span class="sconf-val">${dateDisp}</span></div>
+          <div class="sconf-row"><span class="sconf-label">日期</span><span class="sconf-val">${date || '—'}</span></div>
           <div class="sconf-row"><span class="sconf-label">金額</span><span class="sconf-val amount-expense">$${total.toLocaleString('zh-TW')}</span></div>
           <div class="sconf-row"><span class="sconf-label">商店</span><span class="sconf-val">${shop || '—'}</span></div>
 
@@ -188,8 +204,8 @@ const Scan = (() => {
           <div class="sconf-items">
             ${items.map(it => `
               <div class="sconf-item-row">
-                <span class="sconf-item-name">${it.name}</span>
-                <span class="sconf-item-amount">$${it.amount}</span>
+                <span class="sconf-item-name">${it.name}${it.qty > 1 ? ` ×${it.qty}` : ''}</span>
+                <span class="sconf-item-amount">$${it.amount.toLocaleString('zh-TW')}</span>
               </div>`).join('')}
           </div>` : ''}
 

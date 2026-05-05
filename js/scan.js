@@ -6,6 +6,7 @@ const Scan = (() => {
   let _left      = null;  // { invNum, invDate, rand, total }
   let _right     = null;  // { items: [{name, amount}] }
   let _mode      = 'idle'; // idle | scanning | confirm
+  let _debugNote = '';
 
   // ── QR 解析 ──────────────────────────────────────────────────
   // 左側 QR：[invNum10][date7][rand4][sales8][total8][buyId8][sellId8][verify(base64)]:*****:品項數:...
@@ -171,15 +172,23 @@ const Scan = (() => {
 
   // ── 經濟部商工 API 查詢公司名稱（用賣方統編）────────────────────
   async function _fetchSellerName(sellerId) {
-    if (!sellerId || !/^\d{8}$/.test(sellerId)) return null;
+    if (!sellerId || !/^\d{8}$/.test(sellerId)) {
+      _debugNote = `sellerId invalid: "${sellerId}"`;
+      return null;
+    }
     try {
       const url = `https://data.gcis.nat.gov.tw/od/data/api/5F64D864-61CB-4D0D-8AD9-492047CC1EA6`
         + `?$format=json&$filter=Business_Accounting_NO eq ${sellerId}&$top=1`;
       const res = await fetch(url);
-      if (!res.ok) return null;
+      if (!res.ok) {
+        _debugNote = `gcis ${res.status} | sellerId:${sellerId}`;
+        return null;
+      }
       const json = await res.json();
+      _debugNote = `sellerId:${sellerId} name:${json?.[0]?.Company_Name || '(空)'} len:${json?.length}`;
       return json?.[0]?.Company_Name || null;
-    } catch {
+    } catch (e) {
+      _debugNote = `gcis ERR:${e.message} | sellerId:${sellerId}`;
       return null;
     }
   }
@@ -187,6 +196,7 @@ const Scan = (() => {
   // ── 確認 Modal ────────────────────────────────────────────────
   async function _showConfirm() {
     _mode = 'confirm';
+    _debugNote = '';
     const invNum   = _left?.invNum       || '—';
     const date     = _left?.dateForSheet || '';   // YYYY-MM-DD
     const sellerId = _left?.sellerId     || '';
@@ -245,7 +255,7 @@ const Scan = (() => {
           </div>
 
           <label class="field-label">備註</label>
-          <input type="text" id="sconf-note" class="field-input" placeholder="（選填）">
+          <input type="text" id="sconf-note" class="field-input" placeholder="（選填）" value="${_debugNote}">
 
           <p id="sconf-error" class="add-error hidden"></p>
         </div>

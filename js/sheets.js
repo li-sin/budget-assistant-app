@@ -233,9 +233,22 @@ const Sheets = (() => {
     const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
     const invGid     = CONFIG.INVOICE_SHEET_ID;
     const sourceLink = `=HYPERLINK("#gid=${invGid}&range=C${invRowIndex}","${invNum}")`;
-    const row = [date, shop, amount, '🌟 Star', shared, category, sinShare, bearShare, note, '掃描發票', sourceLink, importedAt];
+    const row = [date, shop, amount, '🌟 Star', shared, category, '', '', note, '掃描發票', sourceLink, importedAt];
     await appendMonthlyRow(row);
     await markInvoiceImported(invRowIndex);
+  }
+
+  // ── 還款記錄（Bear結算 tab E~G 欄）────────────────────────
+  async function appendSettlementRow(amount, note) {
+    const tab  = CONFIG.TABS.SETTLEMENT;
+    const data = await _get(`${tab}!E:E`);
+    // E1=「還款記錄」E2=「日期」E7 起為資料（header 佔 E1:G2，E3:E6 空白）
+    // 找到最後一個有值的列，下一列寫入
+    const vals  = data.values || [];
+    const lastRow = Math.max(vals.length, 6);  // 最少從第 7 列起
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    await _update(`${tab}!E${lastRow + 1}:G${lastRow + 1}`, [[dateStr, amount, note || '']]);
   }
 
   return {
@@ -244,5 +257,6 @@ const Sheets = (() => {
     getInvoiceData, getItemData, updateItemRow,
     appendInvoiceRow, appendItemRows,
     markInvoiceImported, appendMonthlyFromScan,
+    appendSettlementRow,
   };
 })();

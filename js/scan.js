@@ -4,9 +4,8 @@ const Scan = (() => {
   let _stream    = null;
   let _rafId     = null;
   let _left      = null;  // { invNum, invDate, rand, total }
-  let _right     = null;  // { storeName, items: [{name, amount}] }
+  let _right     = null;  // { items: [{name, amount}] }
   let _mode      = 'idle'; // idle | scanning | confirm
-  let _debugNote = '';
 
   // ── QR 解析 ──────────────────────────────────────────────────
   // 左側 QR：[invNum10][date7][rand4][sales8][total8][buyId8][sellId8][verify(base64)]:*****:品項數:...
@@ -14,14 +13,14 @@ const Scan = (() => {
 
   function _parseLeft(text) {
     if (!/^[A-Z]{2}\d{8}/.test(text)) return null;
-    const invNum  = text.slice(0, 10);
-    const dateStr = text.slice(10, 17);
-    const rand    = text.slice(17, 21);
-    const total   = parseInt(text.slice(29, 37), 16);  // 含稅總計為 hex 編碼（規格書 p.5）
+    const invNum   = text.slice(0, 10);
+    const dateStr  = text.slice(10, 17);
+    const rand     = text.slice(17, 21);
+    const total    = parseInt(text.slice(29, 37), 16);  // 含稅總計為 hex 編碼（規格書 p.5）
+    const sellerId = text.slice(45, 53);                // 賣方統編（規格書固定欄位 46-53 碼）
     if (!invNum || !dateStr || isNaN(total)) return null;
 
     // 77碼固定欄位後，以冒號分隔：自用區:完整筆數:總筆數:編碼參數:品名:數量:單價:...
-    let storeName = '';
     const leftItems = [];
     const starIdx = text.indexOf(':*');
     if (starIdx !== -1) {
@@ -35,14 +34,13 @@ const Scan = (() => {
           const qty   = parseInt(itemFields[i + 1], 10);
           const price = parseInt(itemFields[i + 2], 10);
           if (name && !isNaN(qty) && !isNaN(price) && !(qty === 0 && price === 0)) {
-            if (!storeName) storeName = name;  // 第一個非零品項視為商店標示（如 UBER EATS 訂單）
             leftItems.push({ name, qty, price, amount: qty * price });
           }
         }
       }
     }
 
-    return { ..._buildInvResult(invNum, dateStr, rand, total), storeName, leftItems };
+    return { ..._buildInvResult(invNum, dateStr, rand, total), sellerId, leftItems };
   }
 
   function _parseRight(text) {
@@ -69,9 +67,7 @@ const Scan = (() => {
     const dd   = dateStr.slice(5, 7);
     const year = yyy + 1911;
     const dateForSheet = `${year}-${mm}-${dd}`;
-    // 財政部 API 日期格式：YYY.MM.DD（民國年）
-    const dateForApi = `${yyy}.${mm}.${dd}`;
-    return { invNum, dateForSheet, dateForApi, rand, total };
+    return { invNum, dateForSheet, rand, total };
   }
 
   // ── 鏡頭掃描 UI ──────────────────────────────────────────────
@@ -173,27 +169,17 @@ const Scan = (() => {
     document.getElementById('scan-overlay')?.classList.add('hidden');
   }
 
-  // ── 財政部 API 查詢商店名稱 ───────────────────────────────────
-  async function _fetchSellerName(invNum, dateForApi, rand) {
+  // ── 經濟部商工 API 查詢公司名稱（用賣方統編）────────────────────
+  async function _fetchSellerName(sellerId) {
+    if (!sellerId || !/^\d{8}$/.test(sellerId)) return null;
     try {
-      const body = new URLSearchParams({
-        version: '0.5', type: 'Barcode', action: 'qryInvDetail',
-        generation: 'V2', invNum, invDate: dateForApi, randomNumber: rand,
-      });
-      const res = await fetch(CONFIG.INVOICE_PROXY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-      });
-      if (!res.ok) {
-        _debugNote = `API ${res.status} | invNum:${invNum} date:${dateForApi} rand:${rand}`;
-        return null;
-      }
+      const url = `https://data.gcis.nat.gov.tw/od/data/api/5F64D864-61CB-4D0D-8AD9-492047CC1EA6`
+        + `?$format=json&$filter=Business_Accounting_NO eq ${sellerId}&$top=1`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
       const json = await res.json();
-      _debugNote = `code:${json.code} msg:${json.msg} seller:${json.sellerName}`;
-      return json.sellerName || null;
-    } catch (e) {
-      _debugNote = `API ERR:${e.message} | invNum:${invNum} date:${dateForApi} rand:${rand}`;
+      return json?.[0]?.Company_Name || null;
+    } catch {
       return null;
     }
   }
@@ -201,15 +187,12 @@ const Scan = (() => {
   // ── 確認 Modal ────────────────────────────────────────────────
   async function _showConfirm() {
     _mode = 'confirm';
-    _debugNote = '';
-    const invNum     = _left?.invNum       || '—';
-    const date       = _left?.dateForSheet || '';   // YYYY-MM-DD
-    const dateForApi = _left?.dateForApi   || '';
-    const rand       = _left?.rand         || '';
-    const total      = _left?.total        || 0;
-    // 嘗試從財政部 API 取商店名；失敗則 fallback 到左側 QR 的 storeName
-    const apiName = await _fetchSellerName(invNum, dateForApi, rand);
-    const shop    = apiName || _left?.storeName || '';
+    const invNum   = _left?.invNum       || '—';
+    const date     = _left?.dateForSheet || '';   // YYYY-MM-DD
+    const sellerId = _left?.sellerId     || '';
+    const total    = _left?.total        || 0;
+    // 用賣方統編查經濟部公司名稱；失敗則留空讓使用者手動填
+    const shop = await _fetchSellerName(sellerId) || '';
     // 合併左側品項（leftItems）與右側品項（_right.items），去除數量/單價均為 0 的標示列
     const leftItems  = (_left?.leftItems  || []).filter(it => !(it.qty === 0 && it.price === 0));
     const rightItems = _right?.items || [];
@@ -262,7 +245,7 @@ const Scan = (() => {
           </div>
 
           <label class="field-label">備註</label>
-          <input type="text" id="sconf-note" class="field-input" placeholder="（選填）" value="${_debugNote}">
+          <input type="text" id="sconf-note" class="field-input" placeholder="（選填）">
 
           <p id="sconf-error" class="add-error hidden"></p>
         </div>

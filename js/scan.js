@@ -190,7 +190,7 @@ const Scan = (() => {
         return null;
       }
       const json = await res.json();
-      _debugNote = `keys:${Object.keys(json).join(',')} | ${JSON.stringify(json).slice(0, 300)}`;
+      _debugNote = `code:${json.code} msg:${json.msg} seller:${json.sellerName}`;
       return json.sellerName || null;
     } catch (e) {
       _debugNote = `API ERR:${e.message} | invNum:${invNum} date:${dateForApi} rand:${rand}`;

@@ -233,7 +233,7 @@ const Sheets = (() => {
     const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
     const invGid     = CONFIG.INVOICE_SHEET_ID;
     const sourceLink = `=HYPERLINK("#gid=${invGid}&range=C${invRowIndex}","${invNum}")`;
-    const row = [date, shop, amount, '🌟 Star', shared, category, sinShare, bearShare, note, '發票', sourceLink, importedAt];
+    const row = [date, shop, amount, '🌟 Star', shared, category, sinShare, bearShare, note, '掃描發票', sourceLink, importedAt];
     await appendMonthlyRow(row);
     await markInvoiceImported(invRowIndex);
   }

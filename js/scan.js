@@ -67,9 +67,10 @@ const Scan = (() => {
     const mm   = dateStr.slice(3, 5);
     const dd   = dateStr.slice(5, 7);
     const year = yyy + 1911;
-    // 發票明細 B 欄格式：YYYY-MM-DD
     const dateForSheet = `${year}-${mm}-${dd}`;
-    return { invNum, dateForSheet, rand, total };
+    // 財政部 API 日期格式：YYY.MM.DD（民國年）
+    const dateForApi = `${yyy}.${mm}.${dd}`;
+    return { invNum, dateForSheet, dateForApi, rand, total };
   }
 
   // ── 鏡頭掃描 UI ──────────────────────────────────────────────
@@ -149,9 +150,13 @@ const Scan = (() => {
       _updateProgress();
       if (_left && _right) {
         // 兩個都掃到，停止並開確認 Modal
-        setTimeout(() => {
+        setTimeout(async () => {
           _stopCamera();
-          _showConfirm();
+          const statusEl = document.getElementById('scan-status');
+          if (statusEl) statusEl.textContent = '查詢商店資訊中…';
+          document.getElementById('scan-overlay')?.classList.remove('hidden');
+          await _showConfirm();
+          document.getElementById('scan-overlay')?.classList.add('hidden');
         }, 300);
       }
     }
@@ -167,13 +172,37 @@ const Scan = (() => {
     document.getElementById('scan-overlay')?.classList.add('hidden');
   }
 
+  // ── 財政部 API 查詢商店名稱 ───────────────────────────────────
+  async function _fetchSellerName(invNum, dateForApi, rand) {
+    try {
+      const body = new URLSearchParams({
+        version: '0.5', type: 'Barcode', action: 'qryInvDetail',
+        generation: 'V2', invNum, invDate: dateForApi, randomNumber: rand,
+      });
+      const res = await fetch(CONFIG.INVOICE_PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.sellerName || null;
+    } catch {
+      return null;
+    }
+  }
+
   // ── 確認 Modal ────────────────────────────────────────────────
-  function _showConfirm() {
+  async function _showConfirm() {
     _mode = 'confirm';
-    const invNum = _left?.invNum       || '—';
-    const date   = _left?.dateForSheet || '';   // YYYY-MM-DD
-    const total  = _left?.total        || 0;
-    const shop   = _left?.storeName    || '';
+    const invNum    = _left?.invNum       || '—';
+    const date      = _left?.dateForSheet || '';   // YYYY-MM-DD
+    const dateForApi = _left?.dateForApi  || '';
+    const rand      = _left?.rand         || '';
+    const total     = _left?.total        || 0;
+    // 嘗試從財政部 API 取商店名；失敗則 fallback 到左側 QR 的 storeName
+    const apiName = await _fetchSellerName(invNum, dateForApi, rand);
+    const shop    = apiName || _left?.storeName || '';
     // 合併左側品項（leftItems）與右側品項（_right.items），去除數量/單價均為 0 的標示列
     const leftItems  = (_left?.leftItems  || []).filter(it => !(it.qty === 0 && it.price === 0));
     const rightItems = _right?.items || [];
@@ -197,7 +226,7 @@ const Scan = (() => {
           <div class="sconf-row"><span class="sconf-label">發票號碼</span><span class="sconf-val">${invNum}</span></div>
           <div class="sconf-row"><span class="sconf-label">日期</span><span class="sconf-val">${date || '—'}</span></div>
           <div class="sconf-row"><span class="sconf-label">金額</span><span class="sconf-val amount-expense">$${total.toLocaleString('zh-TW')}</span></div>
-          <div class="sconf-row"><span class="sconf-label">商店</span><span class="sconf-val">${shop || '—'}</span></div>
+          <div class="sconf-row"><span class="sconf-label">商店</span><input type="text" id="sconf-shop" class="field-input" style="flex:1;margin-left:8px" value="${shop}"></div>
 
           ${items.length ? `
           <div class="section-title" style="margin-top:12px">品項明細</div>
@@ -263,10 +292,11 @@ const Scan = (() => {
     el.addEventListener('click', e => { if (e.target === el) _closeConfirm(); });
 
     document.getElementById('sconf-submit').addEventListener('click', async () => {
-      const category = document.getElementById('sconf-cat').value;
-      const note     = document.getElementById('sconf-note').value.trim();
-      const btn      = document.getElementById('sconf-submit');
-      btn.disabled   = true;
+      const category  = document.getElementById('sconf-cat').value;
+      const note      = document.getElementById('sconf-note').value.trim();
+      const shopValue = document.getElementById('sconf-shop').value.trim();
+      const btn       = document.getElementById('sconf-submit');
+      btn.disabled    = true;
       btn.textContent = '寫入中…';
 
       const errEl = document.getElementById('sconf-error');
@@ -275,19 +305,19 @@ const Scan = (() => {
       try {
         // 寫入發票明細，取得列號
         const invRowIndex = await Sheets.appendInvoiceRow(
-          '掃描發票', date, invNum, shop, total, '開立', category, _shared, note
+          '掃描發票', date, invNum, shopValue, total, '開立', category, _shared, note
         );
 
         // 寫入品項明細，取得第一筆列號
         let firstItemRow = null;
         if (items.length) {
-          const invoiceInfo = { carrier: '掃描發票', date, invNum, shop };
+          const invoiceInfo = { carrier: '掃描發票', date, invNum, shop: shopValue };
           firstItemRow = await Sheets.appendItemRows(invoiceInfo, items);
         }
 
         // 關閉確認 Modal，進入歸屬填寫頁
         el.classList.add('hidden');
-        _showAttribution({ date, invNum, shop, total, category, note, shared: _shared, items, invRowIndex, firstItemRow });
+        _showAttribution({ date, invNum, shop: shopValue, total, category, note, shared: _shared, items, invRowIndex, firstItemRow });
       } catch (e) {
         errEl.textContent = '寫入失敗：' + e.message;
         errEl.classList.remove('hidden');

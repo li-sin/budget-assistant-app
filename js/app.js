@@ -3,6 +3,9 @@ if ('serviceWorker' in navigator) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  const verEl = document.getElementById('login-version');
+  if (verEl) verEl.textContent = `v${CONFIG.APP_VERSION}`;
+
   Auth.init((email) => {
     document.getElementById('screen-login').classList.add('hidden');
     document.getElementById('screen-app').classList.remove('hidden');

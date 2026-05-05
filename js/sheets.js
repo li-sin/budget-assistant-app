@@ -39,6 +39,19 @@ const Sheets = (() => {
     return res.json();
   }
 
+  async function _batchUpdate(dataArr) {
+    // dataArr: [{ range, values }, ...]，一次寫多個不連續範圍
+    const url = `${BASE}/values:batchUpdate`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { ..._authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: dataArr }),
+    });
+    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
+    if (!res.ok) throw new Error(`Sheets API ${res.status}`);
+    return res.json();
+  }
+
   // ── 月度帳本 ──────────────────────────────────────────────────
 
   function _parseRow(r, rowIndex) {
@@ -228,13 +241,26 @@ const Sheets = (() => {
 
   // ── 掃描發票直接匯入月度帳本 ────────────────────────────
   // shared: 是/否/-/x；sinShare/bearShare 由呼叫端計算
-  async function appendMonthlyFromScan({ date, shop, amount, shared, category, note, invNum, invRowIndex, sinShare, bearShare }) {
+  async function appendMonthlyFromScan({ date, shop, amount, shared, category, note, invNum, invRowIndex }) {
     const now        = new Date();
     const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
     const invGid     = CONFIG.INVOICE_SHEET_ID;
     const sourceLink = `=HYPERLINK("#gid=${invGid}&range=C${invRowIndex}","${invNum}")`;
-    const row = [date, shop, amount, '🌟 Star', shared, category, '', '', note, '掃描發票', sourceLink, importedAt];
-    await appendMonthlyRow(row);
+
+    // 讀 A 欄定位最後列
+    const data   = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
+    const lastRow = (data.values || []).length;
+    const nextRow = lastRow + 1;
+    const tab     = CONFIG.TABS.MONTHLY;
+
+    // G/H 欄不寫，保留公式自動計算；分兩段：A~F 和 I~L
+    await _batchUpdate([
+      { range: `${tab}!A${nextRow}:F${nextRow}`, values: [[date, shop, amount, '🌟 Star', shared, category]] },
+      { range: `${tab}!I${nextRow}:L${nextRow}`, values: [[note, '掃描發票', sourceLink, importedAt]] },
+    ]);
+
+    const ym = (date || '').slice(0, 7);
+    if (ym) invalidateMonth(ym);
     await markInvoiceImported(invRowIndex);
   }
 

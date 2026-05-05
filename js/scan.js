@@ -151,7 +151,6 @@ const Scan = (() => {
   function _onQR(bytes, fallbackStr) {
     // binaryData 可能不存在（舊版 jsQR），fallback 到 code.data string
     const text = bytes ? _decodeQR(bytes) : (fallbackStr || '');
-    console.log('[QR]', JSON.stringify(text.slice(0, 40)));
     let changed = false;
 
     if (!_left) {

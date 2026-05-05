@@ -53,8 +53,8 @@ const Scan = (() => {
     const mm   = dateStr.slice(3, 5);
     const dd   = dateStr.slice(5, 7);
     const year = yyy + 1911;
-    // 發票明細 B 欄格式：YYYYMMDD
-    const dateForSheet = `${year}${mm}${dd}`;
+    // 發票明細 B 欄格式：YYYY-MM-DD
+    const dateForSheet = `${year}-${mm}-${dd}`;
     return { invNum, dateForSheet, rand, total };
   }
 
@@ -204,7 +204,7 @@ const Scan = (() => {
           <div class="chip-row cat-chip-row">
             <button class="chip sconf-shared active" data-shared="是">是</button>
             <button class="chip sconf-shared" data-shared="否">否</button>
-            <button class="chip sconf-shared" data-shared="部分共用">部分</button>
+            <button class="chip sconf-shared" data-shared="部分">部分</button>
             <button class="chip sconf-shared" data-shared="-">- 個人</button>
             <button class="chip sconf-shared" data-shared="x">x 跳過</button>
           </div>
@@ -248,27 +248,30 @@ const Scan = (() => {
 
     document.getElementById('sconf-submit').addEventListener('click', async () => {
       const category = document.getElementById('sconf-cat').value;
-        const note     = document.getElementById('sconf-note').value.trim();
-      const btn = document.getElementById('sconf-submit');
-      btn.disabled = true;
+      const note     = document.getElementById('sconf-note').value.trim();
+      const btn      = document.getElementById('sconf-submit');
+      btn.disabled   = true;
       btn.textContent = '寫入中…';
 
       const errEl = document.getElementById('sconf-error');
       errEl.classList.add('hidden');
 
       try {
-        // 發票明細列：[carrier, date, invNum, shop, amount, status, category, shared, note, imported]
-        const invoiceRow = ['掃描發票', date, invNum, shop, total, '開立', category, _shared, note, 'FALSE'];
-        await Sheets.appendInvoiceRow(invoiceRow);
+        // 寫入發票明細，取得列號
+        const invRowIndex = await Sheets.appendInvoiceRow(
+          '掃描發票', date, invNum, shop, total, '開立', category, _shared, note
+        );
 
-        // 品項明細
+        // 寫入品項明細，取得第一筆列號
+        let firstItemRow = null;
         if (items.length) {
           const invoiceInfo = { carrier: '掃描發票', date, invNum, shop };
-          await Sheets.appendItemRows(invoiceInfo, items);
+          firstItemRow = await Sheets.appendItemRows(invoiceInfo, items);
         }
 
-        _closeConfirm();
-        alert(`✓ 發票 ${invNum} 已寫入`);
+        // 關閉確認 Modal，進入歸屬填寫頁
+        el.classList.add('hidden');
+        _showAttribution({ date, invNum, shop, total, category, note, shared: _shared, items, invRowIndex, firstItemRow });
       } catch (e) {
         errEl.textContent = '寫入失敗：' + e.message;
         errEl.classList.remove('hidden');
@@ -280,6 +283,147 @@ const Scan = (() => {
 
   function _closeConfirm() {
     document.getElementById('scan-confirm-modal')?.classList.add('hidden');
+    _mode = 'idle';
+    _left = null;
+    _right = null;
+  }
+
+  // ── 歸屬填寫頁 ───────────────────────────────────────────────
+  // shared: 是/否/部分/-/x；items: [{name, amount}]
+  function _showAttribution({ date, invNum, shop, total, category, note, shared, items, invRowIndex, firstItemRow }) {
+    let el = document.getElementById('scan-attr-modal');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'scan-attr-modal';
+      el.className = 'modal-overlay hidden';
+      document.body.appendChild(el);
+    }
+
+    // 是/否/-/x 不需填品項歸屬，直接顯示摘要並提供匯入/略過
+    const needsAttribution = shared === '部分';
+    const itemOwners = {};  // invNum+idx → '🌟 Sin'|'🐨 Bear'|'共用'
+
+    const itemRows = needsAttribution && items.length
+      ? items.map((it, idx) => `
+        <div class="attr-item-row" data-idx="${idx}">
+          <span class="attr-item-name">${it.name}</span>
+          <span class="attr-item-amt">$${it.amount}</span>
+          <div class="chip-row attr-owner-chips" style="margin:4px 0 0 0">
+            <button class="chip attr-owner${itemOwners[idx] === '🌟 Sin' ? ' active' : ''}" data-owner="🌟 Sin">🌟 Sin</button>
+            <button class="chip attr-owner${itemOwners[idx] === '🐨 Bear' ? ' active' : ''}" data-owner="🐨 Bear">🐨 Bear</button>
+            <button class="chip attr-owner${itemOwners[idx] === '共用' ? ' active' : ''}" data-owner="共用">共用</button>
+          </div>
+        </div>`).join('')
+      : `<p style="color:#8E8E93;font-size:14px;margin:8px 0">
+          ${shared === '是' ? '整張發票 Sin & Bear 各半' :
+            shared === '否' ? 'Sin 代墊，Bear 全欠' :
+            shared === '-' ? '個人消費，不計入分帳' :
+            'x 跳過，不匯入帳本'}
+        </p>`;
+
+    el.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <span class="modal-title">歸屬 & 匯入</span>
+          <button class="modal-close" id="sattr-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="sconf-row"><span class="sconf-label">發票</span><span class="sconf-val">${invNum}</span></div>
+          <div class="sconf-row"><span class="sconf-label">商店</span><span class="sconf-val">${shop || '—'}</span></div>
+          <div class="sconf-row"><span class="sconf-label">金額</span><span class="sconf-val amount-expense">$${total.toLocaleString('zh-TW')}</span></div>
+          <div class="sconf-row"><span class="sconf-label">是否共用</span><span class="sconf-val">${shared}</span></div>
+          ${needsAttribution ? `<div class="section-title" style="margin-top:12px">逐項歸屬</div>` : ''}
+          <div id="attr-items-wrap">${itemRows}</div>
+          <p id="sattr-error" class="add-error hidden"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="sattr-skip">略過</button>
+          <button class="btn-primary" id="sattr-submit">確認匯入</button>
+        </div>
+      </div>
+    `;
+
+    el.classList.remove('hidden');
+
+    // 歸屬 chip 事件
+    el.querySelectorAll('.attr-owner').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const row = btn.closest('.attr-item-row');
+        row.querySelectorAll('.attr-owner').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        itemOwners[parseInt(row.dataset.idx)] = btn.dataset.owner;
+      });
+    });
+
+    document.getElementById('sattr-close').addEventListener('click', _closeAttribution);
+    document.getElementById('sattr-skip').addEventListener('click', () => {
+      _closeAttribution();
+      alert(`發票 ${invNum} 已寫入，可至待處理頁面填寫歸屬後匯入。`);
+    });
+
+    document.getElementById('sattr-submit').addEventListener('click', async () => {
+      const errEl = document.getElementById('sattr-error');
+      errEl.classList.add('hidden');
+
+      // 部分共用：確認所有品項都有歸屬
+      if (needsAttribution) {
+        const missing = items.some((_, idx) => !itemOwners[idx]);
+        if (missing) {
+          errEl.textContent = '請先選擇所有品項的歸屬';
+          errEl.classList.remove('hidden');
+          return;
+        }
+      }
+
+      const btn = document.getElementById('sattr-submit');
+      btn.disabled    = true;
+      btn.textContent = '匯入中…';
+
+      try {
+        let sinShare, bearShare;
+
+        if (shared === '是') {
+          sinShare  = Math.floor(total / 2);
+          bearShare = total - sinShare;
+        } else if (shared === '否') {
+          sinShare  = total;
+          bearShare = 0;
+        } else if (shared === '-' || shared === 'x') {
+          sinShare  = total;
+          bearShare = 0;
+        } else if (shared === '部分') {
+          // 逐項加總
+          bearShare = items.reduce((sum, it, idx) => {
+            const owner = itemOwners[idx];
+            if (owner === '🐨 Bear') return sum + it.amount;
+            if (owner === '共用')    return sum + Math.floor(it.amount / 2);
+            return sum;
+          }, 0);
+          sinShare = total - bearShare;
+
+          // 更新品項明細 G 欄歸屬（用寫入時取得的起始列號）
+          if (firstItemRow != null) {
+            for (let idx = 0; idx < items.length; idx++) {
+              await Sheets.updateItemRow(firstItemRow + idx, itemOwners[idx]);
+            }
+          }
+        }
+
+        await Sheets.appendMonthlyFromScan({ date, shop, amount: total, shared, category, note, invNum, invRowIndex, sinShare, bearShare });
+
+        _closeAttribution();
+        alert(`✓ 發票 ${invNum} 已匯入月度帳本`);
+      } catch (e) {
+        errEl.textContent = '匯入失敗：' + e.message;
+        errEl.classList.remove('hidden');
+        btn.disabled    = false;
+        btn.textContent = '確認匯入';
+      }
+    });
+  }
+
+  function _closeAttribution() {
+    document.getElementById('scan-attr-modal')?.classList.add('hidden');
     _mode = 'idle';
     _left = null;
     _right = null;

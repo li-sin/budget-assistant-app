@@ -190,25 +190,52 @@ const Sheets = (() => {
   }
 
   // ── 新增發票明細列（掃描發票用）──────────────────────
-  // row: [carrier, date, invNum, shop, amount, status, category, shared, note, imported]
-  // A=載具 B=日期 C=發票號碼 D=商店 E=金額 F=狀態 G=類別 H=是否共用 I=備註 J=已匯入
-  async function appendInvoiceRow(row) {
-    const data    = await _get(`${CONFIG.TABS.INVOICE}!A:A`);
-    const lastRow = (data.values || []).length;
-    await _update(`${CONFIG.TABS.INVOICE}!A${lastRow + 1}`, [row]);
+  // A=載具 B=日期(YYYY-MM-DD) C=發票號碼(HYPERLINK→品項明細G欄) D=商店
+  // E=金額 F=狀態 G=類別 H=是否共用 I=備註 J=已匯入
+  async function appendInvoiceRow(carrier, date, invNum, shop, amount, status, category, shared, note) {
+    const data      = await _get(`${CONFIG.TABS.INVOICE}!A:A`);
+    const lastRow   = (data.values || []).length;
+    const newRow    = lastRow + 1;
+    const itemsGid  = CONFIG.ITEMS_SHEET_ID;
+    const invLink   = `=HYPERLINK("#gid=${itemsGid}","${invNum}")`;
+    const row = [carrier, date, invLink, shop, amount, status, category, shared, note, false];
+    await _update(`${CONFIG.TABS.INVOICE}!A${newRow}`, [row]);
+    return newRow;
   }
 
   // ── 新增品項明細列（掃描發票用）──────────────────────
-  // items: [{ name, amount }]，其餘欄位從 invoiceInfo 帶入
-  // A=載具 B=日期 C=發票號碼 D=商店 E=品項名稱 F=品項金額 G=歸屬 H=Bear負擔 I=自訂 J=備註
+  // A=載具 B=日期(YYYY-MM-DD) C=發票號碼(HYPERLINK→發票明細H欄) D=商店
+  // E=品項名稱 F=品項金額 G=歸屬(空=未處理) H=Bear負擔(公式) I=自訂 J=備註
   async function appendItemRows(invoiceInfo, items) {
     const { carrier, date, invNum, shop } = invoiceInfo;
     const data    = await _get(`${CONFIG.TABS.ITEMS}!A:A`);
     const lastRow = (data.values || []).length;
-    const rows    = items.map(({ name, amount }) => [
-      carrier, date, invNum, shop, name, amount, '', '', '', '',
-    ]);
+    const invGid  = CONFIG.INVOICE_SHEET_ID;
+    const rows    = items.map(({ name, amount }, idx) => {
+      const r       = lastRow + 1 + idx;
+      const invLink = `=HYPERLINK("#gid=${invGid}","${invNum}")`;
+      const bearFormula = `=IF(G${r}="🌟 Sin",0,IF(G${r}="🐨 Bear",F${r},IF(G${r}="共用",ROUNDDOWN(F${r}/2,0),0)))`;
+      return [carrier, date, invLink, shop, name, amount, '', bearFormula, '', ''];
+    });
     await _update(`${CONFIG.TABS.ITEMS}!A${lastRow + 1}:J${lastRow + rows.length}`, rows);
+    return lastRow + 1;  // 第一筆品項的列號
+  }
+
+  // ── 勾選發票明細已匯入（J欄 = TRUE）────────────────────
+  async function markInvoiceImported(rowIndex) {
+    await _update(`${CONFIG.TABS.INVOICE}!J${rowIndex}`, [[true]]);
+  }
+
+  // ── 掃描發票直接匯入月度帳本 ────────────────────────────
+  // shared: 是/否/-/x；sinShare/bearShare 由呼叫端計算
+  async function appendMonthlyFromScan({ date, shop, amount, shared, category, note, invNum, invRowIndex, sinShare, bearShare }) {
+    const now        = new Date();
+    const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    const invGid     = CONFIG.INVOICE_SHEET_ID;
+    const sourceLink = `=HYPERLINK("#gid=${invGid}&range=C${invRowIndex}","${invNum}")`;
+    const row = [date, shop, amount, '🌟 Star', shared, category, sinShare, bearShare, note, '發票', sourceLink, importedAt];
+    await appendMonthlyRow(row);
+    await markInvoiceImported(invRowIndex);
   }
 
   return {
@@ -216,5 +243,6 @@ const Sheets = (() => {
     updateMonthlyRow, deleteMonthlyRow,
     getInvoiceData, getItemData, updateItemRow,
     appendInvoiceRow, appendItemRows,
+    markInvoiceImported, appendMonthlyFromScan,
   };
 })();

@@ -264,17 +264,17 @@ const Sheets = (() => {
     await markInvoiceImported(invRowIndex);
   }
 
-  // ── 還款記錄（Bear結算 tab E~G 欄）────────────────────────
+  // ── 還款記錄（Bear結算 tab G~I 欄）────────────────────────
   async function appendSettlementRow(amount, note) {
     const tab  = CONFIG.TABS.SETTLEMENT;
-    const data = await _get(`${tab}!E:E`);
-    // E1=「還款記錄」E2=「日期」E7 起為資料（header 佔 E1:G2，E3:E6 空白）
+    const data = await _get(`${tab}!G:G`);
+    // G1=「還款記錄」G2=「日期」G7 起為資料（header 佔 G1:I2，G3:G6 空白）
     // 找到最後一個有值的列，下一列寫入
     const vals  = data.values || [];
     const lastRow = Math.max(vals.length, 6);  // 最少從第 7 列起
     const today = new Date();
     const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-    await _update(`${tab}!E${lastRow + 1}:G${lastRow + 1}`, [[dateStr, amount, note || '']]);
+    await _update(`${tab}!G${lastRow + 1}:I${lastRow + 1}`, [[dateStr, amount, note || '']]);
   }
 
   return {

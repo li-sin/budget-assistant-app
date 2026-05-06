@@ -277,6 +277,12 @@ const Stats = (() => {
 
   function _buildShell() {
     document.getElementById('tab-stats').innerHTML = `
+      <div class="home-nav">
+        <button class="month-btn" id="stats-prev">◀</button>
+        <span id="stats-label"></span>
+        <button class="month-btn" id="stats-next">▶</button>
+      </div>
+
       <div class="stats-header">
         <div class="stats-top-row">
           <div class="chip-row">
@@ -295,11 +301,6 @@ const Stats = (() => {
             <button class="chip active" data-chart-type="donut">圓環</button>
             <button class="chip" data-chart-type="bar">長條</button>
           </div>
-        </div>
-        <div class="home-nav">
-          <button class="month-btn" id="stats-prev">◀</button>
-          <span id="stats-label"></span>
-          <button class="month-btn" id="stats-next">▶</button>
         </div>
       </div>
 

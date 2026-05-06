@@ -476,6 +476,8 @@
 
 /* ── Home: Bear 還款 ────────────────────────────── */
 .home-settlement-btn { cursor: pointer; text-align: right; }
+.payment-month-pick { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 8px 0 12px; }
+.payment-month-lbl  { font-size: 15px; font-weight: 600; min-width: 110px; text-align: center; }
 .home-settlement-btn:active { opacity: 0.7; }
 .payment-summary { margin-bottom: 4px; }
 .payment-row {

@@ -3,6 +3,9 @@ const Home = (() => {
   let _year  = now.getFullYear();
   let _month = now.getMonth() + 1;
   let _bearMonthly = 0;
+  let _payYear     = 0;
+  let _payMonth    = 0;
+  let _allSettRows = [];
 
   function _fmt(n) { return '$' + Math.abs(n).toLocaleString('zh-TW'); }
   function _ym()   { return `${_year}-${String(_month).padStart(2, '0')}`; }
@@ -127,72 +130,112 @@ const Home = (() => {
     document.getElementById('payment-submit').addEventListener('click', _submitPayment);
   }
 
+  function _payYm() {
+    return `${_payYear}-${String(_payMonth).padStart(2, '0')}`;
+  }
+
+  function _payYmLabel() {
+    return `${_payYear} 年 ${String(_payMonth).padStart(2, '0')} 月`;
+  }
+
+  async function _renderPaymentBody() {
+    const body = document.getElementById('payment-modal-body');
+    const ym   = _payYm();
+
+    const rows = await Sheets.getMonthlyData(_payYear, _payMonth).catch(() => []);
+    const bear = rows.reduce((s, r) => s + r.bearShare, 0);
+
+    const monthRows = _allSettRows.filter(r => r.note.startsWith(ym));
+    const paid      = monthRows.reduce((s, r) => s + r.amount, 0);
+    const remain    = bear - paid;
+
+    body.innerHTML = `
+      <div class="payment-month-pick">
+        <button class="month-btn" id="pay-prev-m">◀</button>
+        <span class="payment-month-lbl">${_payYmLabel()}</span>
+        <button class="month-btn" id="pay-next-m">▶</button>
+      </div>
+      <div class="payment-summary">
+        <div class="payment-row">
+          <span class="payment-label">Bear 負擔</span>
+          <span class="payment-val amount-expense">${_fmt(bear)}</span>
+        </div>
+        <div class="payment-row">
+          <span class="payment-label">已還款</span>
+          <span class="payment-val">${_fmt(paid)}</span>
+        </div>
+        <div class="payment-row payment-remain">
+          <span class="payment-label">剩餘</span>
+          <span class="payment-val ${remain > 0 ? 'amount-expense' : 'amount-income'}">${_fmt(remain)}</span>
+        </div>
+      </div>
+      ${monthRows.length ? `
+        <div class="section-title" style="margin-top:12px">還款記錄</div>
+        <div class="payment-list">
+          ${monthRows.map(r => `
+            <div class="payment-hist-row">
+              <span class="payment-hist-date">${r.date.slice(5)}</span>
+              <span class="payment-hist-note">${r.note}</span>
+              <span class="payment-hist-amt">${_fmt(r.amount)}</span>
+            </div>
+          `).join('')}
+        </div>` : ''}
+      <div class="section-title" style="margin-top:12px">新增還款</div>
+      <label class="field-label">金額</label>
+      <div class="amount-wrap">
+        <span class="amount-prefix">$</span>
+        <input type="number" id="payment-amount" class="field-input amount-input"
+               min="0" step="1" inputmode="decimal" placeholder="0">
+      </div>
+      <div class="payment-quick-chips">
+        <button class="chip" data-add="100">+100</button>
+        <button class="chip" data-add="500">+500</button>
+        <button class="chip" data-add="1000">+1000</button>
+        ${remain > 0 ? `<button class="chip" data-add="${Math.round(remain)}">全額 ${_fmt(remain)}</button>` : ''}
+      </div>
+      <label class="field-label">備註（付的是哪個月的款）</label>
+      <input type="text" id="payment-note" class="field-input" value="${ym}">
+      <p id="payment-error" class="add-error hidden"></p>
+    `;
+
+    document.getElementById('pay-prev-m').addEventListener('click', () => {
+      _payMonth--;
+      if (_payMonth < 1) { _payMonth = 12; _payYear--; }
+      _renderPaymentBody();
+    });
+    document.getElementById('pay-next-m').addEventListener('click', () => {
+      _payMonth++;
+      if (_payMonth > 12) { _payMonth = 1; _payYear++; }
+      _renderPaymentBody();
+    });
+
+    body.querySelectorAll('.chip[data-add]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const inp = document.getElementById('payment-amount');
+        inp.value = (parseFloat(inp.value) || 0) + parseInt(btn.dataset.add, 10);
+      });
+    });
+  }
+
   async function _openPaymentModal() {
     if (!_isSin()) return;
     _buildPaymentModal();
+
+    // 預設為今天的上個月（通常是付上個月的款）
+    const today = new Date();
+    _payMonth = today.getMonth(); // getMonth() 回傳 0–11，剛好等於上個月的 1–12
+    _payYear  = today.getFullYear();
+    if (_payMonth === 0) { _payMonth = 12; _payYear--; }
+
     const modal = document.getElementById('payment-modal');
     const body  = document.getElementById('payment-modal-body');
-    document.getElementById('payment-modal-title').textContent = `記錄還款 · ${_ymLabel()}`;
+    document.getElementById('payment-modal-title').textContent = '記錄還款';
     body.innerHTML = '<div class="spinner"></div>';
     modal.classList.remove('hidden');
 
     try {
-      const allRows   = await Sheets.getSettlementRows();
-      const ym        = _ym();
-      const monthRows = allRows.filter(r => r.note.startsWith(ym));
-      const paid      = monthRows.reduce((s, r) => s + r.amount, 0);
-      const remain    = _bearMonthly - paid;
-
-      body.innerHTML = `
-        <div class="payment-summary">
-          <div class="payment-row">
-            <span class="payment-label">本月 Bear 負擔</span>
-            <span class="payment-val amount-expense">${_fmt(_bearMonthly)}</span>
-          </div>
-          <div class="payment-row">
-            <span class="payment-label">本月已還款</span>
-            <span class="payment-val">${_fmt(paid)}</span>
-          </div>
-          <div class="payment-row payment-remain">
-            <span class="payment-label">剩餘</span>
-            <span class="payment-val ${remain > 0 ? 'amount-expense' : 'amount-income'}">${_fmt(remain)}</span>
-          </div>
-        </div>
-        ${monthRows.length ? `
-          <div class="section-title" style="margin-top:12px">本月還款記錄</div>
-          <div class="payment-list">
-            ${monthRows.map(r => `
-              <div class="payment-hist-row">
-                <span class="payment-hist-date">${r.date.slice(5)}</span>
-                <span class="payment-hist-note">${r.note}</span>
-                <span class="payment-hist-amt">${_fmt(r.amount)}</span>
-              </div>
-            `).join('')}
-          </div>` : ''}
-        <div class="section-title" style="margin-top:12px">新增還款</div>
-        <label class="field-label">金額</label>
-        <div class="amount-wrap">
-          <span class="amount-prefix">$</span>
-          <input type="number" id="payment-amount" class="field-input amount-input"
-                 min="0" step="1" inputmode="decimal" placeholder="0">
-        </div>
-        <div class="payment-quick-chips">
-          <button class="chip" data-add="100">+100</button>
-          <button class="chip" data-add="500">+500</button>
-          <button class="chip" data-add="1000">+1000</button>
-          ${remain > 0 ? `<button class="chip" data-add="${Math.round(remain)}">全額 ${_fmt(remain)}</button>` : ''}
-        </div>
-        <label class="field-label">備註</label>
-        <input type="text" id="payment-note" class="field-input" value="${ym}">
-        <p id="payment-error" class="add-error hidden"></p>
-      `;
-
-      body.querySelectorAll('.chip[data-add]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const inp = document.getElementById('payment-amount');
-          inp.value = (parseFloat(inp.value) || 0) + parseInt(btn.dataset.add, 10);
-        });
-      });
+      _allSettRows = await Sheets.getSettlementRows();
+      await _renderPaymentBody();
     } catch (e) {
       body.innerHTML = `<div class="empty-state"><span>⚠️</span><p>${e.message}</p></div>`;
     }
@@ -204,7 +247,7 @@ const Home = (() => {
 
   async function _submitPayment() {
     const amount = parseFloat(document.getElementById('payment-amount')?.value);
-    const note   = document.getElementById('payment-note')?.value.trim() || _ym();
+    const note   = document.getElementById('payment-note')?.value.trim() || _payYm();
     const errEl  = document.getElementById('payment-error');
 
     if (!amount || amount <= 0) {
@@ -247,8 +290,8 @@ const Home = (() => {
           </div>
           <div class="summary-right home-settlement-btn">
             <div class="summary-label">本月 Bear 負擔 ▸</div>
-            <div id="home-cumulative" class="settlement-val settlement-cumul">…</div>
             <div id="home-settlement" class="settlement-val amount-expense">…</div>
+            <div id="home-cumulative" class="settlement-val settlement-cumul">…</div>
           </div>
         </div>
         <div class="summary-bottom">

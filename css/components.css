@@ -7,7 +7,9 @@
   font-size: 16px;
   font-weight: 600;
 }
-.home-nav #home-month { flex: 1; text-align: center; }
+.home-nav #home-month,
+.home-nav #ledger-month,
+.home-nav #stats-label { flex: 1; text-align: center; }
 .month-btn {
   background: none;
   border: none;

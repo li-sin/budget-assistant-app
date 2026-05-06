@@ -24,7 +24,10 @@ const Home = (() => {
     const total    = rows.reduce((s, r) => s + r.amount,    0);
     const sinTotal = rows.reduce((s, r) => s + r.sinShare,  0);
     _bearMonthly   = rows.reduce((s, r) => s + r.bearShare, 0);
-    const net      = _bearMonthly - paid;
+    // 月淨值：Bear欠Sin（Sin付的bearShare） - Sin欠Bear（Bear付的sinShare）
+    const b2s = rows.filter(r => r.payer !== '🐨 Bear').reduce((s, r) => s + r.bearShare, 0);
+    const s2b = rows.filter(r => r.payer === '🐨 Bear').reduce((s, r) => s + r.sinShare, 0);
+    const net = b2s - s2b - paid;
 
     document.getElementById('home-total').textContent = _fmt(total);
     document.getElementById('home-sin').textContent   = _fmt(sinTotal);
@@ -144,10 +147,13 @@ const Home = (() => {
     const ym   = _payYm();
 
     const rows      = await Sheets.getMonthlyData(_payYear, _payMonth).catch(() => []);
-    const bear      = rows.reduce((s, r) => s + r.bearShare, 0);
+    // 月淨值：Bear欠Sin（Sin付的bearShare） - Sin欠Bear（Bear付的sinShare）
+    const b2s       = rows.filter(r => r.payer !== '🐨 Bear').reduce((s, r) => s + r.bearShare, 0);
+    const s2b       = rows.filter(r => r.payer === '🐨 Bear').reduce((s, r) => s + r.sinShare, 0);
+    const netBear   = b2s - s2b;
     const repayment = _allRepayments.find(r => r.ym === ym);
     const paid      = repayment?.amount || 0;
-    const remain    = bear - paid;
+    const remain    = netBear - paid;
 
     body.innerHTML = `
       <div class="payment-month-pick">
@@ -157,8 +163,8 @@ const Home = (() => {
       </div>
       <div class="payment-summary">
         <div class="payment-row">
-          <span class="payment-label">Bear 負擔</span>
-          <span class="payment-val amount-expense">${_fmt(bear)}</span>
+          <span class="payment-label">月淨欠款</span>
+          <span class="payment-val ${netBear > 0 ? 'amount-expense' : 'amount-income'}">${netBear >= 0 ? _fmt(netBear) : 'Sin 欠 ' + _fmt(-netBear)}</span>
         </div>
         <div class="payment-row">
           <span class="payment-label">已還款</span>
@@ -171,7 +177,7 @@ const Home = (() => {
         </div>` : ''}
         <div class="payment-row payment-remain">
           <span class="payment-label">剩餘</span>
-          <span class="payment-val ${remain > 0 ? 'amount-expense' : 'amount-income'}">${_fmt(remain)}</span>
+          <span class="payment-val ${remain > 0 ? 'amount-expense' : remain < 0 ? 'amount-income' : ''}">${remain > 0 ? _fmt(remain) : remain < 0 ? '多還 ' + _fmt(-remain) : '已結清 ✓'}</span>
         </div>
       </div>
       <div class="section-title" style="margin-top:12px">新增還款</div>

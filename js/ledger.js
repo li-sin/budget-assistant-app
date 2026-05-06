@@ -318,12 +318,14 @@ const Ledger = (() => {
     document.getElementById('ledger-prev').addEventListener('click', () => {
       _month--;
       if (_month < 1) { _month = 12; _year--; }
+      window.AppMonth.set(_year, _month);
       _updateMonthLabel();
       _load();
     });
     document.getElementById('ledger-next').addEventListener('click', () => {
       _month++;
       if (_month > 12) { _month = 1; _year++; }
+      window.AppMonth.set(_year, _month);
       _updateMonthLabel();
       _load();
     });
@@ -348,13 +350,21 @@ const Ledger = (() => {
     });
   }
 
+  function activate({ year, month }) {
+    if (year !== _year || month !== _month) {
+      _year = year; _month = month;
+      _updateMonthLabel();
+      _load();
+    }
+  }
+
   function init() {
     _buildShell();
     _updateMonthLabel();
     _load();
   }
 
-  return { init, reload: _load };
+  return { init, reload: _load, activate };
 })();
 
 window.Ledger = Ledger;

@@ -281,6 +281,7 @@ const Stats = (() => {
         <button class="month-btn" id="stats-prev">◀</button>
         <span id="stats-label"></span>
         <button class="month-btn" id="stats-next">▶</button>
+        <button class="month-btn refresh-btn" id="stats-refresh" title="重新載入">↺</button>
       </div>
 
       <div class="stats-header">
@@ -344,15 +345,37 @@ const Stats = (() => {
     });
 
     document.getElementById('stats-prev').addEventListener('click', () => {
-      if (_mode === 'month') { _month--; if (_month < 1)  { _month = 12; _year--; } }
-      else                   { _year--; }
+      if (_mode === 'month') {
+        _month--; if (_month < 1)  { _month = 12; _year--; }
+        window.AppMonth.set(_year, _month);
+      } else { _year--; }
       _updateLabel(); _load();
     });
     document.getElementById('stats-next').addEventListener('click', () => {
-      if (_mode === 'month') { _month++; if (_month > 12) { _month = 1;  _year++; } }
-      else                   { _year++; }
+      if (_mode === 'month') {
+        _month++; if (_month > 12) { _month = 1;  _year++; }
+        window.AppMonth.set(_year, _month);
+      } else { _year++; }
       _updateLabel(); _load();
     });
+    document.getElementById('stats-refresh').addEventListener('click', () => {
+      if (_mode === 'month') {
+        Sheets.invalidateMonth(`${_year}-${String(_month).padStart(2,'0')}`);
+      } else {
+        Array.from({ length: 12 }, (_, i) =>
+          Sheets.invalidateMonth(`${_year}-${String(i+1).padStart(2,'0')}`)
+        );
+      }
+      _load();
+    });
+  }
+
+  function activate({ year, month }) {
+    if (_mode === 'month' && (year !== _year || month !== _month)) {
+      _year = year; _month = month;
+      _updateLabel();
+      _load();
+    }
   }
 
   function init() {
@@ -361,5 +384,5 @@ const Stats = (() => {
     _load();
   }
 
-  return { init };
+  return { init, activate };
 })();

@@ -2,6 +2,14 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
+window.AppMonth = (() => {
+  const now = new Date();
+  let _y = now.getFullYear(), _m = now.getMonth() + 1;
+  function get() { return { year: _y, month: _m }; }
+  function set(y, m) { _y = y; _m = m; }
+  return { get, set };
+})();
+
 document.addEventListener('DOMContentLoaded', () => {
   const verEl = document.getElementById('login-version');
   if (verEl) verEl.textContent = `v${CONFIG.APP_VERSION}`;
@@ -11,7 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('screen-app').classList.remove('hidden');
 
     const inited = new Set();
-    const tabModules = { home: Home, ledger: Ledger, pending: Pending, stats: Stats };
+    const tabModules = { home: Home, ledger: Ledger, stats: Stats, pending: Pending };
 
     Router.init();
 
@@ -19,6 +27,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!inited.has(tab) && tabModules[tab]) {
         tabModules[tab].init();
         inited.add(tab);
+      } else if (inited.has(tab) && tabModules[tab]?.activate) {
+        tabModules[tab].activate(window.AppMonth.get());
       }
     };
 

@@ -5,7 +5,7 @@ const Home = (() => {
   let _bearMonthly = 0;
   let _payYear     = 0;
   let _payMonth    = 0;
-  let _allSettRows = [];
+  let _allRepayments = [];
 
   function _fmt(n) { return '$' + Math.abs(n).toLocaleString('zh-TW'); }
   function _ym()   { return `${_year}-${String(_month).padStart(2, '0')}`; }
@@ -28,6 +28,7 @@ const Home = (() => {
 
     document.getElementById('home-total').textContent = _fmt(total);
     document.getElementById('home-sin').textContent   = _fmt(sinTotal);
+    document.getElementById('home-bear').textContent  = _fmt(_bearMonthly);
 
     const settEl = document.getElementById('home-settlement');
     settEl.textContent = _fmt(net);
@@ -35,13 +36,13 @@ const Home = (() => {
 
     const cumEl = document.getElementById('home-cumulative');
     if (settlement > 0) {
-      cumEl.textContent = `累計 Bear 欠 ${_fmt(settlement)}`;
+      cumEl.textContent = `Bear 欠 ${_fmt(settlement)}`;
       cumEl.className   = 'settlement-val settlement-cumul amount-expense';
     } else if (settlement < 0) {
-      cumEl.textContent = `累計 Sin 欠 ${_fmt(-settlement)}`;
+      cumEl.textContent = `Sin 欠 ${_fmt(-settlement)}`;
       cumEl.className   = 'settlement-val settlement-cumul amount-income';
     } else {
-      cumEl.textContent = '累計 已結清 ✓';
+      cumEl.textContent = '已結清 ✓';
       cumEl.className   = 'settlement-val settlement-cumul';
     }
   }
@@ -75,6 +76,7 @@ const Home = (() => {
     document.getElementById('home-total').textContent      = '…';
     document.getElementById('home-settlement').textContent = '…';
     document.getElementById('home-sin').textContent        = '…';
+    document.getElementById('home-bear').textContent       = '…';
     document.getElementById('home-cumulative').textContent = '…';
     document.getElementById('home-list').innerHTML = '<div class="spinner"></div>';
   }
@@ -83,14 +85,13 @@ const Home = (() => {
     _setLoading();
     try {
       const ym = _ym();
-      const [rows, settlement, settlementRows] = await Promise.all([
+      const [rows, settlement, repayments] = await Promise.all([
         Sheets.getMonthlyData(_year, _month),
         Sheets.getSettlement(),
-        Sheets.getSettlementRows().catch(() => []),
+        Sheets.getRepayments().catch(() => []),
       ]);
-      const paid = settlementRows
-        .filter(r => r.note.startsWith(ym))
-        .reduce((s, r) => s + r.amount, 0);
+      const monthRepayment = repayments.find(r => r.ym === ym);
+      const paid = monthRepayment?.amount || 0;
       _renderSummary(rows, settlement, paid);
       _renderList(rows);
     } catch (e) {
@@ -142,11 +143,10 @@ const Home = (() => {
     const body = document.getElementById('payment-modal-body');
     const ym   = _payYm();
 
-    const rows = await Sheets.getMonthlyData(_payYear, _payMonth).catch(() => []);
-    const bear = rows.reduce((s, r) => s + r.bearShare, 0);
-
-    const monthRows = _allSettRows.filter(r => r.note.startsWith(ym));
-    const paid      = monthRows.reduce((s, r) => s + r.amount, 0);
+    const rows      = await Sheets.getMonthlyData(_payYear, _payMonth).catch(() => []);
+    const bear      = rows.reduce((s, r) => s + r.bearShare, 0);
+    const repayment = _allRepayments.find(r => r.ym === ym);
+    const paid      = repayment?.amount || 0;
     const remain    = bear - paid;
 
     body.innerHTML = `
@@ -164,22 +164,16 @@ const Home = (() => {
           <span class="payment-label">已還款</span>
           <span class="payment-val">${_fmt(paid)}</span>
         </div>
+        ${repayment ? `
+        <div class="payment-row">
+          <span class="payment-label">最後還款日</span>
+          <span class="payment-val">${repayment.lastDate}</span>
+        </div>` : ''}
         <div class="payment-row payment-remain">
           <span class="payment-label">剩餘</span>
           <span class="payment-val ${remain > 0 ? 'amount-expense' : 'amount-income'}">${_fmt(remain)}</span>
         </div>
       </div>
-      ${monthRows.length ? `
-        <div class="section-title" style="margin-top:12px">還款記錄</div>
-        <div class="payment-list">
-          ${monthRows.map(r => `
-            <div class="payment-hist-row">
-              <span class="payment-hist-date">${r.date.slice(5)}</span>
-              <span class="payment-hist-note">${r.note}</span>
-              <span class="payment-hist-amt">${_fmt(r.amount)}</span>
-            </div>
-          `).join('')}
-        </div>` : ''}
       <div class="section-title" style="margin-top:12px">新增還款</div>
       <label class="field-label">金額</label>
       <div class="amount-wrap">
@@ -193,8 +187,6 @@ const Home = (() => {
         <button class="chip" data-add="1000">+1000</button>
         ${remain > 0 ? `<button class="chip" data-add="${Math.round(remain)}">全額 ${_fmt(remain)}</button>` : ''}
       </div>
-      <label class="field-label">備註（付的是哪個月的款）</label>
-      <input type="text" id="payment-note" class="field-input" value="${ym}">
       <p id="payment-error" class="add-error hidden"></p>
     `;
 
@@ -234,7 +226,7 @@ const Home = (() => {
     modal.classList.remove('hidden');
 
     try {
-      _allSettRows = await Sheets.getSettlementRows();
+      _allRepayments = await Sheets.getRepayments();
       await _renderPaymentBody();
     } catch (e) {
       body.innerHTML = `<div class="empty-state"><span>⚠️</span><p>${e.message}</p></div>`;
@@ -247,7 +239,6 @@ const Home = (() => {
 
   async function _submitPayment() {
     const amount = parseFloat(document.getElementById('payment-amount')?.value);
-    const note   = document.getElementById('payment-note')?.value.trim() || _payYm();
     const errEl  = document.getElementById('payment-error');
 
     if (!amount || amount <= 0) {
@@ -260,8 +251,9 @@ const Home = (() => {
     btn.disabled    = true;
     btn.textContent = '儲存中…';
     try {
-      await Sheets.appendSettlementRow(amount, note);
+      await Sheets.upsertRepayment(_payYm(), amount);
       _closePaymentModal();
+      _load();
     } catch (e) {
       errEl.textContent = '儲存失敗：' + e.message;
       errEl.classList.remove('hidden');
@@ -289,13 +281,15 @@ const Home = (() => {
             <div class="summary-value amount-expense" id="home-total">…</div>
           </div>
           <div class="summary-right home-settlement-btn">
-            <div class="summary-label">本月 Bear 負擔 ▸</div>
+            <div class="summary-label">本月 Bear 淨負擔 ▸</div>
             <div id="home-settlement" class="settlement-val amount-expense">…</div>
+            <div class="summary-label" style="margin-top:4px;font-size:11px">累計 Bear 淨負擔</div>
             <div id="home-cumulative" class="settlement-val settlement-cumul">…</div>
           </div>
         </div>
         <div class="summary-bottom">
           <span class="share-item">Sin <strong id="home-sin">…</strong></span>
+          <span class="share-item">Bear <strong id="home-bear">…</strong></span>
         </div>
       </div>
 
@@ -308,12 +302,14 @@ const Home = (() => {
     document.getElementById('home-prev').addEventListener('click', () => {
       _month--;
       if (_month < 1) { _month = 12; _year--; }
+      window.AppMonth.set(_year, _month);
       _updateMonthLabel();
       _load();
     });
     document.getElementById('home-next').addEventListener('click', () => {
       _month++;
       if (_month > 12) { _month = 1; _year++; }
+      window.AppMonth.set(_year, _month);
       _updateMonthLabel();
       _load();
     });
@@ -327,13 +323,21 @@ const Home = (() => {
     });
   }
 
+  function activate({ year, month }) {
+    if (year !== _year || month !== _month) {
+      _year = year; _month = month;
+      _updateMonthLabel();
+      _load();
+    }
+  }
+
   function init() {
     _buildShell();
     _updateMonthLabel();
     _load();
   }
 
-  return { init, reload: _load };
+  return { init, reload: _load, activate };
 })();
 
 window.Home = Home;

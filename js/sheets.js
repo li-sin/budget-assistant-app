@@ -265,36 +265,42 @@ const Sheets = (() => {
   }
 
   // ── 還款記錄（Bear結算 tab G~I 欄）────────────────────────
-  async function appendSettlementRow(amount, note) {
-    const tab  = CONFIG.TABS.SETTLEMENT;
-    const data = await _get(`${tab}!G:G`);
-    // G1=「還款記錄」G2=「日期」G7 起為資料（header 佔 G1:I2，G3:G6 空白）
-    // 找到最後一個有值的列，下一列寫入
-    const vals  = data.values || [];
-    const lastRow = Math.max(vals.length, 6);  // 最少從第 7 列起
+  // G=月份(YYYY-MM), H=已還金額（累計，同月累加）, I=最後還款日(YYYY-MM-DD)
+  async function upsertRepayment(ym, amount) {
+    const tab   = CONFIG.TABS.SETTLEMENT;
     const today = new Date();
     const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-    await _update(`${tab}!G${lastRow + 1}:I${lastRow + 1}`, [[dateStr, amount, note || '']]);
+    const data  = await _get(`${tab}!G7:I`);
+    const rows  = data.values || [];
+    const idx   = rows.findIndex(r => r[0] === ym);
+    if (idx >= 0) {
+      const rowNum  = 7 + idx;
+      const current = parseFloat(rows[idx][1]) || 0;
+      await _update(`${tab}!G${rowNum}:I${rowNum}`, [[ym, current + amount, dateStr]]);
+    } else {
+      const lastRow = Math.max(rows.length + 6, 6);  // data 從第 7 列起
+      await _update(`${tab}!G${lastRow + 1}:I${lastRow + 1}`, [[ym, amount, dateStr]]);
+    }
   }
 
-  // ── Bear結算還款記錄（G7:I 起）────────────────────────────────
-  async function getSettlementRows() {
+  // ── Bear結算還款記錄（G7:I 起，每月一行）───────────────────────
+  async function getRepayments() {
     const data = await _get(`${CONFIG.TABS.SETTLEMENT}!G7:I`);
     return (data.values || [])
       .filter(r => r[0] && r[1])
       .map(r => ({
-        date:   r[0] || '',
-        amount: parseFloat(r[1]) || 0,
-        note:   r[2] || '',
+        ym:       r[0] || '',   // YYYY-MM
+        amount:   parseFloat(r[1]) || 0,
+        lastDate: r[2] || '',   // YYYY-MM-DD（最後一次還款日）
       }));
   }
 
   return {
-    getMonthlyData, getSettlement, getSettlementRows, appendMonthlyRow, invalidateMonth,
+    getMonthlyData, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
     getInvoiceData, getItemData, updateItemRow,
     appendInvoiceRow, appendItemRows,
     markInvoiceImported, appendMonthlyFromScan,
-    appendSettlementRow,
+    upsertRepayment,
   };
 })();

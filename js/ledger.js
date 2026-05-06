@@ -61,10 +61,8 @@ const Ledger = (() => {
         ? '<span class="badge badge-bear">Bear付</span>' : '';
       const sharedLabel = r.shared ? `<span class="tag-shared">${r.shared}</span>` : '';
       const noteText    = r.note   ? `<span class="ledger-note">　${r.note}</span>` : '';
-      const editBtn     = isSin
-        ? `<button class="edit-btn" data-row="${r.rowIndex}" title="編輯">✏️</button>` : '';
       return `
-        <div class="list-item">
+        <div class="list-item${isSin ? ' list-item-editable' : ''}" data-row="${r.rowIndex}">
           <span class="list-item-icon">${cat}</span>
           <div class="list-item-body">
             <div class="list-item-title">${r.item || '（未命名）'} ${bearBadge} ${sharedLabel}</div>
@@ -76,16 +74,14 @@ const Ledger = (() => {
           </div>
           <div class="list-item-right">
             <div class="amount-expense">${_fmt(r.amount)}</div>
-            ${editBtn}
           </div>
         </div>`;
     }).join('');
 
     if (isSin) {
-      el.querySelectorAll('.edit-btn').forEach(btn => {
-        btn.addEventListener('click', e => {
-          e.stopPropagation();
-          const rowIndex = parseInt(btn.dataset.row, 10);
+      el.querySelectorAll('.list-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const rowIndex = parseInt(item.dataset.row, 10);
           const row = _allRows.find(r => r.rowIndex === rowIndex);
           if (row) _openEdit(row);
         });

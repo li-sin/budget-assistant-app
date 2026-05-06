@@ -6,9 +6,23 @@ const Stats = (() => {
   const now  = new Date();
   let _year  = now.getFullYear();
   let _month = now.getMonth() + 1;
-  let _mode  = 'month';  // 'month' | 'year'
+  let _mode         = 'month';   // 'month' | 'year'
+  let _sharedFilter = 'all';     // 'all' | 'shared' | 'personal'
+  let _chartType    = 'donut';   // 'donut' | 'bar'
 
   function _fmt(n) { return '$' + Math.abs(n).toLocaleString('zh-TW'); }
+  function _fmtK(n) {
+    if (n >= 10000) return Math.round(n / 1000) + 'k';
+    if (n >= 1000)  return (n / 1000).toFixed(1) + 'k';
+    return String(Math.round(n));
+  }
+
+  function _passFilter(r) {
+    if (r.shared === 'x') return false;
+    if (_sharedFilter === 'shared')   return r.shared === '是' || r.shared === '否' || r.shared === '部分';
+    if (_sharedFilter === 'personal') return r.shared === '-';
+    return true;
+  }
 
   // ── SVG donut chart ───────────────────────────────────────────
 
@@ -33,12 +47,10 @@ const Stats = (() => {
     if (!groups.length) {
       return '<div class="empty-state"><span>📊</span><p>本期尚無支出記錄</p></div>';
     }
-
     const cx = 120, cy = 120, oR = 100, iR = 62, GAP = 0.025;
     let paths = '';
     let angle = 0;
     const TWO_PI = Math.PI * 2;
-
     groups.forEach((g, i) => {
       const sweep = (g.amount / total) * TWO_PI;
       if (sweep < 0.01) return;
@@ -46,7 +58,6 @@ const Stats = (() => {
         fill="${PALETTE[i % PALETTE.length]}"/>`;
       angle += sweep;
     });
-
     return `
       <svg viewBox="0 0 240 240" width="220" height="220" class="donut-chart">
         ${paths}
@@ -69,6 +80,55 @@ const Stats = (() => {
     }).join('');
   }
 
+  // ── Horizontal bar chart (month/category) ────────────────────
+
+  function _buildBarChart(groups, total) {
+    if (!groups.length) {
+      return '<div class="empty-state"><span>📊</span><p>本期尚無支出記錄</p></div>';
+    }
+    const maxAmt = groups[0].amount;
+    return `<div class="bar-chart-wrap">
+      ${groups.map((g, i) => {
+        const fillPct  = (g.amount / maxAmt * 100).toFixed(1);
+        const sharePct = ((g.amount / total) * 100).toFixed(1);
+        return `
+          <div class="bar-row">
+            <div class="bar-cat-label">${g.cat || '其他'}</div>
+            <div class="bar-track">
+              <div class="bar-fill" style="width:${fillPct}%;background:${PALETTE[i % PALETTE.length]}"></div>
+            </div>
+            <div class="bar-right">
+              <span class="bar-amt">${_fmt(g.amount)}</span>
+              <span class="bar-pct">${sharePct}%</span>
+            </div>
+          </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  // ── Vertical bar chart (year/monthly trend) ───────────────────
+
+  function _buildYearBarChart(monthMap, maxAmt) {
+    const LABELS = ['1','2','3','4','5','6','7','8','9','10','11','12'];
+    const colW = 26, gap = 4, chartH = 100, padTop = 20, padBot = 18;
+    const svgW = 12 * (colW + gap) - gap;
+    const svgH = chartH + padTop + padBot;
+    const bars = Array.from({ length: 12 }, (_, i) => {
+      const m   = i + 1;
+      const amt = monthMap[m] || 0;
+      const barH = maxAmt > 0 && amt > 0 ? Math.max(amt / maxAmt * chartH, 2) : 0;
+      const x    = i * (colW + gap);
+      const barY = padTop + chartH - barH;
+      return `
+        <rect x="${x}" y="${barY}" width="${colW}" height="${barH}" rx="3"
+              fill="${PALETTE[i % PALETTE.length]}" opacity="${amt > 0 ? 0.9 : 0}"/>
+        ${amt > 0 ? `<text x="${x + colW / 2}" y="${barY - 3}" text-anchor="middle" class="bar-year-amt">${_fmtK(amt)}</text>` : ''}
+        <text x="${x + colW / 2}" y="${svgH - 2}" text-anchor="middle" class="bar-year-label">${LABELS[i]}</text>
+      `;
+    }).join('');
+    return `<svg viewBox="0 0 ${svgW} ${svgH}" width="100%" class="bar-chart-year">${bars}</svg>`;
+  }
+
   // ── Load data ─────────────────────────────────────────────────
 
   async function _load() {
@@ -88,9 +148,23 @@ const Stats = (() => {
         rows = all.flat();
       }
 
+      // Year + bar: monthly trend
+      if (_mode === 'year' && _chartType === 'bar') {
+        const monthMap = {};
+        rows.forEach(r => {
+          if (!_passFilter(r) || r.amount <= 0) return;
+          const m = parseInt(r.date.slice(5, 7), 10);
+          monthMap[m] = (monthMap[m] || 0) + r.amount;
+        });
+        const maxAmt = Math.max(...Object.values(monthMap), 1);
+        document.getElementById('stats-chart').innerHTML = _buildYearBarChart(monthMap, maxAmt);
+        return;
+      }
+
+      // Category breakdown
       const map = {};
       rows.forEach(r => {
-        if (r.amount <= 0 || r.shared === 'x') return;
+        if (!_passFilter(r) || r.amount <= 0) return;
         const key = r.category || '';
         map[key] = (map[key] || 0) + r.amount;
       });
@@ -99,8 +173,13 @@ const Stats = (() => {
         .sort((a, b) => b.amount - a.amount);
       const total = groups.reduce((s, g) => s + g.amount, 0);
 
-      document.getElementById('stats-chart').innerHTML  = _buildChart(groups, total);
-      document.getElementById('stats-legend').innerHTML = _buildLegend(groups, total);
+      if (_chartType === 'bar') {
+        document.getElementById('stats-chart').innerHTML  = _buildBarChart(groups, total);
+        document.getElementById('stats-legend').innerHTML = '';
+      } else {
+        document.getElementById('stats-chart').innerHTML  = _buildChart(groups, total);
+        document.getElementById('stats-legend').innerHTML = _buildLegend(groups, total);
+      }
     } catch (e) {
       if (e.message !== 'auth_expired') {
         document.getElementById('stats-chart').innerHTML =
@@ -129,6 +208,17 @@ const Stats = (() => {
           </div>
           <button class="settings-gear-btn" id="stats-settings-btn" title="設定">⚙️</button>
         </div>
+        <div class="stats-filter-bar">
+          <div class="chip-row">
+            <button class="chip active" data-shared-filter="all">全部</button>
+            <button class="chip" data-shared-filter="shared">共用</button>
+            <button class="chip" data-shared-filter="personal">個人</button>
+          </div>
+          <div class="chip-row">
+            <button class="chip active" data-chart-type="donut">圓環</button>
+            <button class="chip" data-chart-type="bar">長條</button>
+          </div>
+        </div>
         <div class="home-nav">
           <button class="month-btn" id="stats-prev">◀</button>
           <span id="stats-label"></span>
@@ -151,6 +241,26 @@ const Stats = (() => {
         btn.classList.add('active');
         _mode = btn.dataset.mode;
         _updateLabel();
+        _load();
+      });
+    });
+
+    document.querySelectorAll('#tab-stats .chip[data-shared-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#tab-stats .chip[data-shared-filter]')
+          .forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        _sharedFilter = btn.dataset.sharedFilter;
+        _load();
+      });
+    });
+
+    document.querySelectorAll('#tab-stats .chip[data-chart-type]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#tab-stats .chip[data-chart-type]')
+          .forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        _chartType = btn.dataset.chartType;
         _load();
       });
     });

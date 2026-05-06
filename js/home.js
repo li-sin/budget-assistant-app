@@ -17,25 +17,29 @@ const Home = (() => {
     document.getElementById('home-month').textContent = _ymLabel();
   }
 
-  function _renderSummary(rows, settlement) {
+  function _renderSummary(rows, settlement, paid) {
     const total    = rows.reduce((s, r) => s + r.amount,    0);
     const sinTotal = rows.reduce((s, r) => s + r.sinShare,  0);
     _bearMonthly   = rows.reduce((s, r) => s + r.bearShare, 0);
+    const net      = _bearMonthly - paid;
 
-    document.getElementById('home-total').textContent        = _fmt(total);
-    document.getElementById('home-sin').textContent          = _fmt(sinTotal);
-    document.getElementById('home-settlement').textContent   = _fmt(_bearMonthly);
+    document.getElementById('home-total').textContent = _fmt(total);
+    document.getElementById('home-sin').textContent   = _fmt(sinTotal);
+
+    const settEl = document.getElementById('home-settlement');
+    settEl.textContent = _fmt(net);
+    settEl.className   = `settlement-val ${net > 0 ? 'amount-expense' : net < 0 ? 'amount-income' : ''}`;
 
     const cumEl = document.getElementById('home-cumulative');
     if (settlement > 0) {
-      cumEl.textContent = `Bear 欠 ${_fmt(settlement)}`;
-      cumEl.className   = 'settlement-val amount-expense';
+      cumEl.textContent = `累計 Bear 欠 ${_fmt(settlement)}`;
+      cumEl.className   = 'settlement-val settlement-cumul amount-expense';
     } else if (settlement < 0) {
-      cumEl.textContent = `Sin 欠 ${_fmt(-settlement)}`;
-      cumEl.className   = 'settlement-val amount-income';
+      cumEl.textContent = `累計 Sin 欠 ${_fmt(-settlement)}`;
+      cumEl.className   = 'settlement-val settlement-cumul amount-income';
     } else {
-      cumEl.textContent = '已結清 ✓';
-      cumEl.className   = 'settlement-val';
+      cumEl.textContent = '累計 已結清 ✓';
+      cumEl.className   = 'settlement-val settlement-cumul';
     }
   }
 
@@ -75,11 +79,16 @@ const Home = (() => {
   async function _load() {
     _setLoading();
     try {
-      const [rows, settlement] = await Promise.all([
+      const ym = _ym();
+      const [rows, settlement, settlementRows] = await Promise.all([
         Sheets.getMonthlyData(_year, _month),
         Sheets.getSettlement(),
+        Sheets.getSettlementRows().catch(() => []),
       ]);
-      _renderSummary(rows, settlement);
+      const paid = settlementRows
+        .filter(r => r.note.startsWith(ym))
+        .reduce((s, r) => s + r.amount, 0);
+      _renderSummary(rows, settlement, paid);
       _renderList(rows);
     } catch (e) {
       if (e.message !== 'auth_expired') {
@@ -130,7 +139,7 @@ const Home = (() => {
     try {
       const allRows   = await Sheets.getSettlementRows();
       const ym        = _ym();
-      const monthRows = allRows.filter(r => r.date.startsWith(ym));
+      const monthRows = allRows.filter(r => r.note.startsWith(ym));
       const paid      = monthRows.reduce((s, r) => s + r.amount, 0);
       const remain    = _bearMonthly - paid;
 
@@ -238,12 +247,12 @@ const Home = (() => {
           </div>
           <div class="summary-right home-settlement-btn">
             <div class="summary-label">本月 Bear 負擔 ▸</div>
+            <div id="home-cumulative" class="settlement-val settlement-cumul">…</div>
             <div id="home-settlement" class="settlement-val amount-expense">…</div>
           </div>
         </div>
         <div class="summary-bottom">
           <span class="share-item">Sin <strong id="home-sin">…</strong></span>
-          <span class="share-item">累計 <span id="home-cumulative" class="settlement-val">…</span></span>
         </div>
       </div>
 

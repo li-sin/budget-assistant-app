@@ -277,8 +277,20 @@ const Sheets = (() => {
     await _update(`${tab}!G${lastRow + 1}:I${lastRow + 1}`, [[dateStr, amount, note || '']]);
   }
 
+  // ── Bear結算還款記錄（G7:I 起）────────────────────────────────
+  async function getSettlementRows() {
+    const data = await _get(`${CONFIG.TABS.SETTLEMENT}!G7:I`);
+    return (data.values || [])
+      .filter(r => r[0] && r[1])
+      .map(r => ({
+        date:   r[0] || '',
+        amount: parseFloat(r[1]) || 0,
+        note:   r[2] || '',
+      }));
+  }
+
   return {
-    getMonthlyData, getSettlement, appendMonthlyRow, invalidateMonth,
+    getMonthlyData, getSettlement, getSettlementRows, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
     getInvoiceData, getItemData, updateItemRow,
     appendInvoiceRow, appendItemRows,

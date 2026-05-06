@@ -9,6 +9,7 @@ const Stats = (() => {
   let _mode         = 'month';   // 'month' | 'year'
   let _sharedFilter = 'all';     // 'all' | 'shared' | 'personal'
   let _chartType    = 'donut';   // 'donut' | 'bar'
+  let _rows         = [];        // 供分類下鑽用
 
   function _fmt(n) { return '$' + Math.abs(n).toLocaleString('zh-TW'); }
   function _fmtK(n) {
@@ -55,7 +56,7 @@ const Stats = (() => {
       const sweep = (g.amount / total) * TWO_PI;
       if (sweep < 0.01) return;
       paths += `<path d="${_slice(cx, cy, oR, iR, angle + GAP / 2, angle + sweep - GAP / 2)}"
-        fill="${PALETTE[i % PALETTE.length]}"/>`;
+        fill="${PALETTE[i % PALETTE.length]}" data-cat="${g.cat}" class="donut-slice"/>`;
       angle += sweep;
     });
     return `
@@ -71,7 +72,7 @@ const Stats = (() => {
     return groups.map((g, i) => {
       const pct = ((g.amount / total) * 100).toFixed(1);
       return `
-        <div class="legend-item">
+        <div class="legend-item legend-item-clickable" data-cat="${g.cat}">
           <span class="legend-dot" style="background:${PALETTE[i % PALETTE.length]}"></span>
           <span class="legend-cat">${g.cat || '（未分類）'}</span>
           <span class="legend-pct">${pct}%</span>
@@ -92,7 +93,7 @@ const Stats = (() => {
         const fillPct  = (g.amount / maxAmt * 100).toFixed(1);
         const sharePct = ((g.amount / total) * 100).toFixed(1);
         return `
-          <div class="bar-row">
+          <div class="bar-row bar-row-clickable" data-cat="${g.cat}">
             <div class="bar-cat-label">${g.cat || '其他'}</div>
             <div class="bar-track">
               <div class="bar-fill" style="width:${fillPct}%;background:${PALETTE[i % PALETTE.length]}"></div>
@@ -129,6 +130,79 @@ const Stats = (() => {
     return `<svg viewBox="0 0 ${svgW} ${svgH}" width="100%" class="bar-chart-year">${bars}</svg>`;
   }
 
+  // ── Category drilldown ────────────────────────────────────────
+
+  function _buildCatDetailModal() {
+    if (document.getElementById('cat-detail-modal')) return;
+    const el = document.createElement('div');
+    el.id = 'cat-detail-modal';
+    el.className = 'modal-overlay hidden';
+    el.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <span class="modal-title" id="cat-detail-title">明細</span>
+          <button class="modal-close" id="cat-detail-close">✕</button>
+        </div>
+        <div class="modal-body" id="cat-detail-body"></div>
+      </div>
+    `;
+    document.body.appendChild(el);
+    document.getElementById('cat-detail-close').addEventListener('click', _closeCatDetail);
+    el.addEventListener('click', e => { if (e.target === el) _closeCatDetail(); });
+  }
+
+  function _closeCatDetail() {
+    document.getElementById('cat-detail-modal')?.classList.add('hidden');
+  }
+
+  function _openCatDetail(cat) {
+    _buildCatDetailModal();
+    document.getElementById('cat-detail-title').textContent = cat || '（未分類）';
+    document.getElementById('cat-detail-modal').classList.remove('hidden');
+
+    const filtered = _rows
+      .filter(r => _passFilter(r) && r.amount > 0 && r.category === cat)
+      .sort((a, b) => b.date.localeCompare(a.date));
+    const total = filtered.reduce((s, r) => s + r.amount, 0);
+
+    const body = document.getElementById('cat-detail-body');
+    if (!filtered.length) {
+      body.innerHTML = '<div class="empty-state"><span>📭</span><p>無符合記錄</p></div>';
+      return;
+    }
+
+    const srcIcon = s => s === '發票' ? '🧾' : s === '信用卡' ? '💳' : '✏️';
+    body.innerHTML = `
+      <div class="cat-detail-list">
+        ${filtered.map(r => {
+          const mmdd = r.date.slice(5).replace('-', '/');
+          const sharedTag = r.shared ? `<span class="tag-shared">${r.shared}</span>` : '';
+          return `
+            <div class="cat-detail-row">
+              <div class="cat-detail-body">
+                <div class="cat-detail-title">${r.item || '（未命名）'} ${sharedTag}</div>
+                <div class="cat-detail-sub">${mmdd}　${srcIcon(r.source)} ${r.source}</div>
+              </div>
+              <div class="cat-detail-amt amount-expense">${_fmt(r.amount)}</div>
+            </div>`;
+        }).join('')}
+      </div>
+      <div class="cat-detail-footer">共 ${filtered.length} 筆　總計 ${_fmt(total)}</div>
+    `;
+  }
+
+  function _bindCatClicks() {
+    document.querySelectorAll('#stats-chart .donut-slice').forEach(el => {
+      el.addEventListener('click', () => _openCatDetail(el.dataset.cat));
+    });
+    document.querySelectorAll('#stats-chart .bar-row-clickable').forEach(el => {
+      el.addEventListener('click', () => _openCatDetail(el.dataset.cat));
+    });
+    document.querySelectorAll('#stats-legend .legend-item-clickable').forEach(el => {
+      el.addEventListener('click', () => _openCatDetail(el.dataset.cat));
+    });
+  }
+
   // ── Load data ─────────────────────────────────────────────────
 
   async function _load() {
@@ -147,6 +221,7 @@ const Stats = (() => {
         );
         rows = all.flat();
       }
+      _rows = rows;
 
       // Year + bar: monthly trend
       if (_mode === 'year' && _chartType === 'bar') {
@@ -180,6 +255,8 @@ const Stats = (() => {
         document.getElementById('stats-chart').innerHTML  = _buildChart(groups, total);
         document.getElementById('stats-legend').innerHTML = _buildLegend(groups, total);
       }
+
+      _bindCatClicks();
     } catch (e) {
       if (e.message !== 'auth_expired') {
         document.getElementById('stats-chart').innerHTML =

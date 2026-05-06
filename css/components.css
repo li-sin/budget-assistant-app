@@ -276,11 +276,10 @@
   padding: 4px; opacity: 0.7;
 }
 .settings-gear-btn:active { opacity: 1; }
-.stats-chart-card {
-  display: flex; justify-content: center; align-items: center;
-  padding: 24px; margin-bottom: 8px;
-}
-.donut-chart { display: block; overflow: visible; }
+.stats-chart-card { padding: 20px; margin-bottom: 8px; }
+.donut-chart { display: block; overflow: visible; margin: 0 auto; }
+.donut-slice { cursor: pointer; }
+.donut-slice:hover { opacity: 0.85; }
 .chart-sub  { fill: var(--text-sub); font-size: 13px; font-family: var(--font); }
 .chart-main { fill: var(--text); font-size: 20px; font-weight: 700; font-family: var(--font); }
 
@@ -472,6 +471,53 @@
   color: var(--text-sub);
   opacity: 0.5;
   padding: 8px 0 24px;
+}
+
+/* ── Home: Bear 還款 ────────────────────────────── */
+.home-settlement-btn { cursor: pointer; text-align: right; }
+.home-settlement-btn:active { opacity: 0.7; }
+.payment-summary { margin-bottom: 4px; }
+.payment-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 7px 0; border-bottom: 1px solid var(--divider);
+}
+.payment-row:last-child { border-bottom: none; }
+.payment-remain { font-weight: 600; }
+.payment-label { font-size: 13px; color: var(--text-sub); }
+.payment-val { font-size: 14px; font-weight: 600; }
+.payment-list { margin-bottom: 4px; }
+.payment-hist-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 0; border-bottom: 1px solid var(--divider); font-size: 13px;
+}
+.payment-hist-row:last-child { border-bottom: none; }
+.payment-hist-date { color: var(--text-sub); min-width: 36px; }
+.payment-hist-note { flex: 1; color: var(--text-sub); font-size: 12px; }
+.payment-hist-amt { font-weight: 600; }
+.payment-quick-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 4px; }
+
+/* ── Stats: Category drilldown ──────────────────── */
+.legend-item-clickable { cursor: pointer; }
+.legend-item-clickable:active { background: rgba(255,255,255,0.04); border-radius: 6px; }
+.bar-row-clickable { cursor: pointer; }
+.bar-row-clickable:active { opacity: 0.7; }
+.cat-detail-list { overflow-y: auto; max-height: 55vh; }
+.cat-detail-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 0; border-bottom: 1px solid var(--divider);
+}
+.cat-detail-row:last-child { border-bottom: none; }
+.cat-detail-body { flex: 1; min-width: 0; }
+.cat-detail-title { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cat-detail-sub { font-size: 12px; color: var(--text-sub); margin-top: 2px; }
+.cat-detail-amt { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.cat-detail-footer {
+  border-top: 1px solid var(--divider);
+  padding: 10px 0 0;
+  text-align: right;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-sub);
 }
 
 /* ── Stats: Filter bar ──────────────────────────── */

@@ -50,22 +50,6 @@ const Settings = (() => {
           <div id="settings-settlement" class="settings-settlement-val">…</div>
         </div>
 
-        ${issin ? `
-        <div class="section-title">記錄還款</div>
-        <div class="card">
-          <div class="settings-row">
-            <span class="settings-label">Bear 還款金額</span>
-          </div>
-          <div class="settings-row" style="gap:8px;flex-wrap:wrap">
-            <input type="number" id="settle-amount" placeholder="金額" min="1" step="1"
-              style="flex:1;min-width:100px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text-primary);font-size:15px">
-            <input type="text" id="settle-note" placeholder="備註（選填）"
-              style="flex:2;min-width:140px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text-primary);font-size:15px">
-          </div>
-          <div id="settle-err" class="error-msg hidden" style="margin-top:6px"></div>
-          <button class="btn-primary" id="settle-submit" style="margin-top:10px;width:100%">記錄還款</button>
-        </div>
-        ` : ''}
 
         <div class="section-title">資料</div>
         <div class="card">
@@ -96,36 +80,6 @@ const Settings = (() => {
     document.getElementById('settings-logout').addEventListener('click', () => {
       if (confirm('確定登出？')) Auth.logout();
     });
-
-    const submitBtn = document.getElementById('settle-submit');
-    if (submitBtn) {
-      submitBtn.addEventListener('click', async () => {
-        const amount = parseFloat(document.getElementById('settle-amount').value);
-        const note   = document.getElementById('settle-note').value.trim();
-        const errEl  = document.getElementById('settle-err');
-        errEl.classList.add('hidden');
-        if (!amount || amount <= 0) {
-          errEl.textContent = '請輸入有效金額';
-          errEl.classList.remove('hidden');
-          return;
-        }
-        submitBtn.disabled    = true;
-        submitBtn.textContent = '寫入中…';
-        try {
-          await Sheets.appendSettlementRow(amount, note);
-          document.getElementById('settle-amount').value = '';
-          document.getElementById('settle-note').value   = '';
-          await _loadSettlement();
-          alert('✓ 還款記錄已儲存');
-        } catch (e) {
-          errEl.textContent = '寫入失敗：' + e.message;
-          errEl.classList.remove('hidden');
-        } finally {
-          submitBtn.disabled    = false;
-          submitBtn.textContent = '記錄還款';
-        }
-      });
-    }
 
     _loadSettlement();
   }

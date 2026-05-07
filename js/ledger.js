@@ -142,6 +142,18 @@ const Ledger = (() => {
     }
   }
 
+  function _resetFilters() {
+    _memberFilter   = 'all';
+    _sharedSelected = new Set();
+    _catFilter      = '';
+    document.querySelectorAll('#tab-ledger .chip[data-member]')
+      .forEach(b => b.classList.toggle('active', b.dataset.member === 'all'));
+    document.querySelectorAll('#tab-ledger .chip[data-shared-filter]')
+      .forEach(b => b.classList.toggle('active', b.dataset.sharedFilter === 'all'));
+    const sel = document.getElementById('ledger-cat');
+    if (sel) sel.value = '';
+  }
+
   function _applyFilter(f) {
     if (f.member !== undefined) {
       _memberFilter = f.member;
@@ -481,10 +493,11 @@ const Ledger = (() => {
     _pendingFilter = null;
     if (year !== _year || month !== _month) {
       _year = year; _month = month;
-      if (pending) _applyFilter(pending);
+      if (pending) { _resetFilters(); _applyFilter(pending); }
       _updateMonthLabel();
       _load();
     } else if (pending) {
+      _resetFilters();
       _applyFilter(pending);
       _renderList();
     }

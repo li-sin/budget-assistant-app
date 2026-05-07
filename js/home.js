@@ -294,8 +294,8 @@ const Home = (() => {
           </div>
         </div>
         <div class="summary-bottom">
-          <span class="share-item">Sin <strong id="home-sin">…</strong></span>
-          <span class="share-item">Bear <strong id="home-bear">…</strong></span>
+          <span class="share-item share-item-clickable" data-member="sin">Sin <strong id="home-sin">…</strong></span>
+          <span class="share-item share-item-clickable" data-member="bear">Bear <strong id="home-bear">…</strong></span>
         </div>
       </div>
 
@@ -322,6 +322,9 @@ const Home = (() => {
     document.getElementById('home-refresh').addEventListener('click', () => {
       Sheets.invalidateMonth(_ym());
       _load();
+    });
+    document.querySelectorAll('.share-item-clickable').forEach(el => {
+      el.addEventListener('click', () => window.Ledger?.jumpTo({ member: el.dataset.member }));
     });
     document.querySelector('.home-settlement-btn').addEventListener('click', _openPaymentModal);
     document.getElementById('btn-add').addEventListener('click', () => {

@@ -130,76 +130,16 @@ const Stats = (() => {
     return `<svg viewBox="0 0 ${svgW} ${svgH}" width="100%" class="bar-chart-year">${bars}</svg>`;
   }
 
-  // ── Category drilldown ────────────────────────────────────────
-
-  function _buildCatDetailModal() {
-    if (document.getElementById('cat-detail-modal')) return;
-    const el = document.createElement('div');
-    el.id = 'cat-detail-modal';
-    el.className = 'modal-overlay hidden';
-    el.innerHTML = `
-      <div class="modal-sheet">
-        <div class="modal-header">
-          <span class="modal-title" id="cat-detail-title">明細</span>
-          <button class="modal-close" id="cat-detail-close">✕</button>
-        </div>
-        <div class="modal-body" id="cat-detail-body"></div>
-      </div>
-    `;
-    document.body.appendChild(el);
-    document.getElementById('cat-detail-close').addEventListener('click', _closeCatDetail);
-    el.addEventListener('click', e => { if (e.target === el) _closeCatDetail(); });
-  }
-
-  function _closeCatDetail() {
-    document.getElementById('cat-detail-modal')?.classList.add('hidden');
-  }
-
-  function _openCatDetail(cat) {
-    _buildCatDetailModal();
-    document.getElementById('cat-detail-title').textContent = cat || '（未分類）';
-    document.getElementById('cat-detail-modal').classList.remove('hidden');
-
-    const filtered = _rows
-      .filter(r => _passFilter(r) && r.amount > 0 && r.category === cat)
-      .sort((a, b) => b.date.localeCompare(a.date));
-    const total = filtered.reduce((s, r) => s + r.amount, 0);
-
-    const body = document.getElementById('cat-detail-body');
-    if (!filtered.length) {
-      body.innerHTML = '<div class="empty-state"><span>📭</span><p>無符合記錄</p></div>';
-      return;
-    }
-
-    const srcIcon = s => s === '發票' ? '🧾' : s === '信用卡' ? '💳' : '✏️';
-    body.innerHTML = `
-      <div class="cat-detail-list">
-        ${filtered.map(r => {
-          const mmdd = r.date.slice(5).replace('-', '/');
-          const sharedTag = r.shared ? `<span class="tag-shared">${r.shared}</span>` : '';
-          return `
-            <div class="cat-detail-row">
-              <div class="cat-detail-body">
-                <div class="cat-detail-title">${r.item || '（未命名）'} ${sharedTag}</div>
-                <div class="cat-detail-sub">${mmdd}　${srcIcon(r.source)} ${r.source}</div>
-              </div>
-              <div class="cat-detail-amt amount-expense">${_fmt(r.amount)}</div>
-            </div>`;
-        }).join('')}
-      </div>
-      <div class="cat-detail-footer">共 ${filtered.length} 筆　總計 ${_fmt(total)}</div>
-    `;
-  }
-
   function _bindCatClicks() {
+    const jump = cat => window.Ledger?.jumpTo({ category: cat });
     document.querySelectorAll('#stats-chart .donut-slice').forEach(el => {
-      el.addEventListener('click', () => _openCatDetail(el.dataset.cat));
+      el.addEventListener('click', () => jump(el.dataset.cat));
     });
     document.querySelectorAll('#stats-chart .bar-row-clickable').forEach(el => {
-      el.addEventListener('click', () => _openCatDetail(el.dataset.cat));
+      el.addEventListener('click', () => jump(el.dataset.cat));
     });
     document.querySelectorAll('#stats-legend .legend-item-clickable').forEach(el => {
-      el.addEventListener('click', () => _openCatDetail(el.dataset.cat));
+      el.addEventListener('click', () => jump(el.dataset.cat));
     });
   }
 

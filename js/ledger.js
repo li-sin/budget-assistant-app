@@ -5,9 +5,13 @@ const Ledger = (() => {
   const now = new Date();
   let _year  = now.getFullYear();
   let _month = now.getMonth() + 1;
-  let _memberFilter = 'all';
-  let _catFilter    = '';
-  let _allRows      = [];
+  let _memberFilter  = 'all';
+  let _catFilter     = '';
+  let _allRows       = [];
+  let _pendingFilter = null;
+  let _itemsCache    = null;
+  let _itemsCacheTs  = 0;
+  const ITEMS_CACHE_TTL = 5 * 60 * 1000;
 
   let _editPayer  = '🌟 Star';
   let _editShared = '是';
@@ -61,6 +65,7 @@ const Ledger = (() => {
         ? '<span class="badge badge-bear">Bear付</span>' : '';
       const sharedLabel = r.shared ? `<span class="tag-shared">${r.shared}</span>` : '';
       const noteText    = r.note   ? `<span class="ledger-note">　${r.note}</span>` : '';
+      const isInvoice   = (r.source === '發票' || r.source === '掃描發票') && r.sourceLink;
       return `
         <div class="list-item${isSin ? ' list-item-editable' : ''}" data-row="${r.rowIndex}">
           <span class="list-item-icon">${cat}</span>
@@ -74,6 +79,7 @@ const Ledger = (() => {
           </div>
           <div class="list-item-right">
             <div class="amount-expense">${_fmt(r.amount)}</div>
+            ${isInvoice ? `<button class="expand-btn" data-row="${r.rowIndex}">▼</button>` : ''}
           </div>
         </div>`;
     }).join('');
@@ -87,6 +93,15 @@ const Ledger = (() => {
         });
       });
     }
+
+    el.querySelectorAll('.expand-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const rowIndex = parseInt(btn.dataset.row, 10);
+        const row = _allRows.find(r => r.rowIndex === rowIndex);
+        if (row) _toggleItemDetail(row, btn);
+      });
+    });
   }
 
   function _refreshCatOptions() {
@@ -112,6 +127,60 @@ const Ledger = (() => {
           `<div class="empty-state"><span>⚠️</span><p>${e.message}</p></div>`;
       }
     }
+  }
+
+  function _applyFilter(f) {
+    if (f.member !== undefined) {
+      _memberFilter = f.member;
+      document.querySelectorAll('#tab-ledger .chip[data-member]').forEach(b => {
+        b.classList.toggle('active', b.dataset.member === _memberFilter);
+      });
+    }
+    if (f.category !== undefined) {
+      _catFilter = f.category;
+      const sel = document.getElementById('ledger-cat');
+      if (sel) sel.value = _catFilter;
+    }
+  }
+
+  async function _toggleItemDetail(row, btnEl) {
+    const detailId = `item-detail-${row.rowIndex}`;
+    const listItem = btnEl.closest('.list-item');
+    const existing = document.getElementById(detailId);
+    if (existing) { existing.remove(); btnEl.textContent = '▼'; return; }
+
+    btnEl.textContent = '…';
+    try {
+      if (!_itemsCache || Date.now() - _itemsCacheTs >= ITEMS_CACHE_TTL) {
+        _itemsCache   = await Sheets.getItemData();
+        _itemsCacheTs = Date.now();
+      }
+      const invItems = _itemsCache.filter(it => it.invNum === row.sourceLink);
+      const detail   = document.createElement('div');
+      detail.id        = detailId;
+      detail.className = 'item-detail-list';
+      if (!invItems.length) {
+        detail.innerHTML = '<div class="item-detail-empty">無品項明細</div>';
+      } else {
+        detail.innerHTML = invItems.map(it => `
+          <div class="item-detail-row">
+            <span class="item-detail-name">${it.itemName || '（未命名）'}</span>
+            <span class="item-detail-attr">${it.attribution || '—'}</span>
+            <span class="item-detail-amt">$${it.itemAmount.toLocaleString('zh-TW')}</span>
+          </div>`).join('');
+      }
+      listItem.insertAdjacentElement('afterend', detail);
+      btnEl.textContent = '▲';
+    } catch (e) {
+      btnEl.textContent = '▼';
+    }
+  }
+
+  function jumpTo({ member, category } = {}) {
+    _pendingFilter = {};
+    if (member   !== undefined) _pendingFilter.member   = member;
+    if (category !== undefined) _pendingFilter.category = category;
+    Router.navigate('ledger');
   }
 
   // ── Edit Modal ─────────────────────────────────────────────────
@@ -351,10 +420,16 @@ const Ledger = (() => {
   }
 
   function activate({ year, month }) {
+    const pending = _pendingFilter;
+    _pendingFilter = null;
     if (year !== _year || month !== _month) {
       _year = year; _month = month;
+      if (pending) _applyFilter(pending);
       _updateMonthLabel();
       _load();
+    } else if (pending) {
+      _applyFilter(pending);
+      _renderList();
     }
   }
 
@@ -364,7 +439,7 @@ const Ledger = (() => {
     _load();
   }
 
-  return { init, reload: _load, activate };
+  return { init, reload: _load, activate, jumpTo };
 })();
 
 window.Ledger = Ledger;

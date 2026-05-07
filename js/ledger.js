@@ -47,6 +47,17 @@ const Ledger = (() => {
 
     document.getElementById('ledger-count').textContent = `${rows.length} 筆`;
 
+    const sumEl = document.getElementById('ledger-summary');
+    if (rows.length) {
+      const total = rows.reduce((s, r) => s + r.amount,    0);
+      const sin   = rows.reduce((s, r) => s + r.sinShare,  0);
+      const bear  = rows.reduce((s, r) => s + r.bearShare, 0);
+      sumEl.textContent = `總 ${_fmt(total)}　Sin ${_fmt(sin)}　Bear ${_fmt(bear)}`;
+      sumEl.classList.remove('hidden');
+    } else {
+      sumEl.classList.add('hidden');
+    }
+
     if (!rows.length) {
       el.innerHTML = '<div class="empty-state"><span>📭</span><p>沒有符合條件的記錄</p></div>';
       return;
@@ -379,6 +390,7 @@ const Ledger = (() => {
           </select>
           <span id="ledger-count" class="ledger-count"></span>
         </div>
+        <div id="ledger-summary" class="ledger-summary hidden"></div>
       </div>
 
       <div class="card" id="ledger-list"></div>

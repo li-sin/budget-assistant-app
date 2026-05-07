@@ -7,7 +7,7 @@ const Stats = (() => {
   let _year  = now.getFullYear();
   let _month = now.getMonth() + 1;
   let _mode         = 'month';   // 'month' | 'year'
-  let _sharedFilter = 'all';     // 'all' | 'shared' | 'personal'
+  let _sharedFilter = 'all';     // 'all' | 'shared' | 'bear' | 'personal'
   let _chartType    = 'donut';   // 'donut' | 'bar'
   let _rows         = [];        // 供分類下鑽用
 
@@ -20,7 +20,8 @@ const Stats = (() => {
 
   function _passFilter(r) {
     if (r.shared === 'x') return false;
-    if (_sharedFilter === 'shared')   return r.shared === '是' || r.shared === '否' || r.shared === '部分';
+    if (_sharedFilter === 'shared')   return r.shared === '是' || r.shared === '部分';
+    if (_sharedFilter === 'bear')     return r.shared === '否';
     if (_sharedFilter === 'personal') return r.shared === '-';
     return true;
   }
@@ -236,7 +237,8 @@ const Stats = (() => {
           <div class="chip-row">
             <button class="chip active" data-shared-filter="all">全部</button>
             <button class="chip" data-shared-filter="shared">共用</button>
-            <button class="chip" data-shared-filter="personal">個人</button>
+            <button class="chip" data-shared-filter="bear">Bear個人</button>
+            <button class="chip" data-shared-filter="personal">Sin個人</button>
           </div>
           <div class="chip-row">
             <button class="chip active" data-chart-type="donut">圓環</button>

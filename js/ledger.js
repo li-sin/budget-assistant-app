@@ -5,8 +5,8 @@ const Ledger = (() => {
   const now = new Date();
   let _year  = now.getFullYear();
   let _month = now.getMonth() + 1;
-  let _memberFilter  = 'all';
-  let _sharedFilter  = 'all';
+  let _memberFilter   = 'all';
+  let _sharedSelected = new Set(); // empty = 全部
   let _catFilter     = '';
   let _allRows       = [];
   let _pendingFilter = null;
@@ -38,8 +38,7 @@ const Ledger = (() => {
     let rows = _allRows;
     if (_memberFilter === 'sin')    rows = rows.filter(r => r.sinShare  > 0);
     if (_memberFilter === 'bear')   rows = rows.filter(r => r.bearShare > 0);
-    if (_sharedFilter === 'shared') rows = rows.filter(r => r.shared === '是' || r.shared === '否' || r.shared === '部分');
-    if (_sharedFilter === 'personal') rows = rows.filter(r => r.shared === '-');
+    if (_sharedSelected.size > 0) rows = rows.filter(r => _sharedSelected.has(r.shared));
     if (_catFilter)                 rows = rows.filter(r => r.category === _catFilter);
     return [...rows].sort((a, b) => b.date.localeCompare(a.date));
   }
@@ -151,10 +150,16 @@ const Ledger = (() => {
       });
     }
     if (f.shared !== undefined) {
-      _sharedFilter = f.shared;
-      document.querySelectorAll('#tab-ledger .chip[data-shared-filter]').forEach(b => {
-        b.classList.toggle('active', b.dataset.sharedFilter === _sharedFilter);
-      });
+      // stats tab passes group keys; map them to ledger's per-value chips
+      const STATS_MAP = { all: [], shared: ['是', '部分'], bear: ['否'], personal: ['-'] };
+      const vals = STATS_MAP[f.shared] ?? [];
+      _sharedSelected = new Set(vals);
+      const chips = document.querySelectorAll('#tab-ledger .chip[data-shared-filter]');
+      if (_sharedSelected.size === 0) {
+        chips.forEach(b => b.classList.toggle('active', b.dataset.sharedFilter === 'all'));
+      } else {
+        chips.forEach(b => b.classList.toggle('active', _sharedSelected.has(b.dataset.sharedFilter)));
+      }
     }
     if (f.category !== undefined) {
       _catFilter = f.category;
@@ -396,8 +401,10 @@ const Ledger = (() => {
         </div>
         <div class="chip-row" id="ledger-shared-chips">
           <button class="chip active" data-shared-filter="all">全部</button>
-          <button class="chip" data-shared-filter="shared">共用</button>
-          <button class="chip" data-shared-filter="personal">個人</button>
+          <button class="chip" data-shared-filter="是">是</button>
+          <button class="chip" data-shared-filter="部分">部分</button>
+          <button class="chip" data-shared-filter="否">否</button>
+          <button class="chip" data-shared-filter="-">-</button>
         </div>
         <div class="filter-row">
           <select id="ledger-cat" class="cat-select">
@@ -442,10 +449,23 @@ const Ledger = (() => {
 
     document.querySelectorAll('#tab-ledger .chip[data-shared-filter]').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('#tab-ledger .chip[data-shared-filter]')
-          .forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        _sharedFilter = btn.dataset.sharedFilter;
+        const val   = btn.dataset.sharedFilter;
+        const chips = document.querySelectorAll('#tab-ledger .chip[data-shared-filter]');
+        if (val === 'all') {
+          _sharedSelected.clear();
+          chips.forEach(b => b.classList.toggle('active', b.dataset.sharedFilter === 'all'));
+        } else {
+          if (_sharedSelected.has(val)) {
+            _sharedSelected.delete(val);
+          } else {
+            _sharedSelected.add(val);
+          }
+          if (_sharedSelected.size === 0) {
+            chips.forEach(b => b.classList.toggle('active', b.dataset.sharedFilter === 'all'));
+          } else {
+            chips.forEach(b => b.classList.toggle('active', _sharedSelected.has(b.dataset.sharedFilter)));
+          }
+        }
         _renderList();
       });
     });

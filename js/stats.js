@@ -131,7 +131,7 @@ const Stats = (() => {
   }
 
   function _bindCatClicks() {
-    const jump = cat => window.Ledger?.jumpTo({ category: cat });
+    const jump = cat => window.Ledger?.jumpTo({ category: cat, shared: _sharedFilter });
     document.querySelectorAll('#stats-chart .donut-slice').forEach(el => {
       el.addEventListener('click', () => jump(el.dataset.cat));
     });

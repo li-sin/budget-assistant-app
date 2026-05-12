@@ -54,6 +54,20 @@ main#content {
 .tab-content { min-height: 100%; padding: 16px 16px calc(var(--nav-h) + 16px); }
 .tab-content.hidden { display: none; }
 
+/* ── PWA Safe Area（iPhone standalone 模式）────────── */
+@media (display-mode: standalone) {
+  #screen-app {
+    padding-top: env(safe-area-inset-top);
+  }
+  #bottom-nav {
+    height: calc(var(--nav-h) + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tab-content {
+    padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 16px);
+  }
+}
+
 /* ── Bottom Nav ─────────────────────────────────── */
 #bottom-nav {
   position: fixed;

@@ -131,6 +131,7 @@ const Add = (() => {
   function open() {
     _buildModal();
     _resetForm();
+    NoteChips.render('add-note');
     document.getElementById('add-modal').classList.remove('hidden');
     document.getElementById('add-amount').focus();
   }

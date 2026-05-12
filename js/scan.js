@@ -276,6 +276,7 @@ const Scan = (() => {
     `;
 
     el.classList.remove('hidden');
+    NoteChips.render('sconf-note');
 
     // 類別 chips
     el.querySelectorAll('.cat-chip').forEach(btn => {

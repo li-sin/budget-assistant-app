@@ -1,5 +1,5 @@
 const CONFIG = {
-  APP_VERSION: '3.6.7',
+  APP_VERSION: '3.6.8',
   CLIENT_ID: '320535010458-j5ud52freto8277f0qp0lr4919b86br4.apps.googleusercontent.com',
   SHEET_ID: '1T2G8leVwJ8EES1GzEcL1bD_NLHe46ylmPPijc-VoKmo',
   SCOPES: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email',
@@ -19,4 +19,5 @@ const CONFIG = {
   MONTHLY_SHEET_ID: 1410303165,   // 月度帳本工作表的數字 ID（從 Sheets URL #gid= 取得）
   INVOICE_SHEET_ID: 1016861424,   // 發票明細
   ITEMS_SHEET_ID:   3922285,      // 品項明細
+  DEFAULT_NOTE_CHIPS: ['UberEats', '蝦皮'],
 };

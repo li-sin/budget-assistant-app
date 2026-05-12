@@ -1,4 +1,15 @@
 const Settings = (() => {
+  function _buildCustomChipsList() {
+    const chips = NoteChips.getCustom();
+    if (!chips.length) return '<p class="settings-chip-empty">無自訂標籤</p>';
+    return chips.map(c =>
+      `<div class="note-chip-manage-row">
+        <span class="chip note-chip-tag">${c}</span>
+        <button class="btn-chip-delete" data-chip="${c}">✕</button>
+      </div>`
+    ).join('');
+  }
+
   function _fmt(n) {
     const abs = '$' + Math.abs(n).toLocaleString('zh-TW');
     if (n > 0)  return `Bear 欠 Sin ${abs}`;
@@ -59,6 +70,21 @@ const Settings = (() => {
           </div>
         </div>
 
+        ${issin ? `
+        <div class="section-title">備註快速選項</div>
+        <div class="card" id="note-chips-card">
+          <div class="note-chip-manage-row">
+            ${CONFIG.DEFAULT_NOTE_CHIPS.map(c => `<span class="chip note-chip-tag">${c}</span>`).join('')}
+            <span class="settings-label-sub">預設</span>
+          </div>
+          <div id="custom-chips-list">${_buildCustomChipsList()}</div>
+          <div class="note-chip-add-row">
+            <input type="text" id="new-chip-input" class="field-input" placeholder="新增自訂標籤">
+            <button class="btn-primary" id="new-chip-add">新增</button>
+          </div>
+        </div>
+        ` : ''}
+
         <div class="settings-logout-wrap">
           <button class="btn-logout" id="settings-logout">登出</button>
         </div>
@@ -80,6 +106,32 @@ const Settings = (() => {
     document.getElementById('settings-logout').addEventListener('click', () => {
       if (confirm('確定登出？')) Auth.logout();
     });
+
+    // 備註快速選項管理（Sin Only）
+    const addBtn = document.getElementById('new-chip-add');
+    if (addBtn) {
+      const _rebindDeletes = () => {
+        document.querySelectorAll('#note-chips-card .btn-chip-delete').forEach(btn => {
+          btn.addEventListener('click', () => {
+            NoteChips.remove(btn.dataset.chip);
+            document.getElementById('custom-chips-list').innerHTML = _buildCustomChipsList();
+            _rebindDeletes();
+          });
+        });
+      };
+      addBtn.addEventListener('click', () => {
+        const inp = document.getElementById('new-chip-input');
+        if (NoteChips.add(inp.value)) {
+          inp.value = '';
+          document.getElementById('custom-chips-list').innerHTML = _buildCustomChipsList();
+          _rebindDeletes();
+        }
+      });
+      document.getElementById('new-chip-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') addBtn.click();
+      });
+      _rebindDeletes();
+    }
 
     _loadSettlement();
   }

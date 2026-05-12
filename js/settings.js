@@ -31,6 +31,41 @@ const Settings = (() => {
     }
   }
 
+  function _currentYm() {
+    const { year, month } = window.AppMonth?.get() || {
+      year: new Date().getFullYear(),
+      month: new Date().getMonth() + 1,
+    };
+    return { year, month, label: `${year}-${String(month).padStart(2, '0')}` };
+  }
+
+  function _renderCardStatus(rows) {
+    return rows.map(({ bank, count }) => `
+      <div class="settings-bank-row">
+        <span class="settings-bank-name">${bank}</span>
+        <span class="settings-bank-val ${count ? '' : 'settings-bank-empty'}">
+          ${count ? `${count} 筆` : '未到'}
+        </span>
+      </div>
+    `).join('');
+  }
+
+  async function _loadCardStatus() {
+    const el = document.getElementById('settings-card-status');
+    const monthEl = document.getElementById('settings-card-month');
+    if (!el) return;
+    const { year, month, label } = _currentYm();
+    if (monthEl) monthEl.textContent = label;
+    el.innerHTML = '<div class="settings-bank-loading">讀取中…</div>';
+    try {
+      el.innerHTML = _renderCardStatus(await Sheets.getCreditCardImportStatus(year, month));
+    } catch (e) {
+      if (e.message !== 'auth_expired') {
+        el.innerHTML = '<div class="settings-bank-loading">讀取失敗</div>';
+      }
+    }
+  }
+
   function _buildContent() {
     const email = Auth.getEmail() || '—';
     const issin = email === CONFIG.EMAIL_WHITELIST[0];
@@ -67,6 +102,15 @@ const Settings = (() => {
           <div class="settings-row">
             <span class="settings-label">試算表 ID</span>
             <span class="settings-val settings-mono">${CONFIG.SHEET_ID.slice(0, 16)}…</span>
+          </div>
+          <div class="settings-row settings-row-stack">
+            <div class="settings-row-head">
+              <span class="settings-label">信用卡匯入狀態</span>
+              <span class="settings-val" id="settings-card-month">—</span>
+            </div>
+            <div id="settings-card-status" class="settings-bank-list">
+              <div class="settings-bank-loading">讀取中…</div>
+            </div>
           </div>
         </div>
 
@@ -134,6 +178,7 @@ const Settings = (() => {
     }
 
     _loadSettlement();
+    _loadCardStatus();
   }
 
   function close() {

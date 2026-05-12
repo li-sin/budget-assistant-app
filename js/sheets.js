@@ -93,6 +93,25 @@ const Sheets = (() => {
     return filtered;
   }
 
+  // ── 信用卡明細 ───────────────────────────────────────────────
+
+  function _normalizeDate(v) {
+    return String(v || '').replace(/^'/, '').trim();
+  }
+
+  async function getCreditCardImportStatus(year, month) {
+    const ym = `${year}-${String(month).padStart(2, '0')}`;
+    const banks = ['台新', '星展', '永豐'];
+    const counts = Object.fromEntries(banks.map(b => [b, 0]));
+    const data = await _get(`${CONFIG.TABS.CC}!A:L`);
+    (data.values || []).slice(1).forEach(r => {
+      const bank = r[0] || '';
+      const billMonth = _normalizeDate(r[11]);
+      if (bank in counts && billMonth === ym) counts[bank]++;
+    });
+    return banks.map(bank => ({ bank, count: counts[bank] }));
+  }
+
   function invalidateMonth(ym) {
     sessionStorage.removeItem(`ba_monthly_${ym}`);
   }
@@ -296,7 +315,7 @@ const Sheets = (() => {
   }
 
   return {
-    getMonthlyData, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
+    getMonthlyData, getCreditCardImportStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
     getInvoiceData, getItemData, updateItemRow,
     appendInvoiceRow, appendItemRows,

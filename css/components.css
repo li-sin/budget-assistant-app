@@ -333,6 +333,46 @@
 .settings-label { font-size: 14px; color: var(--text-sub); }
 .settings-val   { font-size: 14px; color: var(--text); }
 .settings-mono  { font-size: 12px; font-family: monospace; color: var(--text-sub); }
+.settings-row-stack {
+  display: block;
+}
+.settings-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.settings-bank-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.settings-bank-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+}
+.settings-bank-name {
+  font-size: 12px;
+  color: var(--text-sub);
+}
+.settings-bank-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--teal);
+}
+.settings-bank-empty,
+.settings-bank-loading {
+  color: var(--text-sub);
+}
+.settings-bank-loading {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  padding: 8px 0 2px;
+}
 
 .settings-settlement-val {
   font-size: 20px;

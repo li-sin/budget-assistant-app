@@ -7,9 +7,10 @@ const Ledger = (() => {
   let _month = now.getMonth() + 1;
   let _memberFilter   = 'all';
   let _sharedSelected = new Set(); // empty = 全部
-  let _catFilter     = '';
-  let _allRows       = [];
-  let _pendingFilter = null;
+  let _catFilter      = '';
+  let _sortMode       = 'date-desc'; // date-desc | date-asc | import-desc | amount-desc
+  let _allRows        = [];
+  let _pendingFilter  = null;
   let _itemsCache    = null;
   let _itemsCacheTs  = 0;
   const ITEMS_CACHE_TTL = 5 * 60 * 1000;
@@ -40,7 +41,14 @@ const Ledger = (() => {
     if (_memberFilter === 'bear')   rows = rows.filter(r => r.bearShare > 0);
     if (_sharedSelected.size > 0) rows = rows.filter(r => _sharedSelected.has(r.shared));
     if (_catFilter)                 rows = rows.filter(r => r.category === _catFilter);
-    return [...rows].sort((a, b) => b.date.localeCompare(a.date));
+    return [...rows].sort((a, b) => {
+      switch (_sortMode) {
+        case 'date-asc':    return a.date.localeCompare(b.date);
+        case 'import-desc': return (b.importedAt || '').localeCompare(a.importedAt || '');
+        case 'amount-desc': return b.amount - a.amount;
+        default:            return b.date.localeCompare(a.date); // date-desc
+      }
+    });
   }
 
   function _renderList() {
@@ -146,12 +154,15 @@ const Ledger = (() => {
     _memberFilter   = 'all';
     _sharedSelected = new Set();
     _catFilter      = '';
+    _sortMode       = 'date-desc';
     document.querySelectorAll('#tab-ledger .chip[data-member]')
       .forEach(b => b.classList.toggle('active', b.dataset.member === 'all'));
     document.querySelectorAll('#tab-ledger .chip[data-shared-filter]')
       .forEach(b => b.classList.toggle('active', b.dataset.sharedFilter === 'all'));
     const sel = document.getElementById('ledger-cat');
     if (sel) sel.value = '';
+    const sort = document.getElementById('ledger-sort');
+    if (sort) sort.value = 'date-desc';
   }
 
   function _applyFilter(f) {
@@ -422,6 +433,12 @@ const Ledger = (() => {
           <select id="ledger-cat" class="cat-select">
             <option value="">全部類別</option>
           </select>
+          <select id="ledger-sort" class="cat-select">
+            <option value="date-desc">交易時間 ↓</option>
+            <option value="date-asc">交易時間 ↑</option>
+            <option value="import-desc">匯入時間 ↓</option>
+            <option value="amount-desc">金額高→低</option>
+          </select>
           <span id="ledger-count" class="ledger-count"></span>
         </div>
         <div id="ledger-summary" class="ledger-summary hidden"></div>
@@ -484,6 +501,11 @@ const Ledger = (() => {
 
     document.getElementById('ledger-cat').addEventListener('change', e => {
       _catFilter = e.target.value;
+      _renderList();
+    });
+
+    document.getElementById('ledger-sort').addEventListener('change', e => {
+      _sortMode = e.target.value;
       _renderList();
     });
   }

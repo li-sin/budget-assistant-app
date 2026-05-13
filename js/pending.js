@@ -45,7 +45,7 @@ const Pending = (() => {
 
     // 🔴 負擔異常：月度帳本 is_shared 非空非 -/x 但 sinShare/bearShare 都空
     monthlyRaw.forEach(r => {
-      if (!r.shared || r.shared === '-' || r.shared === 'x') return;
+      if (!r.shared || r.shared === 'x') return;
       if (r.sinShare !== null || r.bearShare !== null) return;
       // 判斷為空字串（parseFloat 回傳 0，但原始資料若為空才算異常）
       result.push({

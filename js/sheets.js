@@ -498,7 +498,7 @@ const Sheets = (() => {
       const amt    = parseFloat(r[4]) || 0;
       const ccDate = new Date(date);
       const hasDup = allInvDedup.some(({ date: d, amount: a }) =>
-        Math.abs((ccDate - new Date(d)) / 86400000) <= 3 && Math.abs(amt - a) <= 1
+        Math.abs((ccDate - new Date(d)) / 86400000) <= 5 && amt === a
       );
       if (hasDup) { skippedInv++; continue; }
       const [sin, bear] = bearOverride !== null

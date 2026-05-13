@@ -332,7 +332,7 @@ const Sheets = (() => {
     const data = await _get(`${CONFIG.TABS.CC}!A:L`);
     return (data.values || []).slice(1)
       .map((r, i) => _parseCCRow(r, i + 2))
-      .filter(r => r.shared === '' && r.imported !== 'TRUE');
+      .filter(r => r.shared === '' && r.imported !== 'TRUE' && r.shop !== '' && r.amount > 0);
   }
 
   async function updateCCShared(rowIndex, shared, note) {

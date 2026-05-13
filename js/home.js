@@ -278,7 +278,6 @@ const Home = (() => {
         <span id="home-month"></span>
         <button class="month-btn" id="home-next">▶</button>
         <button class="month-btn refresh-btn" id="home-refresh" title="重新載入">↺</button>
-        <button class="settings-gear-btn" id="home-settings-btn" title="設定">⚙️</button>
       </div>
 
       <div class="card summary-card">
@@ -300,7 +299,10 @@ const Home = (() => {
         </div>
       </div>
 
-      <div class="section-title">最近記錄</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:20px 0 8px">
+        <div class="section-title" style="margin:0">最近記錄</div>
+        <button class="settings-gear-btn" id="home-settings-btn" title="設定">⚙️</button>
+      </div>
       <div class="card" id="home-list"></div>
 
       <button class="fab" id="btn-add">＋</button>

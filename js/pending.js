@@ -76,9 +76,9 @@ const Pending = (() => {
       });
     });
 
-    // 🟣 發票待填：是否共用空 + status≠作廢
+    // 🟣 發票待填：是否共用空 + status≠作廢 + 非空行
     invoices
-      .filter(inv => inv.shared === '' && inv.status !== '作廢')
+      .filter(inv => inv.shared === '' && inv.status !== '作廢' && inv.invNum !== '')
       .forEach(inv => {
         result.push({
           type: 'inv_pending',

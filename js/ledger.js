@@ -162,8 +162,8 @@ const Ledger = (() => {
       .forEach(b => b.classList.toggle('active', b.dataset.member === 'all'));
     document.querySelectorAll('#tab-ledger .chip[data-shared-filter]')
       .forEach(b => b.classList.toggle('active', b.dataset.sharedFilter === 'all'));
-    document.querySelectorAll('#tab-ledger .chip[data-source-filter]')
-      .forEach(b => b.classList.toggle('active', b.dataset.sourceFilter === ''));
+    const srcSel = document.getElementById('ledger-source');
+    if (srcSel) srcSel.value = '';
     const sel = document.getElementById('ledger-cat');
     if (sel) sel.value = '';
     const sort = document.getElementById('ledger-sort');
@@ -435,14 +435,14 @@ const Ledger = (() => {
           <button class="chip" data-shared-filter="否">否</button>
           <button class="chip" data-shared-filter="-">-</button>
         </div>
-        <div class="chip-row" id="ledger-source-chips">
-          <button class="chip active" data-source-filter="">全部來源</button>
-          <button class="chip" data-source-filter="信用卡">💳 信用卡</button>
-          <button class="chip" data-source-filter="發票">🧾 發票</button>
-          <button class="chip" data-source-filter="掃描發票">📷 掃描</button>
-          <button class="chip" data-source-filter="手動記帳">✏️ 手動</button>
-        </div>
         <div class="filter-row">
+          <select id="ledger-source" class="cat-select">
+            <option value="">全部來源</option>
+            <option value="信用卡">💳 信用卡</option>
+            <option value="發票">🧾 發票</option>
+            <option value="掃描發票">📷 掃描</option>
+            <option value="手動記帳">✏️ 手動</option>
+          </select>
           <select id="ledger-cat" class="cat-select">
             <option value="">全部類別</option>
           </select>
@@ -512,14 +512,9 @@ const Ledger = (() => {
       });
     });
 
-    document.querySelectorAll('#tab-ledger .chip[data-source-filter]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('#tab-ledger .chip[data-source-filter]')
-          .forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        _sourceFilter = btn.dataset.sourceFilter;
-        _renderList();
-      });
+    document.getElementById('ledger-source').addEventListener('change', e => {
+      _sourceFilter = e.target.value;
+      _renderList();
     });
 
     document.getElementById('ledger-cat').addEventListener('change', e => {

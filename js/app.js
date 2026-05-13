@@ -2,6 +2,10 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
+document.addEventListener('touchmove', e => {
+  if (e.touches.length > 1) e.preventDefault();
+}, { passive: false });
+
 // ── 備註快速選項 ─────────────────────────────────────
 const NoteChips = (() => {
   const LS_KEY = 'budget_note_chips';

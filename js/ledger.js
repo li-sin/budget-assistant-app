@@ -11,7 +11,8 @@ const Ledger = (() => {
   let _sourceFilter   = ''; // '' = 全部
   let _sortMode       = 'date-desc'; // date-desc | date-asc | import-desc | import-asc | amount-desc | amount-asc
   let _allRows        = [];
-  let _pendingFilter  = null;
+  let _pendingFilter   = null;
+  let _pendingScrollRow = null;
   let _itemsCache    = null;
   let _itemsCacheTs  = 0;
   const ITEMS_CACHE_TTL = 5 * 60 * 1000;
@@ -127,6 +128,19 @@ const Ledger = (() => {
         if (row) _toggleItemDetail(row, btn);
       });
     });
+
+    if (_pendingScrollRow !== null) {
+      const rowIndex = _pendingScrollRow;
+      _pendingScrollRow = null;
+      requestAnimationFrame(() => {
+        const target = el.querySelector(`[data-row="${rowIndex}"]`);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          target.classList.add('list-item-highlight');
+          setTimeout(() => target.classList.remove('list-item-highlight'), 1500);
+        }
+      });
+    }
   }
 
   function _refreshCatOptions() {
@@ -231,11 +245,12 @@ const Ledger = (() => {
     }
   }
 
-  function jumpTo({ member, category, shared } = {}) {
+  function jumpTo({ member, category, shared, rowIndex } = {}) {
     _pendingFilter = {};
     if (member   !== undefined) _pendingFilter.member   = member;
     if (shared   !== undefined) _pendingFilter.shared   = shared;
     if (category !== undefined) _pendingFilter.category = category;
+    if (rowIndex !== undefined) _pendingScrollRow = rowIndex;
     Router.navigate('ledger');
   }
 
@@ -543,6 +558,8 @@ const Ledger = (() => {
     } else if (pending) {
       _resetFilters();
       _applyFilter(pending);
+      _renderList();
+    } else if (_pendingScrollRow !== null) {
       _renderList();
     }
   }

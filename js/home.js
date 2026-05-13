@@ -64,7 +64,7 @@ const Home = (() => {
       if (r.payer === '🐨 Bear') sub += '　Bear付';
       else if (r.shared === '-')  sub += '　個人';
       return `
-        <div class="list-item">
+        <div class="list-item" data-row="${r.rowIndex}" style="cursor:pointer">
           <span class="list-item-icon">${cat}</span>
           <div class="list-item-body">
             <div class="list-item-title">${r.item || '（未命名）'}</div>
@@ -73,6 +73,12 @@ const Home = (() => {
           <div class="list-item-right amount-expense">${_fmt(r.amount)}</div>
         </div>`;
     }).join('');
+
+    el.querySelectorAll('.list-item[data-row]').forEach(item => {
+      item.addEventListener('click', () => {
+        window.Ledger?.jumpTo({ rowIndex: parseInt(item.dataset.row, 10) });
+      });
+    });
   }
 
   function _setLoading() {

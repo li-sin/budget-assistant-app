@@ -862,7 +862,7 @@ const Pending = (() => {
       btn.disabled = true;
       btn.textContent = '儲存中…';
       try {
-        await Sheets.linkCCToInvoice(cc.rowIndex, inv.invNum);
+        await Sheets.linkCCToInvoice(cc.rowIndex, inv.invNum, inv.rowIndex);
         _closeDetail();
         await _reload();
       } catch (e) {

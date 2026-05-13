@@ -363,11 +363,15 @@ const Sheets = (() => {
       .filter(r => r.amount > 0 && r.txDate);
   }
 
-  // ── 將信用卡明細連結至掃描發票（H='x', I=發票號碼）──────────────
-  async function linkCCToInvoice(ccRowIndex, invNum) {
+  // ── 將信用卡明細連結至掃描發票（H='x', I=發票號碼連結）──────────────
+  async function linkCCToInvoice(ccRowIndex, invNum, invRowIndex) {
+    const invGid = CONFIG.INVOICE_SHEET_ID;
+    const cellVal = invRowIndex
+      ? `=HYPERLINK("#gid=${invGid}&range=C${invRowIndex}","${invNum}")`
+      : invNum;
     await _batchUpdate([
       { range: `${CONFIG.TABS.CC}!H${ccRowIndex}`, values: [['x']] },
-      { range: `${CONFIG.TABS.CC}!I${ccRowIndex}`, values: [[invNum]] },
+      { range: `${CONFIG.TABS.CC}!I${ccRowIndex}`, values: [[cellVal]] },
     ]);
   }
 
@@ -406,7 +410,7 @@ const Sheets = (() => {
     ];
     await appendMonthlyRow(row);
     await markInvoiceImported(inv.rowIndex);
-    await linkCCToInvoice(cc.rowIndex, inv.invNum);
+    await linkCCToInvoice(cc.rowIndex, inv.invNum, inv.rowIndex);
   }
 
   // ── 匯入月度帳本（Step 1–4）──────────────────────────────────

@@ -438,6 +438,7 @@ select.field-input { height: 44px; }
 }
 .list-item-editable { cursor: pointer; }
 .list-item-editable:active { background: rgba(255,255,255,0.04); border-radius: 8px; }
+.platform-cc-item.active { background: rgba(0,201,167,0.15); border: 1px solid var(--teal); border-radius: 8px; }
 
 /* ── Empty State ────────────────────────────────── */
 .empty-state {

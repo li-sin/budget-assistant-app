@@ -314,6 +314,38 @@ const Sheets = (() => {
       }));
   }
 
+  // ── 信用卡待填 ──────────────────────────────────────────────
+  function _parseCCRow(r, rowIndex) {
+    return {
+      rowIndex,
+      bank:     r[0] || '',
+      txDate:   r[1] || '',
+      shop:     r[3] || '',
+      amount:   parseFloat(r[4]) || 0,
+      shared:   r[7] || '',
+      note:     r[9] || '',
+      imported: r[10] || '',
+    };
+  }
+
+  async function getCCPendingData() {
+    const data = await _get(`${CONFIG.TABS.CC}!A:L`);
+    return (data.values || []).slice(1)
+      .map((r, i) => _parseCCRow(r, i + 2))
+      .filter(r => r.shared === '' && r.imported !== 'TRUE');
+  }
+
+  async function updateCCShared(rowIndex, shared, note) {
+    await _batchUpdate([
+      { range: `${CONFIG.TABS.CC}!H${rowIndex}`, values: [[shared]] },
+      { range: `${CONFIG.TABS.CC}!J${rowIndex}`, values: [[note]] },
+    ]);
+  }
+
+  async function updateInvoiceShared(rowIndex, shared) {
+    await _update(`${CONFIG.TABS.INVOICE}!H${rowIndex}`, [[shared]]);
+  }
+
   return {
     getMonthlyData, getCreditCardImportStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
@@ -321,5 +353,6 @@ const Sheets = (() => {
     appendInvoiceRow, appendItemRows,
     markInvoiceImported, appendMonthlyFromScan,
     upsertRepayment,
+    getCCPendingData, updateCCShared, updateInvoiceShared,
   };
 })();

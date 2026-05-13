@@ -8,10 +8,11 @@ const Pending = (() => {
   // ── 資料收集 ──────────────────────────────────────────────────
 
   async function _collect() {
-    const [monthlyRaw, invoices, items] = await Promise.all([
+    const [monthlyRaw, invoices, items, ccPendingRows] = await Promise.all([
       _getAllMonthly(),
       Sheets.getInvoiceData(),
       Sheets.getItemData(),
+      Sheets.getCCPendingData(),
     ]);
 
     const result = [];
@@ -65,8 +66,31 @@ const Pending = (() => {
       });
     });
 
-    // 排序：🔴 > 🟠 > 🟡
-    const order = { anomaly: 0, duplicate: 1, untagged: 2 };
+    // 🔵 信用卡待填：H欄空 + K欄非✓
+    ccPendingRows.forEach(cc => {
+      result.push({
+        type: 'cc_pending',
+        label: '信用卡待填',
+        color: '#4B9FE1',
+        cc,
+      });
+    });
+
+    // 🟣 發票待填：是否共用空 + status≠作廢
+    invoices
+      .filter(inv => inv.shared === '' && inv.status !== '作廢')
+      .forEach(inv => {
+        result.push({
+          type: 'inv_pending',
+          label: '發票待填',
+          color: '#9B59B6',
+          inv,
+          invItems: items.filter(it => it.invNum === inv.invNum),
+        });
+      });
+
+    // 排序：🔴 > 🟠 > 🟡 > 🔵 > 🟣
+    const order = { anomaly: 0, duplicate: 1, untagged: 2, cc_pending: 3, inv_pending: 4 };
     result.sort((a, b) => order[a.type] - order[b.type]);
     _items = result;
   }
@@ -115,6 +139,14 @@ const Pending = (() => {
         title  = it.shop;
         sub    = it.date;
         amount = it.amount;
+      } else if (it.type === 'cc_pending') {
+        title  = it.cc.shop;
+        sub    = `${it.cc.bank}　${it.cc.txDate}`;
+        amount = it.cc.amount;
+      } else if (it.type === 'inv_pending') {
+        title  = it.inv.shop;
+        sub    = it.inv.date;
+        amount = it.inv.amount;
       } else {
         title  = it.row.item || '（未命名）';
         sub    = it.row.date;
@@ -169,9 +201,11 @@ const Pending = (() => {
     _buildDetailModal();
     document.getElementById('pending-modal').classList.remove('hidden');
 
-    if (item.type === 'untagged') _renderUntagged(item);
+    if (item.type === 'untagged')       _renderUntagged(item);
     else if (item.type === 'anomaly')   _renderAnomaly(item);
     else if (item.type === 'duplicate') _renderDuplicate(item);
+    else if (item.type === 'cc_pending')  _renderCCPending(item);
+    else if (item.type === 'inv_pending') _renderInvoicePending(item);
   }
 
   // ── 🟡 未標記：品項歸屬標記 ──────────────────────────────────
@@ -371,6 +405,203 @@ const Pending = (() => {
         btn.textContent = '刪除手動記帳';
       }
     });
+  }
+
+  // ── 🔵 信用卡待填：填是否共用 + 備注 ─────────────────────────
+
+  function _renderCCPending(item) {
+    const cc = item.cc;
+    const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
+    let selectedShared = '';
+    document.getElementById('pending-modal-title').textContent = `🔵 ${cc.shop}`;
+
+    document.getElementById('pending-modal-body').innerHTML = `
+      <p class="list-item-sub" style="margin-bottom:12px">${cc.bank}　${cc.txDate}　${_fmt(cc.amount)}</p>
+      <label class="field-label">是否共用</label>
+      <div class="chip-row" id="cc-shared-chips" style="margin-bottom:12px">
+        ${SHARED_OPTS.map(opt => `<button class="chip" data-opt="${opt}">${opt}</button>`).join('')}
+      </div>
+      <label class="field-label">備注</label>
+      <input type="text" id="cc-note" class="field-input" value="${cc.note}" placeholder="選填">
+      <p id="cc-error" class="add-error hidden"></p>
+    `;
+    document.getElementById('pending-modal-footer').innerHTML = `
+      <button class="btn-secondary" id="cc-cancel">取消</button>
+      <button class="btn-primary" id="cc-save">儲存</button>
+    `;
+
+    NoteChips.render('cc-note');
+
+    document.querySelectorAll('#cc-shared-chips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedShared = btn.dataset.opt;
+        document.querySelectorAll('#cc-shared-chips .chip')
+          .forEach(b => b.classList.toggle('active', b.dataset.opt === selectedShared));
+      });
+    });
+
+    document.getElementById('cc-cancel').addEventListener('click', _closeDetail);
+    document.getElementById('cc-save').addEventListener('click', async () => {
+      const errEl = document.getElementById('cc-error');
+      if (!selectedShared) {
+        errEl.textContent = '請選擇是否共用';
+        errEl.classList.remove('hidden');
+        return;
+      }
+      const btn = document.getElementById('cc-save');
+      btn.disabled = true;
+      btn.textContent = '儲存中…';
+      try {
+        const note = document.getElementById('cc-note').value;
+        await Sheets.updateCCShared(cc.rowIndex, selectedShared, note);
+        _closeDetail();
+        await _reload();
+      } catch (e) {
+        errEl.textContent = '儲存失敗：' + e.message;
+        errEl.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = '儲存';
+      }
+    });
+  }
+
+  // ── 🟣 發票待填：填是否共用（部分 → 品項歸屬流程）──────────────
+
+  function _renderInvoicePending(item) {
+    const inv = item.inv;
+    const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
+    let selectedShared = '';
+    document.getElementById('pending-modal-title').textContent = `🟣 ${inv.shop}`;
+
+    function _showStep1() {
+      document.getElementById('pending-modal-body').innerHTML = `
+        <p class="list-item-sub" style="margin-bottom:12px">${inv.date}　${_fmt(inv.amount)}</p>
+        <label class="field-label">是否共用</label>
+        <div class="chip-row" id="inv-shared-chips" style="margin-bottom:12px">
+          ${SHARED_OPTS.map(opt => `<button class="chip${selectedShared === opt ? ' active' : ''}" data-opt="${opt}">${opt}</button>`).join('')}
+        </div>
+        <p id="inv-error" class="add-error hidden"></p>
+      `;
+      document.getElementById('pending-modal-footer').innerHTML = `
+        <button class="btn-secondary" id="inv-cancel">取消</button>
+        <button class="btn-primary" id="inv-save">儲存</button>
+      `;
+
+      document.querySelectorAll('#inv-shared-chips .chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          selectedShared = btn.dataset.opt;
+          document.querySelectorAll('#inv-shared-chips .chip')
+            .forEach(b => b.classList.toggle('active', b.dataset.opt === selectedShared));
+        });
+      });
+
+      document.getElementById('inv-cancel').addEventListener('click', _closeDetail);
+      document.getElementById('inv-save').addEventListener('click', async () => {
+        const errEl = document.getElementById('inv-error');
+        if (!selectedShared) {
+          errEl.textContent = '請選擇是否共用';
+          errEl.classList.remove('hidden');
+          return;
+        }
+        if (selectedShared === '部分') {
+          _showStep2();
+          return;
+        }
+        const btn = document.getElementById('inv-save');
+        btn.disabled = true;
+        btn.textContent = '儲存中…';
+        try {
+          await Sheets.updateInvoiceShared(inv.rowIndex, selectedShared);
+          _closeDetail();
+          await _reload();
+        } catch (e) {
+          errEl.textContent = '儲存失敗：' + e.message;
+          errEl.classList.remove('hidden');
+          btn.disabled = false;
+          btn.textContent = '儲存';
+        }
+      });
+    }
+
+    function _showStep2() {
+      const ATTR_OPTS = ['Sin', 'Bear', '共用'];
+      document.getElementById('pending-modal-body').innerHTML = `
+        <p class="list-item-sub" style="margin-bottom:12px">${inv.date}　${_fmt(inv.amount)}</p>
+        <div id="item-attr-list">
+          ${item.invItems.map((it, i) => `
+            <div class="pending-item-row" data-i="${i}">
+              <div class="pending-item-name">${it.itemName}</div>
+              <div class="pending-item-amount">${_fmt(it.itemAmount)}</div>
+              <div class="chip-row" style="flex-wrap:wrap;gap:6px;margin-top:6px">
+                ${ATTR_OPTS.map(opt => `
+                  <button class="chip${it.attribution === opt ? ' active' : ''}" data-attr="${opt}" data-i="${i}">${opt}</button>
+                `).join('')}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <p id="inv-attr-error" class="add-error hidden"></p>
+      `;
+      document.getElementById('pending-modal-footer').innerHTML = `
+        <button class="btn-secondary" id="inv-back">← 上一步</button>
+        <button class="btn-primary" id="inv-attr-save">儲存並匯入帳本</button>
+      `;
+
+      const attrMap = {};
+      item.invItems.forEach((it, i) => { attrMap[i] = it.attribution || ''; });
+
+      document.querySelectorAll('#item-attr-list .chip[data-attr]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const i = parseInt(btn.dataset.i, 10);
+          attrMap[i] = btn.dataset.attr;
+          document.querySelectorAll(`#item-attr-list .chip[data-i="${i}"]`)
+            .forEach(b => b.classList.toggle('active', b.dataset.attr === attrMap[i]));
+        });
+      });
+
+      document.getElementById('inv-back').addEventListener('click', _showStep1);
+      document.getElementById('inv-attr-save').addEventListener('click', async () => {
+        const errEl = document.getElementById('inv-attr-error');
+        if (item.invItems.some((_, i) => !attrMap[i])) {
+          errEl.textContent = '請為每個品項選擇歸屬';
+          errEl.classList.remove('hidden');
+          return;
+        }
+        const btn = document.getElementById('inv-attr-save');
+        btn.disabled = true;
+        btn.textContent = '儲存中…';
+        try {
+          for (let i = 0; i < item.invItems.length; i++) {
+            await Sheets.updateItemRow(item.invItems[i].rowIndex, attrMap[i]);
+          }
+          await Sheets.updateInvoiceShared(inv.rowIndex, '部分共用');
+          const totalAmount = inv.amount;
+          let bearTotal = 0;
+          item.invItems.forEach((it, i) => {
+            if (attrMap[i] === 'Bear') bearTotal += it.itemAmount;
+            else if (attrMap[i] === '共用') bearTotal += Math.floor(it.itemAmount / 2);
+          });
+          const today = new Date().toISOString().slice(0, 16).replace('T', ' ');
+          await Sheets.appendMonthlyRow([
+            inv.date, inv.shop, totalAmount,
+            '🌟 Star', '部分', item.invItems[0]?.category || '',
+            totalAmount - bearTotal, bearTotal, '',
+            '發票', inv.invNum, today,
+          ]);
+          Sheets.invalidateMonth(inv.date.slice(0, 7));
+          _closeDetail();
+          await _reload();
+          window.Home?.reload();
+        } catch (e) {
+          errEl.textContent = '儲存失敗：' + e.message;
+          errEl.classList.remove('hidden');
+          btn.disabled = false;
+          btn.textContent = '儲存並匯入帳本';
+        }
+      });
+    }
+
+    _showStep1();
   }
 
   // ── 載入 ─────────────────────────────────────────────────────

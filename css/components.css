@@ -384,6 +384,7 @@
   padding: 10px 0 4px;
 }
 
+.import-log { font-size: 12px; color: var(--text-sub); padding: 4px 0; white-space: pre-line; line-height: 1.6; min-height: 0; }
 .settings-logout-wrap { margin-top: 32px; padding-bottom: 40px; }
 .btn-logout {
   width: 100%;

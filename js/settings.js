@@ -1,4 +1,6 @@
 const Settings = (() => {
+  let _importYear  = new Date().getFullYear();
+  let _importMonth = new Date().getMonth() + 1;
   function _buildCustomChipsList() {
     const chips = NoteChips.getCustom();
     if (!chips.length) return '<p class="settings-chip-empty">無自訂標籤</p>';
@@ -121,6 +123,19 @@ const Settings = (() => {
         </div>
 
         ${issin ? `
+        <div class="section-title">匯入月度帳本</div>
+        <div class="card">
+          <div class="settings-row">
+            <span class="settings-label">月份</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="month-btn" id="import-prev-m">◀</button>
+              <span id="import-month-lbl"></span>
+              <button class="month-btn" id="import-next-m">▶</button>
+            </div>
+          </div>
+          <div id="import-log" class="import-log"></div>
+          <button class="btn-primary" id="import-run" style="width:100%;margin-top:8px">匯入月度帳本</button>
+        </div>
         <div class="section-title">備註快速選項</div>
         <div class="card" id="note-chips-card">
           <div class="note-chip-manage-row">
@@ -181,6 +196,50 @@ const Settings = (() => {
         if (e.key === 'Enter') addBtn.click();
       });
       _rebindDeletes();
+    }
+
+    // 匯入月度帳本（Sin Only）
+    const importMonthLbl = document.getElementById('import-month-lbl');
+    if (importMonthLbl) {
+      const _updateImportLbl = () => {
+        importMonthLbl.textContent = `${_importYear}-${String(_importMonth).padStart(2,'0')}`;
+      };
+      _updateImportLbl();
+      document.getElementById('import-prev-m').addEventListener('click', () => {
+        _importMonth--;
+        if (_importMonth < 1) { _importMonth = 12; _importYear--; }
+        _updateImportLbl();
+        document.getElementById('import-log').textContent = '';
+      });
+      document.getElementById('import-next-m').addEventListener('click', () => {
+        _importMonth++;
+        if (_importMonth > 12) { _importMonth = 1; _importYear++; }
+        _updateImportLbl();
+        document.getElementById('import-log').textContent = '';
+      });
+      document.getElementById('import-run').addEventListener('click', async () => {
+        const btn = document.getElementById('import-run');
+        const log = document.getElementById('import-log');
+        btn.disabled = true;
+        btn.textContent = '匯入中…';
+        log.textContent = '';
+        const lines = [];
+        try {
+          const result = await Sheets.importToMonthly(_importYear, _importMonth, msg => {
+            lines.push(msg);
+            log.textContent = lines.join('\n');
+          });
+          lines.push(`\n✅ 完成：發票 ${result.invoices} 筆，CC ${result.cc} 筆（CC 略過 ${result.skippedCC} 筆）`);
+          log.textContent = lines.join('\n');
+          window.Home?.reload();
+        } catch (e) {
+          lines.push(`❌ 失敗：${e.message}`);
+          log.textContent = lines.join('\n');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '匯入月度帳本';
+        }
+      });
     }
 
     _loadSettlement();

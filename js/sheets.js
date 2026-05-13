@@ -371,6 +371,191 @@ const Sheets = (() => {
     ]);
   }
 
+  // ── 匯入月度帳本（Step 1–4）──────────────────────────────────
+  function _calcShares(amount, shared, bearStr) {
+    const amt = parseFloat(String(amount).replace(',', '')) || 0;
+    if (shared === '是') { const h = Math.floor(amt / 2); return [String(h), String(amt - h)]; }
+    if (shared === '否') return ['0', String(Math.round(amt))];
+    if (shared === '部分') { const b = parseInt(bearStr) || 0; return [String(Math.round(amt) - b), String(b)]; }
+    if (shared === '-') return [String(Math.round(amt)), '0'];
+    return [String(Math.round(amt)), '0'];
+  }
+
+  let _sheetIdCache = null;
+  async function _fetchSheetIds() {
+    if (_sheetIdCache) return _sheetIdCache;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SHEET_ID}?fields=sheets.properties`;
+    const res = await fetch(url, { headers: _authHeader() });
+    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
+    if (!res.ok) throw new Error(`Sheets API ${res.status}`);
+    const data = await res.json();
+    _sheetIdCache = {};
+    (data.sheets || []).forEach(s => { _sheetIdCache[s.properties.title] = s.properties.sheetId; });
+    return _sheetIdCache;
+  }
+
+  async function importToMonthly(year, month, onProgress) {
+    const ym  = `${year}-${String(month).padStart(2, '0')}`;
+    const now = new Date();
+    const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    const sid = CONFIG.SHEET_ID;
+    const log = msg => onProgress?.(msg);
+
+    log('讀取 Sheet 資訊…');
+    const gids   = await _fetchSheetIds();
+    const invGid = gids[CONFIG.TABS.INVOICE];
+    const ccGid  = gids[CONFIG.TABS.CC];
+
+    // ── Step 1: 發票明細 → 月度帳本 ───────────────────────────
+    log('[Step 1] 讀取發票明細 + 品項明細…');
+    const [invRaw, itemRaw] = await Promise.all([
+      _get(`${CONFIG.TABS.INVOICE}!A:K`),
+      _get(`${CONFIG.TABS.ITEMS}!A:K`),
+    ]);
+    const itemMap = {};
+    (itemRaw.values || []).slice(1).forEach(r => {
+      const num = r[2] || '';
+      if (num) (itemMap[num] = itemMap[num] || []).push(r);
+    });
+    const invRows    = (invRaw.values || []).slice(1);
+    const toImportInv = [];
+    for (let i = 0; i < invRows.length; i++) {
+      const r = [...invRows[i]];
+      while (r.length < 11) r.push('');
+      const date = r[1].replace(/^'/, '');
+      if (r[5] === '作廢') continue;
+      if (!['是','否','部分','-'].includes(r[7])) continue;
+      if (r[9] === 'TRUE' || r[9] === 'True') continue;
+      if (!date.startsWith(ym)) continue;
+      if (r[7] === '部分') {
+        const its = itemMap[r[2]] || [];
+        if (!its.length || its.some(it => !(it[6] || '').trim())) continue;
+      }
+      toImportInv.push({ rowIndex: i + 2, r });
+    }
+    log(`[Step 1] 待匯入 ${toImportInv.length} 筆`);
+
+    const importedInvList = [];
+    const invMonthlyRows  = [];
+    const invMarkRanges   = [];
+    for (const { rowIndex, r } of toImportInv) {
+      const date = r[1].replace(/^'/, '');
+      const [sin, bear] = _calcShares(r[4], r[7], r[10]);
+      const link = `=HYPERLINK("https://docs.google.com/spreadsheets/d/${sid}/edit#gid=${invGid}&range=C${rowIndex}","${r[2] || '→'}")`;
+      invMonthlyRows.push([date, r[3]||'', r[4]||'0', '🌟 Star', r[7], r[6]||'', sin, bear, r[8]||'', '發票', link, importedAt]);
+      invMarkRanges.push({ range: `${CONFIG.TABS.INVOICE}!J${rowIndex}`, values: [[true]] });
+      importedInvList.push({ date, amount: parseFloat(String(r[4]).replace(',','')) || 0 });
+    }
+    if (invMonthlyRows.length) {
+      const colA = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
+      const next = (colA.values || []).length + 1;
+      await _update(`${CONFIG.TABS.MONTHLY}!A${next}:L${next + invMonthlyRows.length - 1}`, invMonthlyRows);
+      await _batchUpdate(invMarkRanges);
+      invalidateMonth(ym);
+    }
+    log(`[Step 1] 完成，匯入 ${invMonthlyRows.length} 筆`);
+
+    // ── Step 2: 信用卡明細 → 月度帳本 ─────────────────────────
+    log('[Step 2] 讀取信用卡明細…');
+    const ccRaw  = await _get(`${CONFIG.TABS.CC}!A:K`);
+    const ccRows = (ccRaw.values || []).slice(1);
+
+    // 已匯入發票（含 App 掃描）加入去重清單
+    const allInvDedup = [...importedInvList];
+    invRows.forEach(r => {
+      if ((r[9]==='TRUE'||r[9]==='True') && r[7]!=='x' && r[7]!=='') {
+        const date = (r[1]||'').replace(/^'/,'');
+        const amt  = parseFloat(r[4]) || 0;
+        if (date && amt) allInvDedup.push({ date, amount: amt });
+      }
+    });
+
+    const toImportCC = [];
+    let unresPartial = 0;
+    for (let i = 0; i < ccRows.length; i++) {
+      const r = [...ccRows[i]];
+      while (r.length < 11) r.push('');
+      const date = r[1].replace(/^'/, '');
+      if (!['是','否','-','部分'].includes(r[7])) continue;
+      if (r[10]==='TRUE' || r[10]==='True') continue;
+      if ((r[8]||'').trim()) continue;
+      if (!date.startsWith(ym)) continue;
+      if (r[7] === '部分') {
+        const bearAmt = parseFloat((r[9]||'').replace(',',''));
+        if (isNaN(bearAmt)) { unresPartial++; continue; }
+        toImportCC.push({ rowIndex: i+2, r, bearOverride: bearAmt, date });
+      } else {
+        toImportCC.push({ rowIndex: i+2, r, bearOverride: null, date });
+      }
+    }
+    if (unresPartial) log(`[Step 2] ⚠ ${unresPartial} 筆「部分」備註未填金額，略過`);
+    log(`[Step 2] 待匯入（篩前）${toImportCC.length} 筆`);
+
+    const ccMonthlyRows = [];
+    const ccMarkRanges  = [];
+    let   skippedInv    = 0;
+    for (const { rowIndex, r, bearOverride, date } of toImportCC) {
+      const amt    = parseFloat(r[4]) || 0;
+      const ccDate = new Date(date);
+      const hasDup = allInvDedup.some(({ date: d, amount: a }) =>
+        Math.abs((ccDate - new Date(d)) / 86400000) <= 3 && Math.abs(amt - a) <= 1
+      );
+      if (hasDup) { skippedInv++; continue; }
+      const [sin, bear] = bearOverride !== null
+        ? _calcShares(r[4], '部分', String(bearOverride))
+        : _calcShares(r[4], r[7]);
+      const link = `=HYPERLINK("https://docs.google.com/spreadsheets/d/${sid}/edit#gid=${ccGid}&range=A${rowIndex}","→")`;
+      ccMonthlyRows.push([date, r[3]||'', r[4]||'0', '🌟 Star', r[7], r[6]||'', sin, bear, r[9]||'', '信用卡', link, importedAt]);
+      ccMarkRanges.push({ range: `${CONFIG.TABS.CC}!K${rowIndex}`, values: [[true]] });
+    }
+    log(`[Step 2] 因已有發票略過：${skippedInv} 筆`);
+    if (ccMonthlyRows.length) {
+      const colA = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
+      const next = (colA.values || []).length + 1;
+      await _update(`${CONFIG.TABS.MONTHLY}!A${next}:L${next + ccMonthlyRows.length - 1}`, ccMonthlyRows);
+      await _batchUpdate(ccMarkRanges);
+      invalidateMonth(ym);
+    }
+    log(`[Step 2] 完成，匯入 CC ${ccMonthlyRows.length} 筆`);
+
+    // ── Step 3: 固定月費（房租）────────────────────────────────
+    log('[Step 3] 固定月費…');
+    const abRaw = await _get(`${CONFIG.TABS.MONTHLY}!A:B`);
+    const monthItems = new Set(
+      (abRaw.values||[]).slice(1).filter(r=>(r[0]||'').startsWith(ym)).map(r=>r[1]||'')
+    );
+    const RECURRING = [
+      { day:1, item:'房租', amount:'16500', payer:'🌟 Star', shared:'是', category:'🏠', note:'' },
+    ];
+    for (const e of RECURRING) {
+      if (monthItems.has(e.item)) { log(`[Step 3] ${e.item} 已存在，略過`); continue; }
+      const [sin, bear] = _calcShares(e.amount, e.shared);
+      const date = `${ym}-${String(e.day).padStart(2,'0')}`;
+      const colA = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
+      await _update(`${CONFIG.TABS.MONTHLY}!A${(colA.values||[]).length+1}:L${(colA.values||[]).length+1}`,
+        [[date, e.item, e.amount, e.payer, e.shared, e.category, sin, bear, e.note, '手動記帳', '', importedAt]]);
+      invalidateMonth(ym);
+      log(`[Step 3] 新增 ${e.item}`);
+    }
+
+    // ── Step 4: 交通費提醒列 ─────────────────────────────────
+    log('[Step 4] 交通費提醒列…');
+    const bRaw = await _get(`${CONFIG.TABS.MONTHLY}!B:B`);
+    const transportKey = `交通費 ${ym}`;
+    if (!(bRaw.values||[]).slice(1).some(r=>(r[0]||'').includes(transportKey))) {
+      const lastDay = new Date(year, month, 0).getDate();
+      const colA    = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
+      await _update(`${CONFIG.TABS.MONTHLY}!A${(colA.values||[]).length+1}:L${(colA.values||[]).length+1}`,
+        [[`${ym}-${lastDay}`, `[待填] ${transportKey}`, '', '🌟 Star', '-', '⛽', '', '0', '悠遊卡', '手動記帳', '', '']]);
+      invalidateMonth(ym);
+      log(`[Step 4] 新增 [待填] ${transportKey}`);
+    } else {
+      log('[Step 4] 交通費已存在，略過');
+    }
+
+    return { invoices: invMonthlyRows.length, cc: ccMonthlyRows.length, skippedCC: skippedInv };
+  }
+
   return {
     getMonthlyData, getCreditCardImportStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
@@ -380,5 +565,6 @@ const Sheets = (() => {
     upsertRepayment,
     getCCPendingData, updateCCShared, updateInvoiceShared,
     getCCAllData, linkCCToInvoice,
+    importToMonthly,
   };
 })();

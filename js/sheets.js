@@ -371,6 +371,44 @@ const Sheets = (() => {
     ]);
   }
 
+  // ── 讀商店分類規則 A:C，回傳平台 mapping ──────────────────────
+  // 回傳: { 'UberEats': ['優步福爾摩沙', '優食'], '蝦皮': ['樂購蝦皮'] }
+  async function getRulesData() {
+    try {
+      const data = await _get(`${CONFIG.TABS.RULES}!A:C`);
+      const map = {};
+      (data.values || []).slice(1).forEach(r => {
+        const keyword  = (r[0] || '').trim();
+        const platform = (r[2] || '').trim();
+        if (keyword && platform) {
+          (map[platform] = map[platform] || []).push(keyword);
+        }
+      });
+      return map;
+    } catch {
+      return {};
+    }
+  }
+
+  // ── 平台訂單配對 CC 後寫入月度帳本 ───────────────────────────
+  // sinShare/bearShare 由呼叫端根據品項歸屬 + CC 差額計算
+  async function linkPlatformToCC({ inv, cc, sinShare, bearShare }) {
+    const now = new Date();
+    const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    const invGid     = CONFIG.INVOICE_SHEET_ID;
+    const sourceLink = `=HYPERLINK("#gid=${invGid}&range=C${inv.rowIndex}","${inv.invNum}")`;
+
+    const row = [
+      inv.date, inv.shop, cc.amount,
+      '🌟 Star', inv.shared, inv.category || '',
+      sinShare, bearShare, '',
+      '掃描發票', sourceLink, importedAt,
+    ];
+    await appendMonthlyRow(row);
+    await markInvoiceImported(inv.rowIndex);
+    await linkCCToInvoice(cc.rowIndex, inv.invNum);
+  }
+
   // ── 匯入月度帳本（Step 1–4）──────────────────────────────────
   function _calcShares(amount, shared, bearStr) {
     const amt = parseFloat(String(amount).replace(',', '')) || 0;
@@ -565,6 +603,7 @@ const Sheets = (() => {
     upsertRepayment,
     getCCPendingData, updateCCShared, updateInvoiceShared,
     getCCAllData, linkCCToInvoice,
+    getRulesData, linkPlatformToCC,
     importToMonthly,
   };
 })();

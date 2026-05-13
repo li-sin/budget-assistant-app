@@ -10,12 +10,13 @@ const Pending = (() => {
   // ── 資料收集 ──────────────────────────────────────────────────
 
   async function _collect() {
-    const [monthlyRaw, invoices, items, ccPendingRows, ccAllRows] = await Promise.all([
+    const [monthlyRaw, invoices, items, ccPendingRows, ccAllRows, platformMap] = await Promise.all([
       _getAllMonthly(),
       Sheets.getInvoiceData(),
       Sheets.getItemData(),
       Sheets.getCCPendingData(),
       Sheets.getCCAllData(),
+      Sheets.getRulesData(),
     ]);
 
     const result = [];
@@ -92,6 +93,44 @@ const Pending = (() => {
         });
       });
 
+    // 🟤 平台待配對：備註含平台關鍵字 + 尚未匯入月度帳本（等待 CC 配對）
+    invoices
+      .filter(inv =>
+        inv.carrier === '掃描發票' &&
+        inv.imported !== 'TRUE' &&
+        inv.shared !== 'x' && inv.shared !== '' &&
+        CONFIG.CC_PAY_KEYWORDS.some(kw => inv.note.toLowerCase().includes(kw.toLowerCase()))
+      )
+      .forEach(inv => {
+        const platformKey = Object.keys(platformMap).find(
+          p => inv.note.toLowerCase().includes(p.toLowerCase())
+        ) || CONFIG.CC_PAY_KEYWORDS.find(
+          kw => inv.note.toLowerCase().includes(kw.toLowerCase())
+        ) || '';
+
+        const merchants = platformMap[platformKey] || [];
+        const invDate   = new Date(inv.date);
+        const candidates = ccAllRows
+          .filter(cc => {
+            if (cc.shared === 'x' || cc.matched) return false;
+            const diff = Math.abs((invDate - new Date(cc.txDate)) / 86400000);
+            return diff <= 3 && merchants.some(m => cc.shop.includes(m));
+          })
+          .sort((a, b) =>
+            Math.abs(new Date(a.txDate) - invDate) - Math.abs(new Date(b.txDate) - invDate)
+          );
+
+        result.push({
+          type: 'platform_unlinked',
+          label: '平台待配對',
+          color: '#E17055',
+          inv,
+          invItems: items.filter(it => it.invNum === inv.invNum),
+          platformKey,
+          candidates,
+        });
+      });
+
     // 🔗 掃描/CC配對：掃描發票備註含 CC_PAY_KEYWORDS + 已匯入月度帳本 + 找到尚未連結的 CC 交易
     invoices
       .filter(inv =>
@@ -127,8 +166,8 @@ const Pending = (() => {
         });
       });
 
-    // 排序：🔴 > 🟠 > 🟡 > 🔵 > 🔗 > 🟣
-    const order = { anomaly: 0, duplicate: 1, untagged: 2, cc_pending: 3, scan_cc_dup: 4, inv_pending: 5 };
+    // 排序：🔴 > 🟠 > 🟡 > 🔵 > 🟤 > 🔗 > 🟣
+    const order = { anomaly: 0, duplicate: 1, untagged: 2, cc_pending: 3, platform_unlinked: 4, scan_cc_dup: 5, inv_pending: 6 };
     result.sort((a, b) => order[a.type] - order[b.type]);
     _items = result;
   }
@@ -196,6 +235,10 @@ const Pending = (() => {
           title  = it.inv.shop;
           sub    = it.inv.date;
           amount = it.inv.amount;
+        } else if (it.type === 'platform_unlinked') {
+          title  = it.inv.shop || it.inv.invNum;
+          sub    = `${it.inv.date}　[${it.platformKey}]　${it.candidates.length ? `${it.candidates.length} 筆候選 CC` : '等待 CC 到達'}`;
+          amount = it.inv.amount;
         } else if (it.type === 'scan_cc_dup') {
           title  = it.inv.shop || it.inv.invNum;
           sub    = `${it.inv.date}　↔　${it.cc.bank} ${it.cc.txDate}`;
@@ -261,12 +304,13 @@ const Pending = (() => {
     _buildDetailModal();
     document.getElementById('pending-modal').classList.remove('hidden');
 
-    if (item.type === 'untagged')         _renderUntagged(item);
-    else if (item.type === 'anomaly')     _renderAnomaly(item);
-    else if (item.type === 'duplicate')   _renderDuplicate(item);
-    else if (item.type === 'cc_pending')  _renderCCPending(item);
-    else if (item.type === 'inv_pending') _renderInvoicePending(item);
-    else if (item.type === 'scan_cc_dup') _renderScanCCDup(item);
+    if (item.type === 'untagged')              _renderUntagged(item);
+    else if (item.type === 'anomaly')          _renderAnomaly(item);
+    else if (item.type === 'duplicate')        _renderDuplicate(item);
+    else if (item.type === 'cc_pending')       _renderCCPending(item);
+    else if (item.type === 'platform_unlinked') _renderPlatformUnlinked(item);
+    else if (item.type === 'inv_pending')      _renderInvoicePending(item);
+    else if (item.type === 'scan_cc_dup')      _renderScanCCDup(item);
   }
 
   // ── 🟡 未標記：品項歸屬標記 ──────────────────────────────────
@@ -663,6 +707,118 @@ const Pending = (() => {
     }
 
     _showStep1();
+  }
+
+  // ── 🟤 平台待配對：選擇 CC 明細後計算拆帳並寫入月度帳本 ────────
+
+  function _calcPlatformSplit(invItems, shared, ccAmount) {
+    if (shared === '是') {
+      const sin = Math.floor(ccAmount / 2);
+      return { sinShare: sin, bearShare: ccAmount - sin };
+    }
+    if (shared === '否') return { sinShare: 0, bearShare: ccAmount };
+    if (shared === '-')  return { sinShare: ccAmount, bearShare: 0 };
+    if (shared === '部分') {
+      const invTotal = invItems.reduce((sum, it) => sum + it.itemAmount, 0);
+      const bearFood = invItems.reduce((sum, it) => {
+        const a = it.attribution;
+        if (a === '🐨 Bear' || a === 'Bear') return sum + it.itemAmount;
+        if (a === '共用') return sum + Math.floor(it.itemAmount / 2);
+        return sum;
+      }, 0);
+      const sinFood  = invTotal - bearFood;
+      const diff     = ccAmount - invTotal;
+      const diffSin  = Math.floor(diff / 2);
+      return { sinShare: sinFood + diffSin, bearShare: bearFood + (diff - diffSin) };
+    }
+    return { sinShare: ccAmount, bearShare: 0 };
+  }
+
+  function _renderPlatformUnlinked(item) {
+    const { inv, invItems, platformKey, candidates } = item;
+    document.getElementById('pending-modal-title').textContent = `📦 ${inv.shop || inv.invNum}`;
+
+    let selectedCC = null;
+
+    const itemsHtml = invItems.length && inv.shared === '部分'
+      ? `<div class="section-title" style="margin-top:12px">品項歸屬</div>
+         <div class="sconf-items">
+           ${invItems.map(it => `
+             <div class="sconf-item-row">
+               <span class="sconf-item-name">${it.itemName}</span>
+               <span style="color:#8E8E93;font-size:12px;margin:0 6px">${it.attribution || '—'}</span>
+               <span class="sconf-item-amount">$${it.itemAmount.toLocaleString('zh-TW')}</span>
+             </div>`).join('')}
+         </div>`
+      : `<p style="color:#8E8E93;font-size:14px;margin:8px 0">
+           ${inv.shared === '是' ? 'Sin & Bear 各半' :
+             inv.shared === '否' ? 'Sin 代墊，Bear 全欠' : `個人（${inv.shared}）`}
+         </p>`;
+
+    const ccHtml = candidates.length
+      ? `<div class="section-title" style="margin-top:12px">選擇對應 CC 明細</div>
+         <div id="platform-cc-list">
+           ${candidates.map((cc, i) => `
+             <div class="list-item platform-cc-item" data-i="${i}" style="cursor:pointer;border-radius:8px;margin-bottom:4px">
+               <div class="list-item-body">
+                 <div class="list-item-title">${cc.shop}</div>
+                 <div class="list-item-sub">${cc.bank}　${cc.txDate}</div>
+               </div>
+               <div class="list-item-right amount-expense">${_fmt(cc.amount)}</div>
+             </div>`).join('')}
+         </div>`
+      : `<p style="color:#FF6B6B;font-size:14px;margin:12px 0">
+           ⚠ 找不到對應的 [${platformKey}] CC 明細。<br>
+           CC 帳單可能尚未到達，請月初執行 run_monthly.py 後再回來查看。
+         </p>`;
+
+    document.getElementById('pending-modal-body').innerHTML = `
+      <p class="list-item-sub" style="margin-bottom:4px">
+        ${inv.date}　[${platformKey}]　發票 ${_fmt(inv.amount)}
+      </p>
+      ${itemsHtml}
+      ${ccHtml}
+      <p id="platform-error" class="add-error hidden"></p>
+    `;
+
+    document.getElementById('pending-modal-footer').innerHTML = `
+      <button class="btn-secondary" id="platform-cancel">取消</button>
+      <button class="btn-primary" id="platform-confirm"${candidates.length ? '' : ' disabled'}>確認配對</button>
+    `;
+
+    document.querySelectorAll('.platform-cc-item').forEach(row => {
+      row.addEventListener('click', () => {
+        document.querySelectorAll('.platform-cc-item').forEach(r => r.classList.remove('active'));
+        row.classList.add('active');
+        selectedCC = candidates[parseInt(row.dataset.i)];
+      });
+    });
+
+    document.getElementById('platform-cancel').addEventListener('click', _closeDetail);
+    document.getElementById('platform-confirm').addEventListener('click', async () => {
+      const errEl = document.getElementById('platform-error');
+      if (!selectedCC) {
+        errEl.textContent = '請先選擇對應的 CC 明細';
+        errEl.classList.remove('hidden');
+        return;
+      }
+      const btn = document.getElementById('platform-confirm');
+      btn.disabled    = true;
+      btn.textContent = '處理中…';
+      try {
+        const { sinShare, bearShare } = _calcPlatformSplit(invItems, inv.shared, selectedCC.amount);
+        await Sheets.linkPlatformToCC({ inv, cc: selectedCC, sinShare, bearShare });
+        Sheets.invalidateMonth(inv.date.slice(0, 7));
+        _closeDetail();
+        await _reload();
+        window.Home?.reload();
+      } catch (e) {
+        errEl.textContent = '儲存失敗：' + e.message;
+        errEl.classList.remove('hidden');
+        btn.disabled    = false;
+        btn.textContent = '確認配對';
+      }
+    });
   }
 
   // ── 🔗 掃描/CC配對：確認配對或標記非重複 ─────────────────────

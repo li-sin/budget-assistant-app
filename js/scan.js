@@ -417,6 +417,14 @@ const Scan = (() => {
       alert(`發票 ${invNum} 已寫入，可至待處理頁面填寫歸屬後匯入。`);
     });
 
+    // 偵測平台訂單（備註含 CC_PAY_KEYWORDS）
+    const isPlatformOrder = CONFIG.CC_PAY_KEYWORDS.some(
+      kw => note.toLowerCase().includes(kw.toLowerCase())
+    );
+    if (isPlatformOrder && shared !== 'x') {
+      document.getElementById('sattr-submit').textContent = '確認（待 CC 配對）';
+    }
+
     document.getElementById('sattr-submit').addEventListener('click', async () => {
       const errEl = document.getElementById('sattr-error');
       errEl.classList.add('hidden');
@@ -433,9 +441,22 @@ const Scan = (() => {
 
       const btn = document.getElementById('sattr-submit');
       btn.disabled    = true;
-      btn.textContent = '匯入中…';
+      btn.textContent = isPlatformOrder && shared !== 'x' ? '儲存中…' : '匯入中…';
 
       try {
+        // 平台訂單：只存品項歸屬，不寫月度帳本，等待 CC 配對
+        if (isPlatformOrder && shared !== 'x') {
+          if (needsAttribution && firstItemRow != null) {
+            for (let idx = 0; idx < items.length; idx++) {
+              await Sheets.updateItemRow(firstItemRow + idx, itemOwners[idx]);
+            }
+          }
+          _closeAttribution();
+          alert(`✓ 品項已儲存\n請至「待處理」頁面選擇對應 CC 明細後匯入帳本`);
+          return;
+        }
+
+        // 一般訂單：計算分攤後直接寫入月度帳本
         let sinShare, bearShare;
 
         if (shared === '是') {
@@ -448,7 +469,6 @@ const Scan = (() => {
           sinShare  = total;
           bearShare = 0;
         } else if (shared === '部分') {
-          // 逐項加總
           bearShare = items.reduce((sum, it, idx) => {
             const owner = itemOwners[idx];
             if (owner === '🐨 Bear') return sum + it.amount;
@@ -457,7 +477,6 @@ const Scan = (() => {
           }, 0);
           sinShare = total - bearShare;
 
-          // 更新品項明細 G 欄歸屬（用寫入時取得的起始列號）
           if (firstItemRow != null) {
             for (let idx = 0; idx < items.length; idx++) {
               await Sheets.updateItemRow(firstItemRow + idx, itemOwners[idx]);
@@ -473,7 +492,7 @@ const Scan = (() => {
         errEl.textContent = '匯入失敗：' + e.message;
         errEl.classList.remove('hidden');
         btn.disabled    = false;
-        btn.textContent = '確認匯入';
+        btn.textContent = isPlatformOrder && shared !== 'x' ? '確認（待 CC 配對）' : '確認匯入';
       }
     });
   }

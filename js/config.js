@@ -1,5 +1,5 @@
 const CONFIG = {
-  APP_VERSION: '3.7.5',
+  APP_VERSION: '3.7.6',
   CLIENT_ID: '320535010458-j5ud52freto8277f0qp0lr4919b86br4.apps.googleusercontent.com',
   SHEET_ID: '1T2G8leVwJ8EES1GzEcL1bD_NLHe46ylmPPijc-VoKmo',
   SCOPES: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email',
@@ -14,6 +14,7 @@ const CONFIG = {
     CC:         '信用卡明細',
     INVOICE:    '發票明細',
     ITEMS:      '品項明細',
+    RULES:      '商店分類規則',
   },
   SETTLEMENT_CELL: 'D3',  // 淨額 = B3(Bear欠Sin) - C3(Sin欠Bear)
   MONTHLY_SHEET_ID: 1410303165,   // 月度帳本工作表的數字 ID（從 Sheets URL #gid= 取得）

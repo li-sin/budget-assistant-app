@@ -9,7 +9,7 @@ const Ledger = (() => {
   let _sharedSelected = new Set(); // empty = 全部
   let _catFilter      = '';
   let _sourceFilter   = ''; // '' = 全部
-  let _sortMode       = 'date-desc'; // date-desc | date-asc | import-desc | amount-desc
+  let _sortMode       = 'date-desc'; // date-desc | date-asc | import-desc | import-asc | amount-desc | amount-asc
   let _allRows        = [];
   let _pendingFilter  = null;
   let _itemsCache    = null;
@@ -47,7 +47,9 @@ const Ledger = (() => {
       switch (_sortMode) {
         case 'date-asc':    return a.date.localeCompare(b.date);
         case 'import-desc': return (b.importedAt || '').localeCompare(a.importedAt || '');
+        case 'import-asc':  return (a.importedAt || '').localeCompare(b.importedAt || '');
         case 'amount-desc': return b.amount - a.amount;
+        case 'amount-asc':  return a.amount - b.amount;
         default:            return b.date.localeCompare(a.date); // date-desc
       }
     });
@@ -450,7 +452,9 @@ const Ledger = (() => {
             <option value="date-desc">交易時間 ↓</option>
             <option value="date-asc">交易時間 ↑</option>
             <option value="import-desc">匯入時間 ↓</option>
+            <option value="import-asc">匯入時間 ↑</option>
             <option value="amount-desc">金額高→低</option>
+            <option value="amount-asc">金額低→高</option>
           </select>
           <span id="ledger-count" class="ledger-count"></span>
         </div>

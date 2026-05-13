@@ -8,6 +8,7 @@ const Ledger = (() => {
   let _memberFilter   = 'all';
   let _sharedSelected = new Set(); // empty = 全部
   let _catFilter      = '';
+  let _sourceFilter   = ''; // '' = 全部
   let _sortMode       = 'date-desc'; // date-desc | date-asc | import-desc | amount-desc
   let _allRows        = [];
   let _pendingFilter  = null;
@@ -41,6 +42,7 @@ const Ledger = (() => {
     if (_memberFilter === 'bear')   rows = rows.filter(r => r.bearShare > 0);
     if (_sharedSelected.size > 0) rows = rows.filter(r => _sharedSelected.has(r.shared));
     if (_catFilter)                 rows = rows.filter(r => r.category === _catFilter);
+    if (_sourceFilter)              rows = rows.filter(r => r.source === _sourceFilter);
     return [...rows].sort((a, b) => {
       switch (_sortMode) {
         case 'date-asc':    return a.date.localeCompare(b.date);
@@ -154,11 +156,14 @@ const Ledger = (() => {
     _memberFilter   = 'all';
     _sharedSelected = new Set();
     _catFilter      = '';
+    _sourceFilter   = '';
     _sortMode       = 'date-desc';
     document.querySelectorAll('#tab-ledger .chip[data-member]')
       .forEach(b => b.classList.toggle('active', b.dataset.member === 'all'));
     document.querySelectorAll('#tab-ledger .chip[data-shared-filter]')
       .forEach(b => b.classList.toggle('active', b.dataset.sharedFilter === 'all'));
+    document.querySelectorAll('#tab-ledger .chip[data-source-filter]')
+      .forEach(b => b.classList.toggle('active', b.dataset.sourceFilter === ''));
     const sel = document.getElementById('ledger-cat');
     if (sel) sel.value = '';
     const sort = document.getElementById('ledger-sort');
@@ -348,6 +353,7 @@ const Ledger = (() => {
       .forEach(b => b.classList.toggle('active', b.dataset.shared === _editShared));
 
     document.getElementById('edit-modal').classList.remove('hidden');
+    NoteChips.render('edit-note');
   }
 
   function _closeEdit() {
@@ -429,6 +435,13 @@ const Ledger = (() => {
           <button class="chip" data-shared-filter="否">否</button>
           <button class="chip" data-shared-filter="-">-</button>
         </div>
+        <div class="chip-row" id="ledger-source-chips">
+          <button class="chip active" data-source-filter="">全部來源</button>
+          <button class="chip" data-source-filter="信用卡">💳 信用卡</button>
+          <button class="chip" data-source-filter="發票">🧾 發票</button>
+          <button class="chip" data-source-filter="掃描發票">📷 掃描</button>
+          <button class="chip" data-source-filter="手動記帳">✏️ 手動</button>
+        </div>
         <div class="filter-row">
           <select id="ledger-cat" class="cat-select">
             <option value="">全部類別</option>
@@ -495,6 +508,16 @@ const Ledger = (() => {
             chips.forEach(b => b.classList.toggle('active', _sharedSelected.has(b.dataset.sharedFilter)));
           }
         }
+        _renderList();
+      });
+    });
+
+    document.querySelectorAll('#tab-ledger .chip[data-source-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#tab-ledger .chip[data-source-filter]')
+          .forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        _sourceFilter = btn.dataset.sourceFilter;
         _renderList();
       });
     });

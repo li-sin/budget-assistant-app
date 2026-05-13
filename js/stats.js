@@ -231,7 +231,6 @@ const Stats = (() => {
             <button class="chip active" data-mode="month">本月</button>
             <button class="chip" data-mode="year">本年</button>
           </div>
-          <button class="settings-gear-btn" id="stats-settings-btn" title="設定">⚙️</button>
         </div>
         <div class="stats-filter-bar">
           <div class="chip-row">
@@ -250,10 +249,6 @@ const Stats = (() => {
       <div class="card stats-chart-card" id="stats-chart"></div>
       <div class="card stats-legend-card" id="stats-legend"></div>
     `;
-
-    document.getElementById('stats-settings-btn').addEventListener('click', () => {
-      window.Settings?.open();
-    });
 
     document.querySelectorAll('#tab-stats .chip[data-mode]').forEach(btn => {
       btn.addEventListener('click', () => {

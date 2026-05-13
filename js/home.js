@@ -278,6 +278,7 @@ const Home = (() => {
         <span id="home-month"></span>
         <button class="month-btn" id="home-next">▶</button>
         <button class="month-btn refresh-btn" id="home-refresh" title="重新載入">↺</button>
+        <button class="settings-gear-btn" id="home-settings-btn" title="設定">⚙️</button>
       </div>
 
       <div class="card summary-card">
@@ -322,6 +323,9 @@ const Home = (() => {
     document.getElementById('home-refresh').addEventListener('click', () => {
       Sheets.invalidateMonth(_ym());
       _load();
+    });
+    document.getElementById('home-settings-btn').addEventListener('click', () => {
+      window.Settings?.open();
     });
     document.querySelectorAll('.share-item-clickable').forEach(el => {
       el.addEventListener('click', () => window.Ledger?.jumpTo({ member: el.dataset.member }));

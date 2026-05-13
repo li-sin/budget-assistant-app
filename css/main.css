@@ -59,9 +59,19 @@ main#content {
   #screen-app {
     padding-top: env(safe-area-inset-top);
   }
+  /* Nav bar 上移 safe-area-inset-bottom，保持原本 60px 高度讓 icons 居中正確 */
   #bottom-nav {
-    height: calc(var(--nav-h) + env(safe-area-inset-bottom));
-    padding-bottom: env(safe-area-inset-bottom);
+    bottom: env(safe-area-inset-bottom);
+  }
+  /* ::before 填滿 nav bar 下方至螢幕底部（home indicator 區域）*/
+  #bottom-nav::before {
+    content: '';
+    position: absolute;
+    bottom: calc(-1 * env(safe-area-inset-bottom));
+    left: 0;
+    right: 0;
+    height: env(safe-area-inset-bottom);
+    background: var(--bg-card);
   }
   .tab-content {
     padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 16px);

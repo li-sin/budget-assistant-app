@@ -248,6 +248,7 @@
   outline: none;
 }
 .field-input:focus { border-color: var(--teal); }
+select.field-input { height: 44px; }
 
 .amount-wrap { position: relative; }
 .amount-prefix {

@@ -422,7 +422,7 @@ const Sheets = (() => {
     for (let i = 0; i < invRows.length; i++) {
       const r = [...invRows[i]];
       while (r.length < 11) r.push('');
-      const date = r[1].replace(/^'/, '');
+      const date = r[1].replace(/^'/, '').replace(/\//g, '-');
       if (r[5] === '作廢') continue;
       if (!['是','否','部分','-'].includes(r[7])) continue;
       if (r[9] === 'TRUE' || r[9] === 'True') continue;
@@ -475,7 +475,7 @@ const Sheets = (() => {
     for (let i = 0; i < ccRows.length; i++) {
       const r = [...ccRows[i]];
       while (r.length < 11) r.push('');
-      const date = r[1].replace(/^'/, '');
+      const date = r[1].replace(/^'/, '').replace(/\//g, '-');
       if (!['是','否','-','部分'].includes(r[7])) continue;
       if (r[10]==='TRUE' || r[10]==='True') continue;
       if ((r[8]||'').trim()) continue;

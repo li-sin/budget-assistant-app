@@ -346,6 +346,31 @@ const Sheets = (() => {
     await _update(`${CONFIG.TABS.INVOICE}!H${rowIndex}`, [[shared]]);
   }
 
+  // ── 取得全部信用卡明細（掃描/CC 配對用）────────────────────────
+  async function getCCAllData() {
+    const data = await _get(`${CONFIG.TABS.CC}!A:J`);
+    return (data.values || []).slice(1)
+      .map((r, i) => ({
+        rowIndex: i + 2,
+        bank:    r[0] || '',
+        txDate:  _normalizeDate(r[1]),
+        shop:    r[3] || '',
+        amount:  parseFloat(r[4]) || 0,
+        shared:  r[7] || '',
+        matched: r[8] || '',  // I欄：已記帳（有值=已連結發票）
+        note:    r[9] || '',
+      }))
+      .filter(r => r.amount > 0 && r.txDate);
+  }
+
+  // ── 將信用卡明細連結至掃描發票（H='x', I=發票號碼）──────────────
+  async function linkCCToInvoice(ccRowIndex, invNum) {
+    await _batchUpdate([
+      { range: `${CONFIG.TABS.CC}!H${ccRowIndex}`, values: [['x']] },
+      { range: `${CONFIG.TABS.CC}!I${ccRowIndex}`, values: [[invNum]] },
+    ]);
+  }
+
   return {
     getMonthlyData, getCreditCardImportStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
@@ -354,5 +379,6 @@ const Sheets = (() => {
     markInvoiceImported, appendMonthlyFromScan,
     upsertRepayment,
     getCCPendingData, updateCCShared, updateInvoiceShared,
+    getCCAllData, linkCCToInvoice,
   };
 })();

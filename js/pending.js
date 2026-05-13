@@ -10,11 +10,12 @@ const Pending = (() => {
   // ── 資料收集 ──────────────────────────────────────────────────
 
   async function _collect() {
-    const [monthlyRaw, invoices, items, ccPendingRows] = await Promise.all([
+    const [monthlyRaw, invoices, items, ccPendingRows, ccAllRows] = await Promise.all([
       _getAllMonthly(),
       Sheets.getInvoiceData(),
       Sheets.getItemData(),
       Sheets.getCCPendingData(),
+      Sheets.getCCAllData(),
     ]);
 
     const result = [];
@@ -91,8 +92,43 @@ const Pending = (() => {
         });
       });
 
-    // 排序：🔴 > 🟠 > 🟡 > 🔵 > 🟣
-    const order = { anomaly: 0, duplicate: 1, untagged: 2, cc_pending: 3, inv_pending: 4 };
+    // 🔗 掃描/CC配對：掃描發票備註含 CC_PAY_KEYWORDS + 已匯入月度帳本 + 找到尚未連結的 CC 交易
+    invoices
+      .filter(inv =>
+        inv.carrier === '掃描發票' &&
+        inv.imported === 'TRUE' &&
+        inv.shared !== 'x' && inv.shared !== '' &&
+        CONFIG.CC_PAY_KEYWORDS.some(kw => inv.note.toLowerCase().includes(kw))
+      )
+      .forEach(inv => {
+        const invDate = new Date(inv.date);
+        const isShopee = inv.note.toLowerCase().includes('蝦皮');
+        const dayRange = isShopee ? 10 : 3;
+
+        const matched = ccAllRows.filter(cc => {
+          if (cc.shared === 'x' || cc.matched) return false;
+          const ccDate = new Date(cc.txDate);
+          const diff = Math.abs((invDate - ccDate) / 86400000);
+          return diff <= dayRange && Math.abs(cc.amount - inv.amount) <= 1;
+        });
+        if (!matched.length) return;
+
+        const bestCC = matched.sort((a, b) =>
+          Math.abs(new Date(a.txDate) - invDate) - Math.abs(new Date(b.txDate) - invDate)
+        )[0];
+
+        result.push({
+          type: 'scan_cc_dup',
+          label: '掃描/CC配對',
+          color: '#17B897',
+          inv,
+          cc: bestCC,
+          invItems: items.filter(it => it.invNum === inv.invNum),
+        });
+      });
+
+    // 排序：🔴 > 🟠 > 🟡 > 🔵 > 🔗 > 🟣
+    const order = { anomaly: 0, duplicate: 1, untagged: 2, cc_pending: 3, scan_cc_dup: 4, inv_pending: 5 };
     result.sort((a, b) => order[a.type] - order[b.type]);
     _items = result;
   }
@@ -160,6 +196,10 @@ const Pending = (() => {
           title  = it.inv.shop;
           sub    = it.inv.date;
           amount = it.inv.amount;
+        } else if (it.type === 'scan_cc_dup') {
+          title  = it.inv.shop || it.inv.invNum;
+          sub    = `${it.inv.date}　↔　${it.cc.bank} ${it.cc.txDate}`;
+          amount = it.inv.amount;
         } else {
           title  = it.row.item || '（未命名）';
           sub    = it.row.date;
@@ -221,11 +261,12 @@ const Pending = (() => {
     _buildDetailModal();
     document.getElementById('pending-modal').classList.remove('hidden');
 
-    if (item.type === 'untagged')       _renderUntagged(item);
-    else if (item.type === 'anomaly')   _renderAnomaly(item);
-    else if (item.type === 'duplicate') _renderDuplicate(item);
+    if (item.type === 'untagged')         _renderUntagged(item);
+    else if (item.type === 'anomaly')     _renderAnomaly(item);
+    else if (item.type === 'duplicate')   _renderDuplicate(item);
     else if (item.type === 'cc_pending')  _renderCCPending(item);
     else if (item.type === 'inv_pending') _renderInvoicePending(item);
+    else if (item.type === 'scan_cc_dup') _renderScanCCDup(item);
   }
 
   // ── 🟡 未標記：品項歸屬標記 ──────────────────────────────────
@@ -622,6 +663,59 @@ const Pending = (() => {
     }
 
     _showStep1();
+  }
+
+  // ── 🔗 掃描/CC配對：確認配對或標記非重複 ─────────────────────
+
+  function _renderScanCCDup(item) {
+    const { inv, cc } = item;
+    document.getElementById('pending-modal-title').textContent = `🔗 ${inv.shop || inv.invNum}`;
+
+    document.getElementById('pending-modal-body').innerHTML = `
+      <p class="list-item-sub" style="margin-bottom:12px">
+        掃描發票已記入月度帳本，偵測到可能重複的信用卡交易
+      </p>
+      <div class="card" style="margin-bottom:8px">
+        <div class="settings-row">
+          <span class="settings-label">📷 掃描發票</span>
+        </div>
+        <div class="list-item-title">${inv.shop || inv.invNum}</div>
+        <div class="list-item-sub">${inv.date}　${_fmt(inv.amount)}　備註：${inv.note}</div>
+      </div>
+      <div class="card" style="margin-bottom:8px">
+        <div class="settings-row">
+          <span class="settings-label">💳 信用卡明細</span>
+        </div>
+        <div class="list-item-title">${cc.shop}</div>
+        <div class="list-item-sub">${cc.bank}　${cc.txDate}　${_fmt(cc.amount)}</div>
+      </div>
+      <p style="color:#8E8E93;font-size:13px;margin-top:8px">
+        確認配對後，信用卡這筆將標為「x 跳過」，不會被腳本重複匯入月度帳本。
+      </p>
+      <p id="scd-error" class="add-error hidden"></p>
+    `;
+
+    document.getElementById('pending-modal-footer').innerHTML = `
+      <button class="btn-secondary" id="scd-not-dup">非重複</button>
+      <button class="btn-primary" id="scd-confirm">確認配對</button>
+    `;
+
+    document.getElementById('scd-not-dup').addEventListener('click', _closeDetail);
+    document.getElementById('scd-confirm').addEventListener('click', async () => {
+      const btn = document.getElementById('scd-confirm');
+      btn.disabled = true;
+      btn.textContent = '儲存中…';
+      try {
+        await Sheets.linkCCToInvoice(cc.rowIndex, inv.invNum);
+        _closeDetail();
+        await _reload();
+      } catch (e) {
+        document.getElementById('scd-error').textContent = '儲存失敗：' + e.message;
+        document.getElementById('scd-error').classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = '確認配對';
+      }
+    });
   }
 
   // ── 載入 ─────────────────────────────────────────────────────

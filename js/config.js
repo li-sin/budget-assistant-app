@@ -1,5 +1,5 @@
 const CONFIG = {
-  APP_VERSION: '3.7.0',
+  APP_VERSION: '3.7.1',
   CLIENT_ID: '320535010458-j5ud52freto8277f0qp0lr4919b86br4.apps.googleusercontent.com',
   SHEET_ID: '1T2G8leVwJ8EES1GzEcL1bD_NLHe46ylmPPijc-VoKmo',
   SCOPES: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email',
@@ -20,4 +20,6 @@ const CONFIG = {
   INVOICE_SHEET_ID: 1016861424,   // 發票明細
   ITEMS_SHEET_ID:   3922285,      // 品項明細
   DEFAULT_NOTE_CHIPS: ['UberEats', '蝦皮'],
+  // 掃描發票備註含以下關鍵字時，視為信用卡付款平台，自動比對信用卡明細
+  CC_PAY_KEYWORDS: ['ubereats', '蝦皮'],
 };

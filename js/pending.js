@@ -1,5 +1,7 @@
 const Pending = (() => {
-  let _items = [];  // { type, label, color, row/invoice/... }
+  let _items     = [];  // { type, label, color, row/invoice/... }
+  let _bankFilter = '';  // '' = 全部；有值時只顯示 cc_pending 且 cc.bank === _bankFilter
+  let _jumpBank   = null; // jumpTo 暫存，等 activate/init 時套用
 
   function _fmt(n) {
     return '$' + Math.abs(n).toLocaleString('zh-TW');
@@ -126,47 +128,65 @@ const Pending = (() => {
 
   function _renderList() {
     const el = document.getElementById('pending-list');
-    document.getElementById('pending-count').textContent = `${_items.length} 項`;
+    const items = _bankFilter
+      ? _items.filter(it => it.type === 'cc_pending' && it.cc.bank === _bankFilter)
+      : _items;
 
-    if (!_items.length) {
-      el.innerHTML = '<div class="empty-state"><span>✅</span><p>沒有待處理項目</p></div>';
-      return;
+    document.getElementById('pending-count').textContent = `${items.length} 項`;
+
+    let html = '';
+    if (_bankFilter) {
+      html += `<div class="list-item" style="gap:8px;padding:8px 12px;align-items:center">
+        <span class="pending-badge" style="background:#4B9FE122;color:#4B9FE1">🔵 ${_bankFilter}</span>
+        <span class="list-item-sub" style="flex:1">信用卡待填</span>
+        <button id="pending-clear-filter" class="month-btn" style="font-size:12px;padding:2px 8px">✕</button>
+      </div>`;
     }
 
-    el.innerHTML = _items.map((it, idx) => {
-      let title, sub, amount;
-      if (it.type === 'untagged') {
-        title  = it.shop;
-        sub    = it.date;
-        amount = it.amount;
-      } else if (it.type === 'cc_pending') {
-        title  = it.cc.shop;
-        sub    = `${it.cc.bank}　${it.cc.txDate}`;
-        amount = it.cc.amount;
-      } else if (it.type === 'inv_pending') {
-        title  = it.inv.shop;
-        sub    = it.inv.date;
-        amount = it.inv.amount;
-      } else {
-        title  = it.row.item || '（未命名）';
-        sub    = it.row.date;
-        amount = it.row.amount;
-      }
-      return `
-        <div class="list-item pending-item" data-idx="${idx}" style="cursor:pointer">
-          <span class="pending-badge" style="background:${it.color}22;color:${it.color}">${it.label}</span>
-          <div class="list-item-body">
-            <div class="list-item-title">${title}</div>
-            <div class="list-item-sub">${sub}</div>
-          </div>
-          <div class="list-item-right amount-expense">${_fmt(amount)}</div>
-        </div>`;
-    }).join('');
+    if (!items.length) {
+      html += '<div class="empty-state"><span>✅</span><p>沒有待處理項目</p></div>';
+    } else {
+      html += items.map((it, idx) => {
+        let title, sub, amount;
+        if (it.type === 'untagged') {
+          title  = it.shop;
+          sub    = it.date;
+          amount = it.amount;
+        } else if (it.type === 'cc_pending') {
+          title  = it.cc.shop;
+          sub    = `${it.cc.bank}　${it.cc.txDate}`;
+          amount = it.cc.amount;
+        } else if (it.type === 'inv_pending') {
+          title  = it.inv.shop;
+          sub    = it.inv.date;
+          amount = it.inv.amount;
+        } else {
+          title  = it.row.item || '（未命名）';
+          sub    = it.row.date;
+          amount = it.row.amount;
+        }
+        return `
+          <div class="list-item pending-item" data-idx="${idx}" style="cursor:pointer">
+            <span class="pending-badge" style="background:${it.color}22;color:${it.color}">${it.label}</span>
+            <div class="list-item-body">
+              <div class="list-item-title">${title}</div>
+              <div class="list-item-sub">${sub}</div>
+            </div>
+            <div class="list-item-right amount-expense">${_fmt(amount)}</div>
+          </div>`;
+      }).join('');
+    }
+    el.innerHTML = html;
+
+    document.getElementById('pending-clear-filter')?.addEventListener('click', () => {
+      _bankFilter = '';
+      _renderList();
+    });
 
     el.querySelectorAll('.pending-item').forEach(row => {
       row.addEventListener('click', () => {
         const idx = parseInt(row.dataset.idx, 10);
-        _openDetail(_items[idx]);
+        _openDetail(items[idx]);
       });
     });
   }
@@ -632,12 +652,29 @@ const Pending = (() => {
     document.getElementById('pending-refresh').addEventListener('click', _reload);
   }
 
+  function jumpTo({ bank } = {}) {
+    _jumpBank = bank || '';
+    Router.navigate('pending');
+  }
+
+  function activate() {
+    if (_jumpBank !== null) {
+      _bankFilter = _jumpBank;
+      _jumpBank   = null;
+      _reload();
+    }
+  }
+
   function init() {
     _buildShell();
+    if (_jumpBank !== null) {
+      _bankFilter = _jumpBank;
+      _jumpBank   = null;
+    }
     _reload();
   }
 
-  return { init, reload: _reload };
+  return { init, reload: _reload, activate, jumpTo };
 })();
 
 window.Pending = Pending;

@@ -86,6 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.Home     = Home;
     window.Ledger   = Ledger;
+    window.Pending  = Pending;
     window.Settings = Settings;
 
     // 初始化首頁

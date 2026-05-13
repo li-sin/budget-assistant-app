@@ -41,7 +41,7 @@ const Settings = (() => {
 
   function _renderCardStatus(rows) {
     return rows.map(({ bank, count }) => `
-      <div class="settings-bank-row">
+      <div class="settings-bank-row" data-bank="${bank}" style="cursor:pointer">
         <span class="settings-bank-name">${bank}</span>
         <span class="settings-bank-val ${count ? '' : 'settings-bank-empty'}">
           ${count ? `${count} 筆` : '未到'}
@@ -59,6 +59,12 @@ const Settings = (() => {
     el.innerHTML = '<div class="settings-bank-loading">讀取中…</div>';
     try {
       el.innerHTML = _renderCardStatus(await Sheets.getCreditCardImportStatus(year, month));
+      el.querySelectorAll('.settings-bank-row[data-bank]').forEach(row => {
+        row.addEventListener('click', () => {
+          Settings.close();
+          window.Pending?.jumpTo({ bank: row.dataset.bank });
+        });
+      });
     } catch (e) {
       if (e.message !== 'auth_expired') {
         el.innerHTML = '<div class="settings-bank-loading">讀取失敗</div>';

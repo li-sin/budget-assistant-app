@@ -357,7 +357,8 @@ const Scan = (() => {
 
     // 是/否/-/x 不需填品項歸屬，直接顯示摘要並提供匯入/略過
     const needsAttribution = shared === '部分';
-    const itemOwners = {};  // invNum+idx → '🌟 Sin'|'🐨 Bear'|'共用'
+    const itemOwners = {};       // idx → '🌟 Sin'|'🐨 Bear'|'共用'|'部分'
+    const itemCustomAmounts = {}; // idx → Bear 負擔金額（僅 '部分' 時有效）
 
     const itemRows = needsAttribution && items.length
       ? items.map((it, idx) => `
@@ -368,6 +369,15 @@ const Scan = (() => {
             <button class="chip attr-owner${itemOwners[idx] === '🌟 Sin' ? ' active' : ''}" data-owner="🌟 Sin">🌟 Sin</button>
             <button class="chip attr-owner${itemOwners[idx] === '🐨 Bear' ? ' active' : ''}" data-owner="🐨 Bear">🐨 Bear</button>
             <button class="chip attr-owner${itemOwners[idx] === '共用' ? ' active' : ''}" data-owner="共用">共用</button>
+            <button class="chip attr-owner${itemOwners[idx] === '部分' ? ' active' : ''}" data-owner="部分">部分</button>
+          </div>
+          <div class="partial-bear-wrap hidden" id="partial-wrap-${idx}">
+            <div class="amount-wrap" style="margin-top:6px">
+              <span class="amount-prefix">$</span>
+              <input type="number" id="partial-input-${idx}" class="field-input amount-input partial-bear-input"
+                     data-idx="${idx}" value="" min="0" step="1" inputmode="decimal"
+                     placeholder="Bear 負擔">
+            </div>
           </div>
         </div>`).join('')
       : `<p style="color:#8E8E93;font-size:14px;margin:8px 0">
@@ -405,9 +415,20 @@ const Scan = (() => {
     el.querySelectorAll('.attr-owner').forEach(btn => {
       btn.addEventListener('click', () => {
         const row = btn.closest('.attr-item-row');
+        const idx = parseInt(row.dataset.idx);
         row.querySelectorAll('.attr-owner').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        itemOwners[parseInt(row.dataset.idx)] = btn.dataset.owner;
+        itemOwners[idx] = btn.dataset.owner;
+        const wrapEl = document.getElementById(`partial-wrap-${idx}`);
+        if (wrapEl) wrapEl.classList.toggle('hidden', itemOwners[idx] !== '部分');
+        if (itemOwners[idx] !== '部分') delete itemCustomAmounts[idx];
+      });
+    });
+
+    // 部分金額輸入
+    el.querySelectorAll('.partial-bear-input').forEach(input => {
+      input.addEventListener('input', () => {
+        itemCustomAmounts[parseInt(input.dataset.idx)] = parseFloat(input.value);
       });
     });
 
@@ -437,6 +458,12 @@ const Scan = (() => {
           errEl.classList.remove('hidden');
           return;
         }
+        const missingPartial = items.some((_, idx) => itemOwners[idx] === '部分' && !(itemCustomAmounts[idx] >= 0));
+        if (missingPartial) {
+          errEl.textContent = '請填入「部分」品項的 Bear 負擔金額';
+          errEl.classList.remove('hidden');
+          return;
+        }
       }
 
       const btn = document.getElementById('sattr-submit');
@@ -448,7 +475,8 @@ const Scan = (() => {
         if (isPlatformOrder && shared !== 'x') {
           if (needsAttribution && firstItemRow != null) {
             for (let idx = 0; idx < items.length; idx++) {
-              await Sheets.updateItemRow(firstItemRow + idx, itemOwners[idx]);
+              const isPartial = itemOwners[idx] === '部分';
+              await Sheets.updateItemRow(firstItemRow + idx, isPartial ? '共用' : itemOwners[idx], isPartial ? (itemCustomAmounts[idx] || 0) : null);
             }
           }
           _closeAttribution();
@@ -473,13 +501,15 @@ const Scan = (() => {
             const owner = itemOwners[idx];
             if (owner === '🐨 Bear') return sum + it.amount;
             if (owner === '共用')    return sum + Math.floor(it.amount / 2);
+            if (owner === '部分')    return sum + (itemCustomAmounts[idx] || 0);
             return sum;
           }, 0);
           sinShare = total - bearShare;
 
           if (firstItemRow != null) {
             for (let idx = 0; idx < items.length; idx++) {
-              await Sheets.updateItemRow(firstItemRow + idx, itemOwners[idx]);
+              const isPartial = itemOwners[idx] === '部分';
+              await Sheets.updateItemRow(firstItemRow + idx, isPartial ? '共用' : itemOwners[idx], isPartial ? (itemCustomAmounts[idx] || 0) : null);
             }
           }
         }

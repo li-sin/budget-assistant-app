@@ -23,6 +23,9 @@ html, body {
 
 #app { height: 100%; display: flex; flex-direction: column; }
 
+/* ── Utility ────────────────────────────────────── */
+.hidden { display: none; }
+
 /* ── Screens ───────────────────────────────────── */
 .screen { display: flex; flex-direction: column; flex: 1; }
 .screen.hidden { display: none; }

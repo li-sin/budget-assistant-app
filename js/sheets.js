@@ -261,8 +261,8 @@ const Sheets = (() => {
   }
 
   // ── 掃描發票直接匯入月度帳本 ────────────────────────────
-  // shared: 是/否/-/x；sinShare/bearShare 由呼叫端計算
-  async function appendMonthlyFromScan({ date, shop, amount, shared, category, note, invNum, invRowIndex }) {
+  // shared: 是/否/部分/-/x；部分時需傳 sinShare/bearShare
+  async function appendMonthlyFromScan({ date, shop, amount, shared, category, note, invNum, invRowIndex, sinShare, bearShare }) {
     const now        = new Date();
     const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
     const invGid     = CONFIG.INVOICE_SHEET_ID;
@@ -274,11 +274,15 @@ const Sheets = (() => {
     const nextRow = lastRow + 1;
     const tab     = CONFIG.TABS.MONTHLY;
 
-    // G/H 欄不寫，保留公式自動計算；分兩段：A~F 和 I~L
-    await _batchUpdate([
+    const updates = [
       { range: `${tab}!A${nextRow}:F${nextRow}`, values: [[date, shop, amount, '🌟 Star', shared, category]] },
       { range: `${tab}!I${nextRow}:L${nextRow}`, values: [[note, '掃描發票', sourceLink, importedAt]] },
-    ]);
+    ];
+    // 部分共用：公式無法計算品項分攤，需明確寫入 G/H
+    if (shared === '部分' && sinShare != null && bearShare != null) {
+      updates.push({ range: `${tab}!G${nextRow}:H${nextRow}`, values: [[sinShare, bearShare]] });
+    }
+    await _batchUpdate(updates);
 
     const ym = (date || '').slice(0, 7);
     if (ym) invalidateMonth(ym);

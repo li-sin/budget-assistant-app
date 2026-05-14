@@ -216,9 +216,11 @@ const Sheets = (() => {
     return (data.values || []).slice(1).map((r, i) => _parseItemRow(r, i + 2));
   }
 
-  async function updateItemRow(rowIndex, attribution) {
-    const range = `${CONFIG.TABS.ITEMS}!G${rowIndex}`;
-    await _update(range, [[attribution]]);
+  async function updateItemRow(rowIndex, attribution, customBearAmount = null) {
+    await _update(`${CONFIG.TABS.ITEMS}!G${rowIndex}`, [[attribution]]);
+    if (customBearAmount !== null) {
+      await _update(`${CONFIG.TABS.ITEMS}!I${rowIndex}`, [[customBearAmount]]);
+    }
   }
 
   // ── 新增發票明細列（掃描發票用）──────────────────────

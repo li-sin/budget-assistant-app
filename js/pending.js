@@ -317,22 +317,44 @@ const Pending = (() => {
 
   function _renderUntagged(item) {
     document.getElementById('pending-modal-title').textContent = `📋 ${item.shop}`;
-    const ATTR_OPTS = ['Sin', 'Bear', '共用'];
+    const ATTR_OPTS = ['Sin', 'Bear', '共用', '部分'];
+
+    // 預先建立 attrMap（偵測既有「部分」：G=共用 且 I 欄有自訂金額）
+    const attrMap = {};
+    const customAmountMap = {};
+    item.invItems.forEach((it, i) => {
+      if (it.attribution === '共用' && it.custom !== '') {
+        attrMap[i] = '部分';
+        customAmountMap[i] = parseFloat(it.custom);
+      } else {
+        attrMap[i] = it.attribution || '';
+      }
+    });
 
     document.getElementById('pending-modal-body').innerHTML = `
       <p class="list-item-sub" style="margin-bottom:12px">${item.date}　${_fmt(item.amount)}</p>
       <div id="item-attr-list">
-        ${item.invItems.map((it, i) => `
+        ${item.invItems.map((it, i) => {
+          const curAttr = attrMap[i];
+          return `
           <div class="pending-item-row" data-i="${i}">
             <div class="pending-item-name">${it.itemName}</div>
             <div class="pending-item-amount">${_fmt(it.itemAmount)}</div>
             <div class="chip-row" style="flex-wrap:wrap;gap:6px;margin-top:6px">
               ${ATTR_OPTS.map(opt => `
-                <button class="chip${it.attribution === opt ? ' active' : ''}" data-attr="${opt}" data-i="${i}">${opt}</button>
+                <button class="chip${curAttr === opt ? ' active' : ''}" data-attr="${opt}" data-i="${i}">${opt}</button>
               `).join('')}
             </div>
-          </div>
-        `).join('')}
+            <div class="partial-bear-wrap${curAttr === '部分' ? '' : ' hidden'}" id="partial-wrap-${i}">
+              <div class="amount-wrap" style="margin-top:6px">
+                <span class="amount-prefix">$</span>
+                <input type="number" id="partial-input-${i}" class="field-input amount-input partial-bear-input"
+                       data-i="${i}" value="${customAmountMap[i] ?? ''}" min="0" step="1" inputmode="decimal"
+                       placeholder="Bear 負擔">
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
       </div>
       <p id="pending-untagged-error" class="add-error hidden"></p>
     `;
@@ -343,15 +365,22 @@ const Pending = (() => {
     `;
 
     // 歸屬 chips
-    const attrMap = {};
-    item.invItems.forEach((it, i) => { attrMap[i] = it.attribution || ''; });
-
     document.querySelectorAll('#item-attr-list .chip[data-attr]').forEach(btn => {
       btn.addEventListener('click', () => {
         const i = parseInt(btn.dataset.i, 10);
         attrMap[i] = btn.dataset.attr;
         document.querySelectorAll(`#item-attr-list .chip[data-i="${i}"]`)
           .forEach(b => b.classList.toggle('active', b.dataset.attr === attrMap[i]));
+        const wrapEl = document.getElementById(`partial-wrap-${i}`);
+        if (wrapEl) wrapEl.classList.toggle('hidden', attrMap[i] !== '部分');
+        if (attrMap[i] !== '部分') delete customAmountMap[i];
+      });
+    });
+
+    // 部分金額輸入
+    document.querySelectorAll('.partial-bear-input').forEach(input => {
+      input.addEventListener('input', () => {
+        customAmountMap[parseInt(input.dataset.i, 10)] = parseFloat(input.value);
       });
     });
 
@@ -363,13 +392,23 @@ const Pending = (() => {
         errEl.classList.remove('hidden');
         return;
       }
+      if (item.invItems.some((_, i) => attrMap[i] === '部分' && !(customAmountMap[i] >= 0))) {
+        errEl.textContent = '請填入「部分」品項的 Bear 負擔金額';
+        errEl.classList.remove('hidden');
+        return;
+      }
       const btn = document.getElementById('pending-untagged-save');
       btn.disabled = true;
       btn.textContent = '儲存中…';
       try {
-        // 1. 更新品項明細歸屬
+        // 1. 更新品項明細歸屬（部分 → G=共用, I=customBearAmount）
         for (let i = 0; i < item.invItems.length; i++) {
-          await Sheets.updateItemRow(item.invItems[i].rowIndex, attrMap[i]);
+          const isPartial = attrMap[i] === '部分';
+          await Sheets.updateItemRow(
+            item.invItems[i].rowIndex,
+            isPartial ? '共用' : attrMap[i],
+            isPartial ? (customAmountMap[i] || 0) : null
+          );
         }
         // 2. 計算 sinShare / bearShare
         const totalAmount = item.amount;
@@ -377,6 +416,7 @@ const Pending = (() => {
         item.invItems.forEach((it, i) => {
           if (attrMap[i] === 'Bear') bearTotal += it.itemAmount;
           else if (attrMap[i] === '共用') bearTotal += Math.floor(it.itemAmount / 2);
+          else if (attrMap[i] === '部分') bearTotal += customAmountMap[i] || 0;
         });
         const sinTotal = totalAmount - bearTotal;
 
@@ -629,21 +669,44 @@ const Pending = (() => {
     }
 
     function _showStep2() {
-      const ATTR_OPTS = ['Sin', 'Bear', '共用'];
+      const ATTR_OPTS = ['Sin', 'Bear', '共用', '部分'];
+
+      // 預先建立 attrMap（偵測既有「部分」：G=共用 且 I 欄有自訂金額）
+      const attrMap = {};
+      const customAmountMap = {};
+      item.invItems.forEach((it, i) => {
+        if (it.attribution === '共用' && it.custom !== '') {
+          attrMap[i] = '部分';
+          customAmountMap[i] = parseFloat(it.custom);
+        } else {
+          attrMap[i] = it.attribution || '';
+        }
+      });
+
       document.getElementById('pending-modal-body').innerHTML = `
         <p class="list-item-sub" style="margin-bottom:12px">${inv.date}　${_fmt(inv.amount)}</p>
         <div id="item-attr-list">
-          ${item.invItems.map((it, i) => `
+          ${item.invItems.map((it, i) => {
+            const curAttr = attrMap[i];
+            return `
             <div class="pending-item-row" data-i="${i}">
               <div class="pending-item-name">${it.itemName}</div>
               <div class="pending-item-amount">${_fmt(it.itemAmount)}</div>
               <div class="chip-row" style="flex-wrap:wrap;gap:6px;margin-top:6px">
                 ${ATTR_OPTS.map(opt => `
-                  <button class="chip${it.attribution === opt ? ' active' : ''}" data-attr="${opt}" data-i="${i}">${opt}</button>
+                  <button class="chip${curAttr === opt ? ' active' : ''}" data-attr="${opt}" data-i="${i}">${opt}</button>
                 `).join('')}
               </div>
-            </div>
-          `).join('')}
+              <div class="partial-bear-wrap${curAttr === '部分' ? '' : ' hidden'}" id="partial-wrap-${i}">
+                <div class="amount-wrap" style="margin-top:6px">
+                  <span class="amount-prefix">$</span>
+                  <input type="number" id="partial-input-${i}" class="field-input amount-input partial-bear-input"
+                         data-i="${i}" value="${customAmountMap[i] ?? ''}" min="0" step="1" inputmode="decimal"
+                         placeholder="Bear 負擔">
+                </div>
+              </div>
+            </div>`;
+          }).join('')}
         </div>
         <p id="inv-attr-error" class="add-error hidden"></p>
       `;
@@ -652,15 +715,21 @@ const Pending = (() => {
         <button class="btn-primary" id="inv-attr-save">儲存並匯入帳本</button>
       `;
 
-      const attrMap = {};
-      item.invItems.forEach((it, i) => { attrMap[i] = it.attribution || ''; });
-
       document.querySelectorAll('#item-attr-list .chip[data-attr]').forEach(btn => {
         btn.addEventListener('click', () => {
           const i = parseInt(btn.dataset.i, 10);
           attrMap[i] = btn.dataset.attr;
           document.querySelectorAll(`#item-attr-list .chip[data-i="${i}"]`)
             .forEach(b => b.classList.toggle('active', b.dataset.attr === attrMap[i]));
+          const wrapEl = document.getElementById(`partial-wrap-${i}`);
+          if (wrapEl) wrapEl.classList.toggle('hidden', attrMap[i] !== '部分');
+          if (attrMap[i] !== '部分') delete customAmountMap[i];
+        });
+      });
+
+      document.querySelectorAll('.partial-bear-input').forEach(input => {
+        input.addEventListener('input', () => {
+          customAmountMap[parseInt(input.dataset.i, 10)] = parseFloat(input.value);
         });
       });
 
@@ -672,12 +741,22 @@ const Pending = (() => {
           errEl.classList.remove('hidden');
           return;
         }
+        if (item.invItems.some((_, i) => attrMap[i] === '部分' && !(customAmountMap[i] >= 0))) {
+          errEl.textContent = '請填入「部分」品項的 Bear 負擔金額';
+          errEl.classList.remove('hidden');
+          return;
+        }
         const btn = document.getElementById('inv-attr-save');
         btn.disabled = true;
         btn.textContent = '儲存中…';
         try {
           for (let i = 0; i < item.invItems.length; i++) {
-            await Sheets.updateItemRow(item.invItems[i].rowIndex, attrMap[i]);
+            const isPartial = attrMap[i] === '部分';
+            await Sheets.updateItemRow(
+              item.invItems[i].rowIndex,
+              isPartial ? '共用' : attrMap[i],
+              isPartial ? (customAmountMap[i] || 0) : null
+            );
           }
           await Sheets.updateInvoiceShared(inv.rowIndex, '部分共用');
           const totalAmount = inv.amount;
@@ -685,6 +764,7 @@ const Pending = (() => {
           item.invItems.forEach((it, i) => {
             if (attrMap[i] === 'Bear') bearTotal += it.itemAmount;
             else if (attrMap[i] === '共用') bearTotal += Math.floor(it.itemAmount / 2);
+            else if (attrMap[i] === '部分') bearTotal += customAmountMap[i] || 0;
           });
           const today = new Date().toISOString().slice(0, 16).replace('T', ' ');
           await Sheets.appendMonthlyRow([

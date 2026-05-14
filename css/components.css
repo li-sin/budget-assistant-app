@@ -49,6 +49,8 @@
 
 /* ── Ledger Filters ─────────────────────────────── */
 .ledger-filters { padding: 10px 12px; margin-bottom: 8px; }
+.search-row { margin-bottom: 10px; }
+.search-row .field-input { width: 100%; box-sizing: border-box; }
 .chip-row { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 
 /* ── 備註快速 Chip ──────────────────────────────────── */

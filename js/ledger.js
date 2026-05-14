@@ -10,6 +10,7 @@ const Ledger = (() => {
   let _catFilter      = '';
   let _sourceFilter   = ''; // '' = 全部
   let _sortMode       = 'date-desc'; // date-desc | date-asc | import-desc | import-asc | amount-desc | amount-asc
+  let _searchQuery    = '';
   let _allRows        = [];
   let _pendingFilter   = null;
   let _pendingScrollRow = null;
@@ -44,6 +45,13 @@ const Ledger = (() => {
     if (_sharedSelected.size > 0) rows = rows.filter(r => _sharedSelected.has(r.shared));
     if (_catFilter)                 rows = rows.filter(r => r.category === _catFilter);
     if (_sourceFilter)              rows = rows.filter(r => r.source === _sourceFilter);
+    if (_searchQuery) {
+      const q = _searchQuery.toLowerCase();
+      rows = rows.filter(r =>
+        (r.item || '').toLowerCase().includes(q) ||
+        (r.note || '').toLowerCase().includes(q)
+      );
+    }
     return [...rows].sort((a, b) => {
       switch (_sortMode) {
         case 'date-asc':    return a.date.localeCompare(b.date);
@@ -174,6 +182,7 @@ const Ledger = (() => {
     _catFilter      = '';
     _sourceFilter   = '';
     _sortMode       = 'date-desc';
+    _searchQuery    = '';
     document.querySelectorAll('#tab-ledger .chip[data-member]')
       .forEach(b => b.classList.toggle('active', b.dataset.member === 'all'));
     document.querySelectorAll('#tab-ledger .chip[data-shared-filter]')
@@ -184,6 +193,8 @@ const Ledger = (() => {
     if (sel) sel.value = '';
     const sort = document.getElementById('ledger-sort');
     if (sort) sort.value = 'date-desc';
+    const search = document.getElementById('ledger-search');
+    if (search) search.value = '';
   }
 
   function _applyFilter(f) {
@@ -440,6 +451,9 @@ const Ledger = (() => {
       </div>
 
       <div class="ledger-filters card">
+        <div class="search-row">
+          <input type="search" id="ledger-search" class="field-input" placeholder="搜尋項目或備註…">
+        </div>
         <div class="chip-row">
           <button class="chip active" data-member="all">全部</button>
           <button class="chip" data-member="sin">🌟 Sin</button>
@@ -543,6 +557,11 @@ const Ledger = (() => {
 
     document.getElementById('ledger-sort').addEventListener('change', e => {
       _sortMode = e.target.value;
+      _renderList();
+    });
+
+    document.getElementById('ledger-search').addEventListener('input', e => {
+      _searchQuery = e.target.value.trim();
       _renderList();
     });
   }

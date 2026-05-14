@@ -70,6 +70,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const verEl = document.getElementById('login-version');
   if (verEl) verEl.textContent = `v${CONFIG.APP_VERSION}`;
 
+  document.getElementById('btn-clear-cache')?.addEventListener('click', async () => {
+    if (confirm('確定清除所有快取？App 將重新載入。')) await Auth.clearCache();
+  });
+
   Auth.init((email) => {
     document.getElementById('screen-login').classList.add('hidden');
     document.getElementById('screen-app').classList.remove('hidden');

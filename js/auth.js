@@ -79,10 +79,19 @@ const Auth = (() => {
     location.reload();
   }
 
+  async function clearCache() {
+    sessionStorage.clear();
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    location.reload();
+  }
+
   function _showError(msg) {
     const el = document.getElementById('login-error');
     if (el) { el.textContent = msg; el.hidden = false; }
   }
 
-  return { init, getToken, getEmail, logout };
+  return { init, getToken, getEmail, logout, clearCache };
 })();

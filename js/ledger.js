@@ -195,6 +195,8 @@ const Ledger = (() => {
     if (sort) sort.value = 'date-desc';
     const search = document.getElementById('ledger-search');
     if (search) search.value = '';
+    const clearBtn = document.getElementById('ledger-search-clear');
+    if (clearBtn) clearBtn.classList.add('hidden');
   }
 
   function _applyFilter(f) {
@@ -452,7 +454,10 @@ const Ledger = (() => {
 
       <div class="ledger-filters card">
         <div class="search-row">
-          <input type="search" id="ledger-search" class="field-input" placeholder="搜尋項目或備註…">
+          <div class="search-wrap">
+            <input type="text" id="ledger-search" class="field-input" placeholder="搜尋項目或備註…">
+            <button class="search-clear hidden" id="ledger-search-clear">✕</button>
+          </div>
         </div>
         <div class="chip-row">
           <button class="chip active" data-member="all">全部</button>
@@ -562,11 +567,30 @@ const Ledger = (() => {
 
     document.getElementById('ledger-search').addEventListener('input', e => {
       _searchQuery = e.target.value.trim();
+      document.getElementById('ledger-search-clear').classList.toggle('hidden', !_searchQuery);
+      _renderList();
+    });
+
+    document.getElementById('ledger-search-clear').addEventListener('click', () => {
+      _searchQuery = '';
+      document.getElementById('ledger-search').value = '';
+      document.getElementById('ledger-search-clear').classList.add('hidden');
       _renderList();
     });
   }
 
   function activate({ year, month }) {
+    // 切換回明細 tab 時清除搜尋
+    let searchCleared = false;
+    if (_searchQuery) {
+      _searchQuery = '';
+      searchCleared = true;
+      const searchEl = document.getElementById('ledger-search');
+      const clearBtn = document.getElementById('ledger-search-clear');
+      if (searchEl) searchEl.value = '';
+      if (clearBtn) clearBtn.classList.add('hidden');
+    }
+
     const pending = _pendingFilter;
     _pendingFilter = null;
     if (year !== _year || month !== _month) {
@@ -579,6 +603,8 @@ const Ledger = (() => {
       _applyFilter(pending);
       _renderList();
     } else if (_pendingScrollRow !== null) {
+      _renderList();
+    } else if (searchCleared) {
       _renderList();
     }
   }

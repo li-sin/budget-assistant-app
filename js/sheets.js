@@ -223,6 +223,15 @@ const Sheets = (() => {
     }
   }
 
+  // ── 重複發票號碼查詢（只抓 B:D 三欄，效能優先）────────
+  async function checkDuplicateInvoice(invNum) {
+    const data = await _get(`${CONFIG.TABS.INVOICE}!B:D`);
+    const rows = (data.values || []).slice(1);
+    return rows
+      .map((r, i) => ({ rowIndex: i + 2, date: r[0] || '', invNum: r[1] || '', shop: r[2] || '' }))
+      .filter(r => r.invNum === invNum);
+  }
+
   // ── 新增發票明細列（掃描發票用）──────────────────────
   // A=載具 B=日期(YYYY-MM-DD) C=發票號碼(HYPERLINK→品項明細G欄) D=商店
   // E=金額 F=狀態 G=類別 H=是否共用 I=備註 J=已匯入
@@ -609,7 +618,7 @@ const Sheets = (() => {
     getMonthlyData, getCreditCardImportStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
     getInvoiceData, getItemData, updateItemRow,
-    appendInvoiceRow, appendItemRows,
+    checkDuplicateInvoice, appendInvoiceRow, appendItemRows,
     markInvoiceImported, appendMonthlyFromScan,
     upsertRepayment,
     getCCPendingData, updateCCShared, updateInvoiceShared,

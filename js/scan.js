@@ -307,15 +307,35 @@ const Scan = (() => {
       const shopValue = document.getElementById('sconf-shop').value.trim();
       const btn       = document.getElementById('sconf-submit');
       btn.disabled    = true;
-      btn.textContent = '寫入中…';
+      btn.textContent = '檢查中…';
 
       const errEl = document.getElementById('sconf-error');
       errEl.classList.add('hidden');
 
       try {
+        // 重複發票號碼檢查
+        let noteToWrite = note;
+        const dups = await Sheets.checkDuplicateInvoice(invNum);
+        if (dups.length > 0) {
+          const dupInfo = dups.map(d => `${d.date} ${d.shop}`).join('、');
+          const ok = window.confirm(`⚠️ 發票 ${invNum} 已有記錄：\n${dupInfo}\n\n確定繼續記錄？（備註將自動加入原始發票連結）`);
+          if (!ok) {
+            btn.disabled = false;
+            btn.textContent = '寫入發票明細';
+            return;
+          }
+          // 備註加入第一筆重複記錄的 HYPERLINK
+          const dup = dups[0];
+          const invGid = CONFIG.INVOICE_SHEET_ID;
+          const link = `HYPERLINK("#gid=${invGid}&range=C${dup.rowIndex}","重複:${invNum}")`;
+          noteToWrite = note ? `="${note.replace(/"/g, '""')}"&"｜"&${link}` : `=${link}`;
+        }
+
+        btn.textContent = '寫入中…';
+
         // 寫入發票明細，取得列號
         const invRowIndex = await Sheets.appendInvoiceRow(
-          '掃描發票', date, invNum, shopValue, total, '開立', category, _shared, note
+          '掃描發票', date, invNum, shopValue, total, '開立', category, _shared, noteToWrite
         );
 
         // 寫入品項明細，取得第一筆列號

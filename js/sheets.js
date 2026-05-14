@@ -223,12 +223,13 @@ const Sheets = (() => {
     }
   }
 
-  // ── 重複發票號碼查詢（只抓 B:D 三欄，效能優先）────────
+  // ── 重複發票號碼查詢（只抓 C 欄，效能優先）────────────
+  // TODO(perf): 改兩段式查詢：先查 C:C 取 rowIndex，再單列查 B:D 取日期/商店
   async function checkDuplicateInvoice(invNum) {
-    const data = await _get(`${CONFIG.TABS.INVOICE}!B:D`);
+    const data = await _get(`${CONFIG.TABS.INVOICE}!C:C`);
     const rows = (data.values || []).slice(1);
     return rows
-      .map((r, i) => ({ rowIndex: i + 2, date: r[0] || '', invNum: r[1] || '', shop: r[2] || '' }))
+      .map((r, i) => ({ rowIndex: i + 2, invNum: r[0] || '' }))
       .filter(r => r.invNum === invNum);
   }
 

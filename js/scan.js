@@ -317,8 +317,7 @@ const Scan = (() => {
         let noteToWrite = note;
         const dups = await Sheets.checkDuplicateInvoice(invNum);
         if (dups.length > 0) {
-          const dupInfo = dups.map(d => `${d.date} ${d.shop}`).join('、');
-          const ok = window.confirm(`⚠️ 發票 ${invNum} 已有記錄：\n${dupInfo}\n\n確定繼續記錄？（備註將自動加入原始發票連結）`);
+          const ok = window.confirm(`⚠️ 發票 ${invNum} 已有 ${dups.length} 筆相同記錄\n\n確定繼續記錄？（備註將自動加入原始發票連結）`);
           if (!ok) {
             btn.disabled = false;
             btn.textContent = '寫入發票明細';

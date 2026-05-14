@@ -1,6 +1,7 @@
 const Ledger = (() => {
   const CATEGORIES = ['🍴', '🛒', '⛽', '📦', '🎬', '👗', '🏠', '💊'];
   const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
+  const ITEM_ATTR_OPTS = ['🌟 Sin', '🐨 Bear', '共用', '部分'];
 
   const now = new Date();
   let _year  = now.getFullYear();
@@ -86,7 +87,7 @@ const Ledger = (() => {
       return;
     }
 
-    const srcIcon = s => s === '發票' ? '🧾' : s === '信用卡' ? '💳' : '✏️';
+    const srcIcon = s => s === '發票' ? '🧾' : s === '信用卡' ? '💳' : s === '掃描發票' ? '📷' : '✏️';
     const isSin   = _isSin();
 
     el.innerHTML = rows.map(r => {
@@ -100,8 +101,10 @@ const Ledger = (() => {
       const sharedLabel = r.shared ? `<span class="tag-shared">${r.shared}</span>` : '';
       const noteText    = r.note   ? `<span class="ledger-note">　${r.note}</span>` : '';
       const isInvoice   = (r.source === '發票' || r.source === '掃描發票') && r.sourceLink;
+      // 非發票列才加 list-item-editable（讓 click-to-edit 生效）
+      const editableClass = isSin && !isInvoice ? ' list-item-editable' : '';
       return `
-        <div class="list-item${isSin ? ' list-item-editable' : ''}" data-row="${r.rowIndex}">
+        <div class="list-item${editableClass}" data-row="${r.rowIndex}" data-is-invoice="${isInvoice ? '1' : ''}">
           <span class="list-item-icon">${cat}</span>
           <div class="list-item-body">
             <div class="list-item-title">${r.item || '（未命名）'} ${bearBadge} ${sharedLabel}</div>
@@ -114,12 +117,14 @@ const Ledger = (() => {
           <div class="list-item-right">
             <div class="amount-expense">${_fmt(r.amount)}</div>
             ${isInvoice ? `<button class="expand-btn" data-row="${r.rowIndex}">▼</button>` : ''}
+            ${isInvoice && isSin ? `<button class="delete-inv-btn" data-row="${r.rowIndex}" title="刪除此發票">🗑</button>` : ''}
           </div>
         </div>`;
     }).join('');
 
+    // 非發票列：click-to-edit
     if (isSin) {
-      el.querySelectorAll('.list-item').forEach(item => {
+      el.querySelectorAll('.list-item:not([data-is-invoice="1"])').forEach(item => {
         item.addEventListener('click', () => {
           const rowIndex = parseInt(item.dataset.row, 10);
           const row = _allRows.find(r => r.rowIndex === rowIndex);
@@ -128,12 +133,23 @@ const Ledger = (() => {
       });
     }
 
+    // expand 按鈕
     el.querySelectorAll('.expand-btn').forEach(btn => {
       btn.addEventListener('click', e => {
         e.stopPropagation();
         const rowIndex = parseInt(btn.dataset.row, 10);
         const row = _allRows.find(r => r.rowIndex === rowIndex);
         if (row) _toggleItemDetail(row, btn);
+      });
+    });
+
+    // 刪除按鈕
+    el.querySelectorAll('.delete-inv-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const rowIndex = parseInt(btn.dataset.row, 10);
+        const row = _allRows.find(r => r.rowIndex === rowIndex);
+        if (row) _openDeleteModal(row);
       });
     });
 
@@ -207,7 +223,6 @@ const Ledger = (() => {
       });
     }
     if (f.shared !== undefined) {
-      // stats tab passes group keys; map them to ledger's per-value chips
       const STATS_MAP = { all: [], shared: ['是', '部分'], bear: ['否'], personal: ['-'] };
       const vals = STATS_MAP[f.shared] ?? [];
       _sharedSelected = new Set(vals);
@@ -225,6 +240,8 @@ const Ledger = (() => {
     }
   }
 
+  // ── 展開品項（可編輯，F20）────────────────────────────────────
+
   async function _toggleItemDetail(row, btnEl) {
     const detailId = `item-detail-${row.rowIndex}`;
     const listItem = btnEl.closest('.list-item');
@@ -233,24 +250,40 @@ const Ledger = (() => {
 
     btnEl.textContent = '…';
     try {
+      // 載入品項快取
       if (!_itemsCache || Date.now() - _itemsCacheTs >= ITEMS_CACHE_TTL) {
         _itemsCache   = await Sheets.getItemData();
         _itemsCacheTs = Date.now();
       }
-      const invItems = _itemsCache.filter(it => it.invNum === row.sourceLink);
-      const detail   = document.createElement('div');
+      // 載入發票資料（取得 invoice rowIndex 和原始欄位值）
+      const allInvoices = await Sheets.getInvoiceData();
+      const invNum  = row.sourceLink;
+      const invRow  = allInvoices.find(inv => inv.invNum === invNum);
+      const invItems = _itemsCache.filter(it => it.invNum === invNum);
+
+      const detail = document.createElement('div');
       detail.id        = detailId;
       detail.className = 'item-detail-list';
+
+      const isSin = _isSin();
+
+      // ── 發票層欄位（可編輯，Sin only）────────────────────────
+      const invSection = _buildInvoiceEditSection(row, invRow, isSin);
+      detail.appendChild(invSection);
+
+      // ── 品項層 ────────────────────────────────────────────────
       if (!invItems.length) {
-        detail.innerHTML = '<div class="item-detail-empty">無品項明細</div>';
+        const empty = document.createElement('div');
+        empty.className = 'item-detail-empty';
+        empty.textContent = '無品項明細';
+        detail.appendChild(empty);
       } else {
-        detail.innerHTML = invItems.map(it => `
-          <div class="item-detail-row">
-            <span class="item-detail-name">${it.itemName || '（未命名）'}</span>
-            <span class="item-detail-attr">${it.attribution || '—'}</span>
-            <span class="item-detail-amt">$${it.itemAmount.toLocaleString('zh-TW')}</span>
-          </div>`).join('');
+        invItems.forEach(it => {
+          const itRow = _buildItemEditRow(it, isSin);
+          detail.appendChild(itRow);
+        });
       }
+
       listItem.insertAdjacentElement('afterend', detail);
       btnEl.textContent = '▲';
     } catch (e) {
@@ -258,16 +291,607 @@ const Ledger = (() => {
     }
   }
 
-  function jumpTo({ member, category, shared, rowIndex } = {}) {
-    _pendingFilter = {};
-    if (member   !== undefined) _pendingFilter.member   = member;
-    if (shared   !== undefined) _pendingFilter.shared   = shared;
-    if (category !== undefined) _pendingFilter.category = category;
-    if (rowIndex !== undefined) _pendingScrollRow = rowIndex;
-    Router.navigate('ledger');
+  // ── 發票層編輯區（G 類別 / H 是否共用 / I 備註）─────────────
+
+  function _buildInvoiceEditSection(monthlyRow, invRow, isSin) {
+    const wrap = document.createElement('div');
+    wrap.className = 'inv-edit-section';
+
+    if (!invRow) {
+      const note = document.createElement('div');
+      note.className = 'item-detail-empty';
+      note.textContent = '找不到原始發票資料';
+      wrap.appendChild(note);
+      return wrap;
+    }
+
+    if (!isSin) {
+      // 唯讀：只顯示類別/共用/備註
+      wrap.innerHTML = `
+        <div class="inv-edit-row">
+          <span class="inv-edit-label">類別</span>
+          <span class="inv-edit-val">${invRow.category || '—'}</span>
+        </div>
+        <div class="inv-edit-row">
+          <span class="inv-edit-label">共用</span>
+          <span class="inv-edit-val">${invRow.shared || '—'}</span>
+        </div>
+        <div class="inv-edit-row">
+          <span class="inv-edit-label">備註</span>
+          <span class="inv-edit-val">${invRow.note || '—'}</span>
+        </div>`;
+      return wrap;
+    }
+
+    // 可編輯版
+    const catOpts = ['', ...CATEGORIES].map(c =>
+      `<option value="${c}" ${invRow.category === c ? 'selected' : ''}>${c || '（未分類）'}</option>`
+    ).join('');
+
+    const sharedChips = SHARED_OPTS.map(v =>
+      `<button class="chip inv-shared-chip${invRow.shared === v ? ' active' : ''}" data-val="${v}">${v}</button>`
+    ).join('');
+
+    wrap.innerHTML = `
+      <div class="inv-edit-header">發票欄位</div>
+      <div class="inv-edit-row">
+        <span class="inv-edit-label">類別</span>
+        <select class="inv-cat-select field-input" style="height:36px;font-size:13px;padding:4px 8px;">
+          ${catOpts}
+        </select>
+      </div>
+      <div class="inv-edit-row inv-shared-row">
+        <span class="inv-edit-label">共用</span>
+        <div class="chip-row inv-shared-chips" style="margin-bottom:0;">${sharedChips}</div>
+      </div>
+      <div class="inv-edit-row">
+        <span class="inv-edit-label">備註</span>
+        <input type="text" class="inv-note-input field-input" style="font-size:13px;padding:4px 8px;" value="${invRow.note || ''}">
+      </div>
+      <div class="inv-edit-actions">
+        <button class="btn-inv-save btn-primary" style="padding:7px 18px;font-size:13px;">儲存發票欄位</button>
+        <span class="inv-save-msg" style="font-size:12px;color:var(--teal);display:none;">✓ 已儲存</span>
+      </div>
+      <p class="inv-edit-error hidden" style="font-size:12px;color:var(--salmon);"></p>`;
+
+    // 追蹤目前 shared 選擇
+    let currentShared = invRow.shared || '';
+
+    wrap.querySelectorAll('.inv-shared-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        wrap.querySelectorAll('.inv-shared-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        currentShared = chip.dataset.val;
+      });
+    });
+
+    wrap.querySelector('.btn-inv-save').addEventListener('click', async () => {
+      const newCat    = wrap.querySelector('.inv-cat-select').value;
+      const newShared = currentShared;
+      const newNote   = wrap.querySelector('.inv-note-input').value.trim();
+      await _saveInvoiceFields(invRow, monthlyRow, newCat, newShared, newNote, wrap);
+    });
+
+    return wrap;
   }
 
-  // ── Edit Modal ─────────────────────────────────────────────────
+  // ── 儲存發票層欄位（含月度帳本同步與特殊情境）──────────────
+
+  async function _saveInvoiceFields(invRow, monthlyRow, newCat, newShared, newNote, wrapEl) {
+    const errEl = wrapEl.querySelector('.inv-edit-error');
+    const msgEl = wrapEl.querySelector('.inv-save-msg');
+    const btn   = wrapEl.querySelector('.btn-inv-save');
+    errEl.classList.add('hidden');
+    btn.disabled = true;
+    btn.textContent = '儲存中…';
+
+    const oldShared = invRow.shared || '';
+    const ym        = monthlyRow.date.slice(0, 7);
+
+    try {
+      // ── H 欄特殊情境 ──────────────────────────────────────────
+      if (newShared === 'x' && oldShared !== 'x') {
+        // 改成 x：警告並刪月度帳本
+        if (!confirm(`此發票的月度帳本記錄將被刪除，確認繼續？`)) {
+          btn.disabled = false;
+          btn.textContent = '儲存發票欄位';
+          return;
+        }
+        // 刪月度帳本該列
+        await Sheets.deleteMonthlyRow(monthlyRow.rowIndex, ym);
+        // 更新發票 H/G/I
+        await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: newShared, note: newNote });
+        // 重建 UI（月度列已消失）
+        _itemsCache = null;
+        await _load();
+        window.Home?.reload();
+        return;
+      }
+
+      if (newShared === '部分' && oldShared !== '部分') {
+        // 改成部分：需先設定品項歸屬
+        if (!_itemsCache || Date.now() - _itemsCacheTs >= ITEMS_CACHE_TTL) {
+          _itemsCache   = await Sheets.getItemData();
+          _itemsCacheTs = Date.now();
+        }
+        const invItems = _itemsCache.filter(it => it.invNum === invRow.invNum);
+
+        if (invItems.length) {
+          // 有品項 → 開品項歸屬 modal
+          btn.disabled = false;
+          btn.textContent = '儲存發票欄位';
+          _openItemAttrModal(invRow, monthlyRow, invItems, newCat, newNote, wrapEl);
+          return;
+        } else {
+          // 無品項 → 讓使用者選擇
+          const choice = await _promptNoItemsPartial();
+          if (choice === null) {
+            btn.disabled = false;
+            btn.textContent = '儲存發票欄位';
+            return; // 取消
+          }
+          // choice = { sinShare, bearShare } 或 null(取消)
+          await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: newShared, note: newNote });
+          const monthlyUpdates = { shared: '部分', category: newCat };
+          await Sheets.updateMonthlyFields(monthlyRow.rowIndex, monthlyUpdates, ym);
+          if (choice.bearShare != null) {
+            const total = monthlyRow.amount || 0;
+            const sinShare  = total - choice.bearShare;
+            const bearShare = choice.bearShare;
+            await Sheets.updateMonthlyRow(monthlyRow.rowIndex, [
+              monthlyRow.date, monthlyRow.item, total, monthlyRow.payer,
+              '部分', newCat, sinShare, bearShare, newNote,
+              monthlyRow.source, monthlyRow.sourceLink, monthlyRow.importedAt,
+            ]);
+          }
+        }
+      } else if (oldShared === '部分' && ['是', '否', '-'].includes(newShared)) {
+        // 部分 → 其他：清掉所有品項 G 歸屬
+        if (!_itemsCache || Date.now() - _itemsCacheTs >= ITEMS_CACHE_TTL) {
+          _itemsCache   = await Sheets.getItemData();
+          _itemsCacheTs = Date.now();
+        }
+        const invItems = _itemsCache.filter(it => it.invNum === invRow.invNum);
+        if (invItems.length) {
+          alert('此發票有品項歸屬，品項歸屬將一起清除，請至品項重新確認。');
+          for (const it of invItems) {
+            await Sheets.updateItemFields(it.rowIndex, { attribution: '', customAmount: '' });
+          }
+          _itemsCache = null;
+        }
+        await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: newShared, note: newNote });
+        await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: newShared, category: newCat }, ym);
+      } else {
+        // 一般情況
+        await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: newShared, note: newNote });
+        const monthlyShared = newShared; // mapping 1:1（是/否/部分/-/x 已在上方處理）
+        await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: monthlyShared, category: newCat }, ym);
+      }
+
+      // 更新本地快取的 row 資料
+      const r = _allRows.find(r => r.rowIndex === monthlyRow.rowIndex);
+      if (r) { r.category = newCat; r.shared = newShared; r.note = newNote; }
+      invRow.category = newCat; invRow.shared = newShared; invRow.note = newNote;
+
+      msgEl.style.display = 'inline';
+      setTimeout(() => { msgEl.style.display = 'none'; }, 2000);
+      _renderList();
+      window.Home?.reload();
+    } catch (e) {
+      errEl.textContent = '儲存失敗：' + e.message;
+      errEl.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '儲存發票欄位';
+    }
+  }
+
+  // ── 無品項→部分：詢問使用者要取消或填自訂金額 ───────────────
+
+  function _promptNoItemsPartial() {
+    return new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal-sheet" style="max-height:60dvh;">
+          <div class="modal-header">
+            <span class="modal-title">改為「部分共用」</span>
+          </div>
+          <div class="modal-body" style="gap:12px;">
+            <p style="font-size:14px;color:var(--text-sub);">此發票無品項明細，請選擇處理方式：</p>
+            <button class="btn-secondary" id="pnp-cancel">取消（按錯了）</button>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px;">
+              <label class="field-label" style="margin:0;">Bear 負擔金額</label>
+              <div class="amount-wrap">
+                <span class="amount-prefix">$</span>
+                <input type="number" id="pnp-bear" class="field-input amount-input" min="0" step="1" inputmode="decimal" placeholder="輸入 Bear 負擔金額">
+              </div>
+              <button class="btn-primary" id="pnp-confirm">確認自訂金額</button>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+
+      overlay.querySelector('#pnp-cancel').addEventListener('click', () => {
+        overlay.remove(); resolve(null);
+      });
+      overlay.querySelector('#pnp-confirm').addEventListener('click', () => {
+        const bear = parseFloat(overlay.querySelector('#pnp-bear').value);
+        overlay.remove();
+        resolve({ bearShare: isNaN(bear) ? null : bear });
+      });
+    });
+  }
+
+  // ── 品項歸屬 Modal（是/否/- → 部分，有品項時）──────────────
+
+  function _openItemAttrModal(invRow, monthlyRow, invItems, newCat, newNote, wrapEl) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+
+    const attrChipsHTML = (it) => ITEM_ATTR_OPTS.map(opt => {
+      let isActive = false;
+      if (opt === '部分') isActive = (it.attribution === '共用' && it.custom !== '');
+      else               isActive = (it.attribution === opt);
+      return `<button class="chip item-attr-chip${isActive ? ' active' : ''}" data-opt="${opt}" style="font-size:12px;padding:4px 10px;">${opt}</button>`;
+    }).join('');
+
+    overlay.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <span class="modal-title">設定品項歸屬</span>
+          <button class="modal-close" id="iattr-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size:13px;color:var(--text-sub);margin-bottom:12px;">請為每個品項設定歸屬後再儲存。</p>
+          ${invItems.map((it, idx) => `
+            <div class="item-attr-block" data-idx="${idx}" style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--divider);">
+              <div style="font-size:14px;margin-bottom:6px;">${it.itemName || '（未命名）'} <span style="color:var(--text-sub);font-size:12px;">$${it.itemAmount.toLocaleString('zh-TW')}</span></div>
+              <div class="chip-row" style="margin-bottom:4px;">${attrChipsHTML(it)}</div>
+              <div class="bear-partial-wrap" style="display:${(it.attribution === '共用' && it.custom !== '') ? 'block' : 'none'};margin-top:4px;">
+                <div class="amount-wrap">
+                  <span class="amount-prefix">$</span>
+                  <input type="number" class="field-input amount-input bear-amt-input" style="font-size:13px;padding:6px 6px 6px 24px;" min="0" step="1" inputmode="decimal" placeholder="Bear 負擔金額" value="${it.custom || ''}">
+                </div>
+              </div>
+            </div>`).join('')}
+          <p class="iattr-error hidden" style="font-size:12px;color:var(--salmon);"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="iattr-cancel">取消</button>
+          <button class="btn-primary" id="iattr-confirm">確認並儲存</button>
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+
+    // chip 互動
+    overlay.querySelectorAll('.item-attr-block').forEach(block => {
+      block.querySelectorAll('.item-attr-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          block.querySelectorAll('.item-attr-chip').forEach(c => c.classList.remove('active'));
+          chip.classList.add('active');
+          const partialWrap = block.querySelector('.bear-partial-wrap');
+          partialWrap.style.display = chip.dataset.opt === '部分' ? 'block' : 'none';
+        });
+      });
+    });
+
+    overlay.querySelector('#iattr-close').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('#iattr-cancel').addEventListener('click', () => overlay.remove());
+
+    overlay.querySelector('#iattr-confirm').addEventListener('click', async () => {
+      const errEl = overlay.querySelector('.iattr-error');
+      errEl.classList.add('hidden');
+      const btn = overlay.querySelector('#iattr-confirm');
+      btn.disabled = true;
+      btn.textContent = '儲存中…';
+
+      try {
+        const blocks = overlay.querySelectorAll('.item-attr-block');
+        for (let i = 0; i < blocks.length; i++) {
+          const block = blocks[i];
+          const it    = invItems[i];
+          const activeChip = block.querySelector('.item-attr-chip.active');
+          if (!activeChip) {
+            errEl.textContent = `請為「${it.itemName || '品項' + (i+1)}」設定歸屬`;
+            errEl.classList.remove('hidden');
+            btn.disabled = false;
+            btn.textContent = '確認並儲存';
+            return;
+          }
+          const opt = activeChip.dataset.opt;
+          let attribution = opt;
+          let customAmount = '';
+          if (opt === '部分') {
+            attribution = '共用';
+            customAmount = block.querySelector('.bear-amt-input').value;
+          }
+          await Sheets.updateItemFields(it.rowIndex, { attribution, customAmount });
+        }
+        // 更新發票 H
+        await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: '部分', note: newNote });
+        await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: '部分', category: newCat }, monthlyRow.date.slice(0, 7));
+        _itemsCache = null;
+        overlay.remove();
+
+        const r = _allRows.find(r => r.rowIndex === monthlyRow.rowIndex);
+        if (r) { r.category = newCat; r.shared = '部分'; r.note = newNote; }
+        _renderList();
+        window.Home?.reload();
+      } catch (e) {
+        errEl.textContent = '儲存失敗：' + e.message;
+        errEl.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = '確認並儲存';
+      }
+    });
+  }
+
+  // ── 品項列（可編輯，Sin only）────────────────────────────────
+
+  function _buildItemEditRow(it, isSin) {
+    const wrap = document.createElement('div');
+    wrap.className = 'item-detail-row item-edit-row';
+
+    if (!isSin) {
+      wrap.innerHTML = `
+        <span class="item-detail-name">${it.itemName || '（未命名）'}</span>
+        <span class="item-detail-attr">${it.attribution || '—'}</span>
+        <span class="item-detail-amt">$${it.itemAmount.toLocaleString('zh-TW')}</span>`;
+      return wrap;
+    }
+
+    // 判斷目前歸屬
+    let currentAttr   = it.attribution || '';
+    let isPartial     = (currentAttr === '共用' && it.custom !== '');
+    let displayAttr   = isPartial ? '部分' : currentAttr;
+    let currentCustom = it.custom  || '';
+    let currentNote   = it.note    || '';
+
+    const attrChips = ITEM_ATTR_OPTS.map(opt =>
+      `<button class="chip item-attr-chip${displayAttr === opt ? ' active' : ''}" data-opt="${opt}" style="font-size:11px;padding:3px 8px;">${opt}</button>`
+    ).join('');
+
+    wrap.innerHTML = `
+      <div class="item-edit-name">${it.itemName || '（未命名）'} <span style="color:var(--text-sub);font-size:11px;">$${it.itemAmount.toLocaleString('zh-TW')}</span></div>
+      <div class="chip-row item-attr-chips" style="margin-bottom:4px;gap:5px;">${attrChips}</div>
+      <div class="bear-partial-wrap" style="display:${isPartial ? 'block' : 'none'};margin-bottom:4px;">
+        <div class="amount-wrap">
+          <span class="amount-prefix">$</span>
+          <input type="number" class="field-input amount-input bear-amt-input" style="font-size:12px;padding:5px 5px 5px 22px;" min="0" step="1" inputmode="decimal" placeholder="Bear 負擔金額" value="${currentCustom}">
+        </div>
+      </div>
+      <div>
+        <input type="text" class="field-input item-note-input" style="font-size:12px;padding:5px 8px;" placeholder="備註（J欄）" value="${currentNote}">
+      </div>
+      <div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
+        <button class="btn-item-save btn-primary" style="padding:5px 12px;font-size:12px;">儲存</button>
+        <span class="item-save-msg" style="font-size:11px;color:var(--teal);display:none;">✓ 已儲存</span>
+      </div>
+      <p class="item-edit-error hidden" style="font-size:11px;color:var(--salmon);margin-top:4px;"></p>`;
+
+    // chip 互動
+    let selectedOpt = displayAttr;
+    wrap.querySelectorAll('.item-attr-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        wrap.querySelectorAll('.item-attr-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        selectedOpt = chip.dataset.opt;
+        wrap.querySelector('.bear-partial-wrap').style.display = selectedOpt === '部分' ? 'block' : 'none';
+      });
+    });
+
+    wrap.querySelector('.btn-item-save').addEventListener('click', async () => {
+      const btn   = wrap.querySelector('.btn-item-save');
+      const errEl = wrap.querySelector('.item-edit-error');
+      const msgEl = wrap.querySelector('.item-save-msg');
+      errEl.classList.add('hidden');
+      btn.disabled = true;
+      btn.textContent = '儲存中…';
+
+      try {
+        let attribution  = selectedOpt;
+        let customAmount = '';
+        if (selectedOpt === '部分') {
+          attribution  = '共用';
+          customAmount = wrap.querySelector('.bear-amt-input').value;
+        }
+        const note = wrap.querySelector('.item-note-input').value.trim();
+        await Sheets.updateItemFields(it.rowIndex, { attribution, customAmount, note });
+        it.attribution = attribution;
+        it.custom      = customAmount;
+        it.note        = note;
+        msgEl.style.display = 'inline';
+        setTimeout(() => { msgEl.style.display = 'none'; }, 2000);
+        // 月度帳本 G/H 是公式欄，自動重算，只需清快取
+        const ym = (it.date || '').slice(0, 7);
+        if (ym) Sheets.invalidateMonth(ym);
+        window.Home?.reload();
+      } catch (e) {
+        errEl.textContent = '儲存失敗：' + e.message;
+        errEl.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '儲存';
+      }
+    });
+
+    return wrap;
+  }
+
+  // ── 刪除 Modal ────────────────────────────────────────────────
+
+  let _deleteModalRow = null;
+
+  function _buildDeleteModal() {
+    if (document.getElementById('delete-inv-modal')) return;
+    const el = document.createElement('div');
+    el.id = 'delete-inv-modal';
+    el.className = 'modal-overlay hidden';
+    el.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <span class="modal-title" id="del-modal-title">刪除發票</span>
+          <button class="modal-close" id="del-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size:13px;color:var(--text-sub);margin-bottom:12px;">以下關聯資料將一起處理，請確認後再刪除。</p>
+          <div id="del-items-section" class="del-section">
+            <div class="del-section-header">
+              <input type="checkbox" id="del-chk-items" checked disabled>
+              <label for="del-chk-items" class="del-section-label">品項明細</label>
+              <span id="del-items-count" class="del-section-count"></span>
+            </div>
+          </div>
+          <div id="del-monthly-section" class="del-section hidden">
+            <div class="del-section-header">
+              <input type="checkbox" id="del-chk-monthly" checked>
+              <label for="del-chk-monthly" class="del-section-label">月度帳本</label>
+              <span id="del-monthly-count" class="del-section-count"></span>
+            </div>
+          </div>
+          <div id="del-cc-section" class="del-section hidden">
+            <div class="del-section-header">
+              <input type="checkbox" id="del-chk-cc">
+              <label for="del-chk-cc" class="del-section-label">解除信用卡配對</label>
+              <span id="del-cc-info" class="del-section-count"></span>
+            </div>
+          </div>
+          <p id="del-error" class="add-error hidden" style="margin-top:12px;"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="del-cancel">取消</button>
+          <button class="btn-primary del-confirm-btn" id="del-confirm">確認刪除</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+
+    document.getElementById('del-close').addEventListener('click',  _closeDeleteModal);
+    document.getElementById('del-cancel').addEventListener('click', _closeDeleteModal);
+    el.addEventListener('click', e => { if (e.target === el) _closeDeleteModal(); });
+    document.getElementById('del-confirm').addEventListener('click', _confirmDelete);
+  }
+
+  async function _openDeleteModal(row) {
+    _buildDeleteModal();
+    _deleteModalRow = row;
+    const invNum = row.sourceLink;
+
+    document.getElementById('del-modal-title').textContent = `刪除發票 ${invNum}`;
+    document.getElementById('del-error').classList.add('hidden');
+    document.getElementById('del-confirm').disabled   = false;
+    document.getElementById('del-confirm').textContent = '確認刪除';
+
+    // spinner 等待中
+    document.getElementById('del-items-count').textContent  = '載入中…';
+    document.getElementById('del-monthly-count').textContent = '';
+    document.getElementById('del-cc-info').textContent       = '';
+    document.getElementById('del-monthly-section').classList.add('hidden');
+    document.getElementById('del-cc-section').classList.add('hidden');
+    document.getElementById('delete-inv-modal').classList.remove('hidden');
+
+    try {
+      // 品項明細
+      if (!_itemsCache || Date.now() - _itemsCacheTs >= ITEMS_CACHE_TTL) {
+        _itemsCache   = await Sheets.getItemData();
+        _itemsCacheTs = Date.now();
+      }
+      const invItems = _itemsCache.filter(it => it.invNum === invNum);
+      document.getElementById('del-items-count').textContent = `${invItems.length} 筆`;
+
+      // 月度帳本（當前月份有這列）
+      const monthlyRows = _allRows.filter(r => r.sourceLink === invNum);
+      if (monthlyRows.length) {
+        const ym = monthlyRows[0].date.slice(0, 7);
+        document.getElementById('del-monthly-count').textContent = `${ym}，${monthlyRows.length} 筆`;
+        document.getElementById('del-monthly-section').classList.remove('hidden');
+      }
+
+      // CC 配對
+      const ccRows = await Sheets.getCCForInvoice(invNum);
+      if (ccRows.length) {
+        const cc = ccRows[0];
+        document.getElementById('del-cc-info').textContent = `${cc.bank} $${cc.amount.toLocaleString('zh-TW')}`;
+        document.getElementById('del-cc-section').classList.remove('hidden');
+      }
+    } catch (e) {
+      document.getElementById('del-items-count').textContent = '載入失敗';
+      document.getElementById('del-error').textContent = e.message;
+      document.getElementById('del-error').classList.remove('hidden');
+    }
+  }
+
+  function _closeDeleteModal() {
+    const el = document.getElementById('delete-inv-modal');
+    if (el) el.classList.add('hidden');
+    _deleteModalRow = null;
+  }
+
+  async function _confirmDelete() {
+    const row    = _deleteModalRow;
+    if (!row) return;
+    const invNum = row.sourceLink;
+    const errEl  = document.getElementById('del-error');
+    const btn    = document.getElementById('del-confirm');
+    errEl.classList.add('hidden');
+    btn.disabled    = true;
+    btn.textContent = '刪除中…';
+
+    const doMonthly = document.getElementById('del-chk-monthly').checked
+      && !document.getElementById('del-monthly-section').classList.contains('hidden');
+    const doCC = document.getElementById('del-chk-cc').checked
+      && !document.getElementById('del-cc-section').classList.contains('hidden');
+
+    try {
+      // 1. 取得發票 rowIndex（在 発票明細 tab）
+      const allInvoices = await Sheets.getInvoiceData();
+      const invRow = allInvoices.find(inv => inv.invNum === invNum);
+
+      // 2. 取得品項 rowIndices
+      if (!_itemsCache || Date.now() - _itemsCacheTs >= ITEMS_CACHE_TTL) {
+        _itemsCache   = await Sheets.getItemData();
+        _itemsCacheTs = Date.now();
+      }
+      const invItems = _itemsCache.filter(it => it.invNum === invNum);
+
+      // 3. 解除 CC 配對（先做，避免月度刪了但 CC 殘留）
+      if (doCC) {
+        const ccRows = await Sheets.getCCForInvoice(invNum);
+        for (const cc of ccRows) {
+          await Sheets.unlinkCC(cc.rowIndex);  // 清 H/I/K
+        }
+      }
+
+      // 4. 刪除月度帳本列（降序）
+      if (doMonthly) {
+        const monthlyRows = _allRows.filter(r => r.sourceLink === invNum);
+        const sortedMonthly = [...monthlyRows].sort((a, b) => b.rowIndex - a.rowIndex);
+        for (const mr of sortedMonthly) {
+          await Sheets.deleteMonthlyRow(mr.rowIndex, mr.date.slice(0, 7));
+        }
+      }
+
+      // 5. 刪除品項明細（批次降序）
+      await Sheets.deleteItemRows(invItems.map(it => it.rowIndex));
+
+      // 6. 刪除發票明細
+      if (invRow) await Sheets.deleteInvoiceRow(invRow.rowIndex);
+
+      // 7. 清快取並重整
+      _itemsCache = null;
+      _closeDeleteModal();
+      await _load();
+      window.Home?.reload();
+    } catch (e) {
+      errEl.textContent = '刪除失敗：' + e.message;
+      errEl.classList.remove('hidden');
+      btn.disabled    = false;
+      btn.textContent = '確認刪除';
+    }
+  }
+
+  // ── Edit Modal（非發票列用）──────────────────────────────────
 
   function _buildEditModal() {
     if (document.getElementById('edit-modal')) return;
@@ -406,7 +1030,6 @@ const Ledger = (() => {
       return;
     }
 
-    // 找原始列以保留 source / sourceLink / importedAt
     const orig = _allRows.find(r => r.rowIndex === _editRowIndex);
     const row = [
       date, item, amount, _editPayer, _editShared, cat,
@@ -425,7 +1048,6 @@ const Ledger = (() => {
     try {
       await Sheets.updateMonthlyRow(_editRowIndex, row);
       _closeEdit();
-      // 清兩個月份快取（日期可能被修改）
       const ymOrig = _editOrigDate.slice(0, 7);
       const ymNew  = date.slice(0, 7);
       Sheets.invalidateMonth(ymOrig);
@@ -580,7 +1202,6 @@ const Ledger = (() => {
   }
 
   function activate({ year, month }) {
-    // 切換回明細 tab 時清除搜尋
     let searchCleared = false;
     if (_searchQuery) {
       _searchQuery = '';
@@ -607,6 +1228,15 @@ const Ledger = (() => {
     } else if (searchCleared) {
       _renderList();
     }
+  }
+
+  function jumpTo({ member, category, shared, rowIndex } = {}) {
+    _pendingFilter = {};
+    if (member   !== undefined) _pendingFilter.member   = member;
+    if (shared   !== undefined) _pendingFilter.shared   = shared;
+    if (category !== undefined) _pendingFilter.category = category;
+    if (rowIndex !== undefined) _pendingScrollRow = rowIndex;
+    Router.navigate('ledger');
   }
 
   function init() {

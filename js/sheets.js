@@ -623,6 +623,112 @@ const Sheets = (() => {
     return { invoices: invMonthlyRows.length, cc: ccMonthlyRows.length, skippedCC: skippedInv };
   }
 
+  // ── F20 刪除：發票明細整列刪除 ──────────────────────────────
+  async function deleteInvoiceRow(rowIndex) {
+    const url = `${BASE}:batchUpdate`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { ..._authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: [{
+          deleteDimension: {
+            range: {
+              sheetId: CONFIG.INVOICE_SHEET_ID,
+              dimension: 'ROWS',
+              startIndex: rowIndex - 1,
+              endIndex: rowIndex,
+            },
+          },
+        }],
+      }),
+    });
+    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
+    if (!res.ok) throw new Error(`Sheets API ${res.status}`);
+    return res.json();
+  }
+
+  // ── F20 刪除：品項明細多列刪除（降序避免 index 位移）──────────
+  async function deleteItemRows(rowIndices) {
+    if (!rowIndices.length) return;
+    const sorted = [...rowIndices].sort((a, b) => b - a);
+    const url = `${BASE}:batchUpdate`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { ..._authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: sorted.map(rowIndex => ({
+          deleteDimension: {
+            range: {
+              sheetId: CONFIG.ITEMS_SHEET_ID,
+              dimension: 'ROWS',
+              startIndex: rowIndex - 1,
+              endIndex: rowIndex,
+            },
+          },
+        })),
+      }),
+    });
+    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
+    if (!res.ok) throw new Error(`Sheets API ${res.status}`);
+    return res.json();
+  }
+
+  // ── F20 編輯：更新發票明細 G/H/I 欄 ─────────────────────────
+  async function updateInvoiceFields(rowIndex, { category, shared, note } = {}) {
+    const updates = [];
+    if (category !== undefined) updates.push({ range: `${CONFIG.TABS.INVOICE}!G${rowIndex}`, values: [[category]] });
+    if (shared   !== undefined) updates.push({ range: `${CONFIG.TABS.INVOICE}!H${rowIndex}`, values: [[shared]] });
+    if (note     !== undefined) updates.push({ range: `${CONFIG.TABS.INVOICE}!I${rowIndex}`, values: [[note]] });
+    if (updates.length) await _batchUpdate(updates);
+  }
+
+  // ── F20 編輯：更新品項明細 G/I/J 欄 ─────────────────────────
+  async function updateItemFields(rowIndex, { attribution, customAmount, note } = {}) {
+    const updates = [];
+    if (attribution  !== undefined) updates.push({ range: `${CONFIG.TABS.ITEMS}!G${rowIndex}`, values: [[attribution]] });
+    if (customAmount !== undefined) updates.push({ range: `${CONFIG.TABS.ITEMS}!I${rowIndex}`, values: [[customAmount]] });
+    if (note         !== undefined) updates.push({ range: `${CONFIG.TABS.ITEMS}!J${rowIndex}`, values: [[note]] });
+    if (updates.length) await _batchUpdate(updates);
+  }
+
+  // ── F20 編輯：同步更新月度帳本指定列的 E（共用）或 F（類別）──
+  async function updateMonthlyFields(rowIndex, { shared, category } = {}, ym) {
+    const updates = [];
+    if (shared   !== undefined) updates.push({ range: `${CONFIG.TABS.MONTHLY}!E${rowIndex}`, values: [[shared]] });
+    if (category !== undefined) updates.push({ range: `${CONFIG.TABS.MONTHLY}!F${rowIndex}`, values: [[category]] });
+    if (updates.length) {
+      await _batchUpdate(updates);
+      if (ym) invalidateMonth(ym);
+    }
+  }
+
+  // ── F20 刪除：找出連結某發票的 CC 列 ───────────────────────
+  async function getCCForInvoice(invNum) {
+    const data = await _get(`${CONFIG.TABS.CC}!A:K`);
+    const rows = (data.values || []).slice(1);
+    const found = [];
+    rows.forEach((r, i) => {
+      const matched = r[8] || '';  // I 欄（顯示文字 = invNum）
+      if (matched === invNum) {
+        found.push({
+          rowIndex: i + 2,
+          bank:   r[0] || '',
+          amount: parseFloat(r[4]) || 0,
+        });
+      }
+    });
+    return found;
+  }
+
+  // ── F20 解除配對：清 CC H/I 欄 + 重設 K=FALSE ───────────────
+  async function unlinkCC(ccRowIndex) {
+    await _batchUpdate([
+      { range: `${CONFIG.TABS.CC}!H${ccRowIndex}`, values: [['']] },
+      { range: `${CONFIG.TABS.CC}!I${ccRowIndex}`, values: [['']] },
+      { range: `${CONFIG.TABS.CC}!K${ccRowIndex}`, values: [[false]] },
+    ]);
+  }
+
   return {
     getMonthlyData, getCreditCardImportStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
@@ -634,5 +740,8 @@ const Sheets = (() => {
     getCCAllData, linkCCToInvoice,
     getRulesData, linkPlatformToCC,
     importToMonthly,
+    deleteInvoiceRow, deleteItemRows,
+    updateInvoiceFields, updateItemFields, updateMonthlyFields,
+    getCCForInvoice, unlinkCC,
   };
 })();

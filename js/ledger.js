@@ -1451,7 +1451,7 @@ const Ledger = (() => {
 
   function _buildCCSubEditModal() {
     if (document.getElementById('cc-sub-edit-modal')) return;
-    const CC_SHARED = ['是', '否', '部分', '-'];
+    const CC_SHARED = ['是', '否', '部分', '-', 'x'];
     const el = document.createElement('div');
     el.id = 'cc-sub-edit-modal';
     el.className = 'modal-overlay hidden';

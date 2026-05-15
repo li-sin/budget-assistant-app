@@ -137,7 +137,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 0;
+  padding: 12px 10px 12px 0;
   border-bottom: 1px solid var(--divider);
   background: var(--bg-card);
   z-index: 1;
@@ -451,7 +451,7 @@ select.field-input { height: 44px; }
   font-style: italic;
 }
 .list-item-editable { cursor: pointer; }
-.list-item-editable:active { background: rgba(255,255,255,0.04); border-radius: 8px; }
+.list-item-editable:active { background: var(--divider); border-radius: 8px; }
 .platform-cc-item.active { background: rgba(0,201,167,0.15); border: 1px solid var(--teal); border-radius: 8px; }
 
 /* ── Empty State ────────────────────────────────── */

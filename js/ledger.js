@@ -194,6 +194,9 @@ const Ledger = (() => {
     const SNAP_OPEN = -80;  // px，刪除按鈕寬度
     const THRESHOLD = -40;  // px，超過才彈開
 
+    // 追蹤最後 touchend 時間，供 mousedown 判斷是否為 iOS 合成事件
+    let _lastTouchEnd = 0;
+
     containerEl.querySelectorAll('.swipe-container').forEach(wrap => {
       const inner = wrap.querySelector('.list-item');
       if (!inner) return;
@@ -214,8 +217,9 @@ const Ledger = (() => {
         const dx = e.touches[0].clientX - startX;
         const dy = e.touches[0].clientY - startY;
         if (isHoriz === null) {
-          if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
-          isHoriz = Math.abs(dx) > Math.abs(dy);
+          if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+          // 水平需明顯大於垂直兩倍才視為左滑，避免快速上下滑誤判
+          isHoriz = Math.abs(dx) > Math.abs(dy) * 2;
         }
         if (!isHoriz) { dragging = false; return; }
         e.preventDefault();
@@ -224,6 +228,7 @@ const Ledger = (() => {
       }, { passive: false });
 
       inner.addEventListener('touchend', e => {
+        _lastTouchEnd = Date.now();
         if (!dragging || !isHoriz) { dragging = false; return; }
         dragging = false;
         const dx = e.changedTouches[0].clientX - startX;
@@ -245,7 +250,7 @@ const Ledger = (() => {
         }
       }, { passive: true });
 
-      // 桌面滑鼠支援
+      // 桌面滑鼠支援：touchend 後 500ms 內的 mousedown 為 iOS 合成事件，略過
       let mouseStartX = 0, mouseStartOffset = 0, mouseDragging = false;
       const onMouseMove = e => {
         if (!mouseDragging) return;
@@ -278,7 +283,7 @@ const Ledger = (() => {
       };
       inner.addEventListener('mousedown', e => {
         if (e.button !== 0) return;
-        if (navigator.maxTouchPoints > 0) return; // 觸控裝置略過（iOS 合成 mouse 事件會誤觸）
+        if (Date.now() - _lastTouchEnd < 500) return; // iOS 合成 mouse 事件，略過
         mouseStartX = e.clientX;
         mouseStartOffset = _swipeActiveWrap === wrap ? SNAP_OPEN : 0;
         mouseDragging = true;

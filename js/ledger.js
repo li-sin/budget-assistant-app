@@ -22,10 +22,10 @@ const Ledger = (() => {
   let _swipeActiveWrap = null;
   let _activeSubTab    = 'monthly';
   let _invRows         = [];
-  let _invSharedFilter = '';
+  let _invSharedFilter = new Set();
   let _invSearchQuery  = '';
   let _ccRows          = [];
-  let _ccSharedFilter  = '';
+  let _ccSharedFilter  = new Set();
   let _ccSearchQuery   = '';
 
   function _collapseActiveSwipe() {
@@ -244,6 +244,49 @@ const Ledger = (() => {
           }
         }
       }, { passive: true });
+
+      // 桌面滑鼠支援
+      let mouseStartX = 0, mouseStartOffset = 0, mouseDragging = false;
+      const onMouseMove = e => {
+        if (!mouseDragging) return;
+        const dx = e.clientX - mouseStartX;
+        inner.style.transform = `translateX(${Math.min(0, Math.max(SNAP_OPEN, mouseStartOffset + dx))}px)`;
+      };
+      const onMouseUp = e => {
+        if (!mouseDragging) return;
+        mouseDragging = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        inner.style.cursor = '';
+        const dx = e.clientX - mouseStartX;
+        if (mouseStartOffset + dx < THRESHOLD) {
+          if (_swipeActiveWrap && _swipeActiveWrap !== wrap) _collapseActiveSwipe();
+          inner.style.transition = 'transform 0.2s';
+          inner.style.transform  = `translateX(${SNAP_OPEN}px)`;
+          inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
+          _swipeActiveWrap = wrap;
+          wrap.classList.add('swipe-open');
+        } else {
+          inner.style.transition = 'transform 0.2s';
+          inner.style.transform  = '';
+          inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
+          if (_swipeActiveWrap === wrap) {
+            _swipeActiveWrap = null;
+            wrap.classList.remove('swipe-open');
+          }
+        }
+      };
+      inner.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        mouseStartX = e.clientX;
+        mouseStartOffset = _swipeActiveWrap === wrap ? SNAP_OPEN : 0;
+        mouseDragging = true;
+        inner.style.transition = '';
+        inner.style.cursor = 'grabbing';
+        e.preventDefault();
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      });
     });
 
     // 刪除按鈕點擊
@@ -1560,7 +1603,7 @@ const Ledger = (() => {
     if (!el) return;
     const q = _invSearchQuery.toLowerCase();
     let rows = _invRows;
-    if (_invSharedFilter) rows = rows.filter(r => r.shared === _invSharedFilter);
+    if (_invSharedFilter.size > 0) rows = rows.filter(r => _invSharedFilter.has(r.shared));
     if (q) rows = rows.filter(r =>
       (r.shop || '').toLowerCase().includes(q) || (r.note || '').toLowerCase().includes(q)
     );
@@ -1616,7 +1659,7 @@ const Ledger = (() => {
     if (!el) return;
     const q = _ccSearchQuery.toLowerCase();
     let rows = _ccRows;
-    if (_ccSharedFilter) rows = rows.filter(r => r.shared === _ccSharedFilter);
+    if (_ccSharedFilter.size > 0) rows = rows.filter(r => _ccSharedFilter.has(r.shared));
     if (q) rows = rows.filter(r =>
       (r.shop || '').toLowerCase().includes(q) || (r.note || '').toLowerCase().includes(q)
     );
@@ -1802,12 +1845,23 @@ const Ledger = (() => {
       });
     });
 
-    // 發票明細篩選
+    // 發票明細篩選（複選）
     document.querySelectorAll('#inv-shared-chips .chip').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('#inv-shared-chips .chip').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        _invSharedFilter = btn.dataset.invShared === 'all' ? '' : btn.dataset.invShared;
+        const val = btn.dataset.invShared;
+        if (val === 'all') {
+          _invSharedFilter = new Set();
+        } else {
+          if (_invSharedFilter.has(val)) _invSharedFilter.delete(val);
+          else _invSharedFilter.add(val);
+        }
+        const chips = document.querySelectorAll('#inv-shared-chips .chip');
+        if (_invSharedFilter.size === 0) {
+          chips.forEach(b => b.classList.toggle('active', b.dataset.invShared === 'all'));
+        } else {
+          chips.forEach(b => b.classList.toggle('active',
+            b.dataset.invShared !== 'all' && _invSharedFilter.has(b.dataset.invShared)));
+        }
         _renderInvoiceList();
       });
     });
@@ -1823,12 +1877,23 @@ const Ledger = (() => {
       _renderInvoiceList();
     });
 
-    // CC明細篩選
+    // CC明細篩選（複選）
     document.querySelectorAll('#cc-shared-chips .chip').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('#cc-shared-chips .chip').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        _ccSharedFilter = btn.dataset.ccShared === 'all' ? '' : btn.dataset.ccShared;
+        const val = btn.dataset.ccShared;
+        if (val === 'all') {
+          _ccSharedFilter = new Set();
+        } else {
+          if (_ccSharedFilter.has(val)) _ccSharedFilter.delete(val);
+          else _ccSharedFilter.add(val);
+        }
+        const chips = document.querySelectorAll('#cc-shared-chips .chip');
+        if (_ccSharedFilter.size === 0) {
+          chips.forEach(b => b.classList.toggle('active', b.dataset.ccShared === 'all'));
+        } else {
+          chips.forEach(b => b.classList.toggle('active',
+            b.dataset.ccShared !== 'all' && _ccSharedFilter.has(b.dataset.ccShared)));
+        }
         _renderCCList();
       });
     });
@@ -1943,6 +2008,14 @@ const Ledger = (() => {
   }
 
   function jumpTo({ member, category, shared, rowIndex } = {}) {
+    // 確保切回月度帳本 sub-tab
+    _activeSubTab = 'monthly';
+    document.querySelectorAll('.sub-tab-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.subtab === 'monthly'));
+    document.getElementById('monthly-section')?.classList.remove('hidden');
+    document.getElementById('inv-section')?.classList.add('hidden');
+    document.getElementById('cc-section')?.classList.add('hidden');
+
     _pendingFilter = {};
     if (member   !== undefined) _pendingFilter.member   = member;
     if (shared   !== undefined) _pendingFilter.shared   = shared;

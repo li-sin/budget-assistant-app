@@ -101,7 +101,7 @@ main#content {
   background: var(--bg-card);
   border-top: 1px solid var(--divider);
   display: flex;
-  z-index: 100;
+  z-index: 210;
 }
 
 .nav-item {

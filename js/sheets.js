@@ -273,6 +273,18 @@ const Sheets = (() => {
     return lastRow + 1;  // 第一筆品項的列號
   }
 
+  // ── 新增單筆整體品項（無品項→部分 時，讓公式鏈生效）─────
+  async function appendSyntheticItemRow(invoiceInfo, { itemName, itemAmount, attribution, customAmount }) {
+    const { carrier, date, invNum, shop } = invoiceInfo;
+    const data    = await _get(`${CONFIG.TABS.ITEMS}!A:A`);
+    const r       = (data.values || []).length + 1;
+    const invGid  = CONFIG.INVOICE_SHEET_ID;
+    const invLink = `=HYPERLINK("#gid=${invGid}","${invNum}")`;
+    const bearFormula = `=IF(I${r}<>"",I${r},IF(G${r}="🌟 Sin",0,IF(G${r}="🐨 Bear",F${r},IF(G${r}="共用",ROUNDDOWN(F${r}/2,0),0))))`;
+    const row = [carrier, date, invLink, shop, itemName, itemAmount, attribution, bearFormula, customAmount, ''];
+    await _update(`${CONFIG.TABS.ITEMS}!A${r}`, [row]);
+  }
+
   // ── 勾選發票明細已匯入（J欄 = TRUE）────────────────────
   async function markInvoiceImported(rowIndex) {
     await _update(`${CONFIG.TABS.INVOICE}!J${rowIndex}`, [[true]]);
@@ -733,7 +745,7 @@ const Sheets = (() => {
     getMonthlyData, getCreditCardImportStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
     getInvoiceData, getItemData, updateItemRow,
-    checkDuplicateInvoice, appendInvoiceRow, appendItemRows,
+    checkDuplicateInvoice, appendInvoiceRow, appendItemRows, appendSyntheticItemRow,
     markInvoiceImported, appendMonthlyFromScan,
     upsertRepayment,
     getCCPendingData, updateCCShared, updateInvoiceShared,

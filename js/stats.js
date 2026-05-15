@@ -321,5 +321,7 @@ const Stats = (() => {
     _load();
   }
 
-  return { init, activate };
+  return { init, activate, reload: _load };
 })();
+
+window.Stats = Stats;

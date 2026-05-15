@@ -455,20 +455,15 @@ const Ledger = (() => {
             btn.textContent = '儲存發票欄位';
             return; // 取消
           }
-          // choice = { sinShare, bearShare } 或 null(取消)
+          // 在品項明細建一筆整體品項，讓公式鏈（發票明細 K + 月度帳本 G/H）自動計算
+          await Sheets.appendSyntheticItemRow(
+            { carrier: invRow.carrier, date: invRow.date, invNum: invRow.invNum, shop: invRow.shop },
+            { itemName: invRow.shop || '（整體）', itemAmount: invRow.amount,
+              attribution: '共用', customAmount: String(choice.bearShare) }
+          );
           await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: newShared, note: newNote });
-          const monthlyUpdates = { shared: '部分', category: newCat };
-          await Sheets.updateMonthlyFields(monthlyRow.rowIndex, monthlyUpdates, ym);
-          if (choice.bearShare != null) {
-            const total = monthlyRow.amount || 0;
-            const sinShare  = total - choice.bearShare;
-            const bearShare = choice.bearShare;
-            await Sheets.updateMonthlyRow(monthlyRow.rowIndex, [
-              monthlyRow.date, monthlyRow.item, total, monthlyRow.payer,
-              '部分', newCat, sinShare, bearShare, newNote,
-              monthlyRow.source, monthlyRow.sourceLink, monthlyRow.importedAt,
-            ]);
-          }
+          // 月度帳本 E/F 更新；G/H 由公式自動重算，不直接寫入
+          await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: '部分', category: newCat }, ym);
         }
       } else if (oldShared === '部分' && ['是', '否', '-'].includes(newShared)) {
         // 部分 → 其他：清掉所有品項 G 歸屬

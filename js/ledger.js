@@ -125,12 +125,10 @@ const Ledger = (() => {
       const sharedLabel = r.shared ? `<span class="tag-shared">${r.shared}</span>` : '';
       const noteText    = r.note   ? `<span class="ledger-note">　${r.note}</span>` : '';
       const isInvoice   = (r.source === '發票' || r.source === '掃描發票') && r.sourceLink;
-      // 非發票列才加 list-item-editable（讓 click-to-edit 生效）
-      const editableClass = isSin && !isInvoice ? ' list-item-editable' : '';
       return `
         <div class="swipe-container">
           ${isSin ? `<div class="swipe-delete-bg"><button class="swipe-del-btn" data-row="${r.rowIndex}">刪除</button></div>` : ''}
-          <div class="list-item${editableClass}" data-row="${r.rowIndex}" data-is-invoice="${isInvoice ? '1' : ''}">
+          <div class="list-item" data-row="${r.rowIndex}" data-is-invoice="${isInvoice ? '1' : ''}">
             <span class="list-item-icon">${cat}</span>
             <div class="list-item-body">
               <div class="list-item-title">${r.item || '（未命名）'} ${bearBadge} ${sharedLabel}</div>
@@ -142,32 +140,23 @@ const Ledger = (() => {
             </div>
             <div class="list-item-right">
               <div class="amount-expense">${_fmt(r.amount)}</div>
-              ${isInvoice ? `<button class="expand-btn" data-row="${r.rowIndex}">▼</button>` : ''}
+              ${isSin ? `<button class="expand-btn" data-row="${r.rowIndex}">▼</button>` : ''}
             </div>
           </div>
         </div>`;
     }).join('');
 
-    // 非發票列：click-to-edit（swipe 開啟時只 collapse，不觸發 edit）
-    if (isSin) {
-      el.querySelectorAll('.list-item:not([data-is-invoice="1"])').forEach(item => {
-        item.addEventListener('click', () => {
-          if (_swipeActiveWrap) { _collapseActiveSwipe(); return; }
-          const rowIndex = parseInt(item.dataset.row, 10);
-          const row = _allRows.find(r => r.rowIndex === rowIndex);
-          if (row) _openEdit(row);
-        });
-      });
-    }
-
-    // expand 按鈕（swipe 開啟時只 collapse）
+    // expand 按鈕（發票→展開明細；非發票→inline 編輯；swipe 開啟時只 collapse）
     el.querySelectorAll('.expand-btn').forEach(btn => {
       btn.addEventListener('click', e => {
         e.stopPropagation();
         if (_swipeActiveWrap) { _collapseActiveSwipe(); return; }
         const rowIndex = parseInt(btn.dataset.row, 10);
         const row = _allRows.find(r => r.rowIndex === rowIndex);
-        if (row) _toggleItemDetail(row, btn);
+        if (!row) return;
+        const isInv = (row.source === '發票' || row.source === '掃描發票') && row.sourceLink;
+        if (isInv) _toggleItemDetail(row, btn);
+        else _toggleNonInvoiceDetail(row, btn);
       });
     });
 
@@ -212,6 +201,7 @@ const Ledger = (() => {
         inner.style.transition = '';
       }, { passive: true });
 
+      // touch-action:pan-y（CSS）已讓瀏覽器自行防止橫向捲動，不需 preventDefault
       inner.addEventListener('touchmove', e => {
         if (!dragging || e.touches.length !== 1) return;
         const dx = e.touches[0].clientX - startX;
@@ -222,10 +212,9 @@ const Ledger = (() => {
           isHoriz = Math.abs(dx) > Math.abs(dy) * 2;
         }
         if (!isHoriz) { dragging = false; return; }
-        e.preventDefault();
         const x = Math.min(0, Math.max(SNAP_OPEN, startOffset + dx));
         inner.style.transform = `translateX(${x}px)`;
-      }, { passive: false });
+      }, { passive: true });
 
       inner.addEventListener('touchend', e => {
         _lastTouchEnd = Date.now();
@@ -233,12 +222,18 @@ const Ledger = (() => {
         dragging = false;
         const dx = e.changedTouches[0].clientX - startX;
         if (startOffset + dx < THRESHOLD) {
-          if (_swipeActiveWrap && _swipeActiveWrap !== wrap) _collapseActiveSwipe();
-          inner.style.transition = 'transform 0.2s';
-          inner.style.transform  = `translateX(${SNAP_OPEN}px)`;
-          inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
-          _swipeActiveWrap = wrap;
-          wrap.classList.add('swipe-open');
+          // 已 open + 輕觸（微小水平偏移誤判 isHoriz），視為 tap-to-close
+          // 不依賴可能被瀏覽器抑制的 click event
+          if (startOffset === SNAP_OPEN && Math.abs(dx) < 20) {
+            _collapseActiveSwipe();
+          } else {
+            if (_swipeActiveWrap && _swipeActiveWrap !== wrap) _collapseActiveSwipe();
+            inner.style.transition = 'transform 0.2s';
+            inner.style.transform  = `translateX(${SNAP_OPEN}px)`;
+            inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
+            _swipeActiveWrap = wrap;
+            wrap.classList.add('swipe-open');
+          }
         } else {
           inner.style.transition = 'transform 0.2s';
           inner.style.transform  = '';
@@ -251,26 +246,38 @@ const Ledger = (() => {
       }, { passive: true });
 
       // 桌面滑鼠支援：touchend 後 500ms 內的 mousedown 為 iOS 合成事件，略過
+      // mouseDragging 採 lazy 模式：mousedown 不立即設 true，
+      // 等 mousemove 超過 10px 才確認為拖曳，避免純點擊觸發 swipe
       let mouseStartX = 0, mouseStartOffset = 0, mouseDragging = false;
       const onMouseMove = e => {
-        if (!mouseDragging) return;
         const dx = e.clientX - mouseStartX;
+        if (!mouseDragging) {
+          if (Math.abs(dx) < 10) return;  // 未達拖曳門檻，忽略
+          mouseDragging = true;
+          inner.style.transition = '';
+          inner.style.cursor = 'grabbing';
+        }
         inner.style.transform = `translateX(${Math.min(0, Math.max(SNAP_OPEN, mouseStartOffset + dx))}px)`;
       };
       const onMouseUp = e => {
-        if (!mouseDragging) return;
-        mouseDragging = false;
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
+        if (!mouseDragging) return;  // 純點擊，不干預 click 事件
+        mouseDragging = false;
         inner.style.cursor = '';
         const dx = e.clientX - mouseStartX;
         if (mouseStartOffset + dx < THRESHOLD) {
-          if (_swipeActiveWrap && _swipeActiveWrap !== wrap) _collapseActiveSwipe();
-          inner.style.transition = 'transform 0.2s';
-          inner.style.transform  = `translateX(${SNAP_OPEN}px)`;
-          inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
-          _swipeActiveWrap = wrap;
-          wrap.classList.add('swipe-open');
+          // 已 open + 輕觸（滑鼠 lazy drag 超過 10px 門檻），視為 tap-to-close
+          if (mouseStartOffset === SNAP_OPEN && Math.abs(dx) < 30) {
+            _collapseActiveSwipe();
+          } else {
+            if (_swipeActiveWrap && _swipeActiveWrap !== wrap) _collapseActiveSwipe();
+            inner.style.transition = 'transform 0.2s';
+            inner.style.transform  = `translateX(${SNAP_OPEN}px)`;
+            inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
+            _swipeActiveWrap = wrap;
+            wrap.classList.add('swipe-open');
+          }
         } else {
           inner.style.transition = 'transform 0.2s';
           inner.style.transform  = '';
@@ -286,10 +293,7 @@ const Ledger = (() => {
         if (Date.now() - _lastTouchEnd < 500) return; // iOS 合成 mouse 事件，略過
         mouseStartX = e.clientX;
         mouseStartOffset = _swipeActiveWrap === wrap ? SNAP_OPEN : 0;
-        mouseDragging = true;
-        inner.style.transition = '';
-        inner.style.cursor = 'grabbing';
-        e.preventDefault();
+        mouseDragging = false;  // lazy：等 mousemove 超過門檻才設 true
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
       });
@@ -570,6 +574,136 @@ const Ledger = (() => {
     } catch (e) {
       btnEl.textContent = '▼';
     }
+  }
+
+  // ── 非發票列 inline 展開編輯（手動記帳 / CC月度）────────────
+
+  function _toggleNonInvoiceDetail(row, btnEl) {
+    const detailId = `ne-detail-${row.rowIndex}`;
+    const listItem = btnEl.closest('.list-item');
+    const existing = document.getElementById(detailId);
+    if (existing) { existing.remove(); btnEl.textContent = '▼'; return; }
+
+    btnEl.textContent = '▲';
+
+    const catOpts = ['', ...CATEGORIES].map(c =>
+      `<option value="${c}" ${(row.category || '') === c ? 'selected' : ''}>${c || '（未分類）'}</option>`
+    ).join('');
+
+    const sharedChips = SHARED_OPTS.map(v =>
+      `<button class="chip ne-shared-chip${(row.shared || '是') === v ? ' active' : ''}" data-val="${v}">${v}</button>`
+    ).join('');
+
+    const payerSin  = (!row.payer || row.payer === '🌟 Star') ? ' active' : '';
+    const payerBear = row.payer === '🐨 Bear' ? ' active' : '';
+
+    const detail = document.createElement('div');
+    detail.id = detailId;
+    detail.className = 'item-detail-list';
+    detail.innerHTML = `
+      <div class="inv-edit-section">
+        <div class="inv-edit-row">
+          <span class="inv-edit-label">日期</span>
+          <input type="date" class="ne-date field-input" style="height:36px;font-size:13px;padding:4px 8px;" value="${row.date}">
+        </div>
+        <div class="inv-edit-row">
+          <span class="inv-edit-label">項目</span>
+          <input type="text" class="ne-item field-input" style="height:36px;font-size:13px;padding:4px 8px;" value="${row.item || ''}">
+        </div>
+        <div class="inv-edit-row">
+          <span class="inv-edit-label">金額</span>
+          <input type="number" class="ne-amount field-input" style="height:36px;font-size:13px;padding:4px 8px;" value="${row.amount || ''}">
+        </div>
+        <div class="inv-edit-row">
+          <span class="inv-edit-label">類別</span>
+          <select class="ne-cat field-input cat-select" style="height:36px;font-size:13px;padding:4px 8px;">${catOpts}</select>
+        </div>
+        <div class="inv-edit-row">
+          <span class="inv-edit-label">付款人</span>
+          <div class="chip-row ne-payer-chips">
+            <button class="chip ne-payer-chip${payerSin}"  data-payer="🌟 Star">🌟 Sin 付</button>
+            <button class="chip ne-payer-chip${payerBear}" data-payer="🐨 Bear">🐨 Bear 付</button>
+          </div>
+        </div>
+        <div class="inv-edit-row">
+          <span class="inv-edit-label">共用</span>
+          <div class="chip-row ne-shared-chips" style="margin-bottom:0;">${sharedChips}</div>
+        </div>
+        <div class="inv-edit-row">
+          <span class="inv-edit-label">備註</span>
+          <input type="text" id="ne-note-${row.rowIndex}" class="ne-note field-input" data-notechips="true" style="height:36px;font-size:13px;padding:4px 8px;" value="${row.note || ''}">
+        </div>
+        <div class="inv-edit-actions">
+          <button class="ne-save btn-primary" style="padding:7px 18px;font-size:13px;">儲存</button>
+          <span class="ne-save-msg" style="font-size:12px;color:var(--teal);display:none;">✓ 已儲存</span>
+        </div>
+        <p class="ne-edit-error hidden" style="font-size:12px;color:var(--salmon);"></p>
+      </div>`;
+
+    let currentPayer  = row.payer  || '🌟 Star';
+    let currentShared = row.shared || '是';
+
+    detail.querySelectorAll('.ne-payer-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        detail.querySelectorAll('.ne-payer-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        currentPayer = chip.dataset.payer;
+      });
+    });
+
+    detail.querySelectorAll('.ne-shared-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        detail.querySelectorAll('.ne-shared-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        currentShared = chip.dataset.val;
+      });
+    });
+
+    detail.querySelector('.ne-save').addEventListener('click', async () => {
+      const date   = detail.querySelector('.ne-date').value;
+      const item   = detail.querySelector('.ne-item').value.trim();
+      const amount = parseFloat(detail.querySelector('.ne-amount').value);
+      const cat    = detail.querySelector('.ne-cat').value;
+      const note   = detail.querySelector('.ne-note').value.trim();
+      const errEl  = detail.querySelector('.ne-edit-error');
+      const btn    = detail.querySelector('.ne-save');
+
+      if (!date || !item || isNaN(amount)) {
+        errEl.textContent = '日期、項目、金額為必填';
+        errEl.classList.remove('hidden');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '儲存中…';
+      errEl.classList.add('hidden');
+
+      try {
+        await Sheets.updateMonthlyRow(row.rowIndex, [
+          date, item, amount, currentPayer, currentShared, cat,
+          row.sinShare  !== undefined && row.sinShare  !== '' ? row.sinShare  : '',
+          row.bearShare !== undefined && row.bearShare !== '' ? row.bearShare : '',
+          note,
+          row.source     || '手動記帳',
+          row.sourceLink || '',
+          row.importedAt || '',
+        ]);
+        const ymOrig = row.date.slice(0, 7);
+        const ymNew  = date.slice(0, 7);
+        Sheets.invalidateMonth(ymOrig);
+        if (ymNew !== ymOrig) Sheets.invalidateMonth(ymNew);
+        await _load();
+        window.Home?.reload();
+      } catch (e) {
+        errEl.textContent = '儲存失敗：' + e.message;
+        errEl.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = '儲存';
+      }
+    });
+
+    (listItem.closest('.swipe-container') || listItem).insertAdjacentElement('afterend', detail);
+    NoteChips?.render(`ne-note-${row.rowIndex}`);
   }
 
   // ── 發票層編輯區（G 類別 / H 是否共用 / I 備註）─────────────

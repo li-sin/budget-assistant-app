@@ -632,6 +632,11 @@ select.field-input { height: 44px; }
   position: relative;
   overflow: hidden;
 }
+/* touch-action:pan-y 讓瀏覽器自行處理垂直捲動；
+   不需 e.preventDefault() 也能防止橫向捲動，且合成 click 不會被阻擋 */
+.swipe-container .list-item {
+  touch-action: pan-y;
+}
 .swipe-delete-bg {
   position: absolute;
   right: 0;

@@ -452,6 +452,10 @@ select.field-input { height: 44px; }
 }
 .list-item-editable { cursor: pointer; }
 .list-item-editable:active { background: var(--divider); border-radius: 8px; }
+/* 桌面滑鼠（pointer:fine）拖曳期間 :active 持續整個 mousedown，外框感明顯 → 關掉 */
+@media (pointer: fine) {
+  .list-item-editable:active { background: transparent; border-radius: 0; }
+}
 .platform-cc-item.active { background: rgba(0,201,167,0.15); border: 1px solid var(--teal); border-radius: 8px; }
 
 /* ── Empty State ────────────────────────────────── */

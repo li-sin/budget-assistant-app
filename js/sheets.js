@@ -274,14 +274,14 @@ const Sheets = (() => {
   }
 
   // ── 新增單筆整體品項（無品項→部分 時，讓公式鏈生效）─────
-  async function appendSyntheticItemRow(invoiceInfo, { itemName, itemAmount, attribution, customAmount }) {
+  async function appendSyntheticItemRow(invoiceInfo, { itemName, itemAmount, attribution, customAmount, note = '' }) {
     const { carrier, date, invNum, shop } = invoiceInfo;
     const data    = await _get(`${CONFIG.TABS.ITEMS}!A:A`);
     const r       = (data.values || []).length + 1;
     const invGid  = CONFIG.INVOICE_SHEET_ID;
     const invLink = `=HYPERLINK("#gid=${invGid}","${invNum}")`;
     const bearFormula = `=IF(I${r}<>"",I${r},IF(G${r}="🌟 Sin",0,IF(G${r}="🐨 Bear",F${r},IF(G${r}="共用",ROUNDDOWN(F${r}/2,0),0))))`;
-    const row = [carrier, date, invLink, shop, itemName, itemAmount, attribution, bearFormula, customAmount, ''];
+    const row = [carrier, date, invLink, shop, itemName, itemAmount, attribution, bearFormula, customAmount, note];
     await _update(`${CONFIG.TABS.ITEMS}!A${r}`, [row]);
   }
 
@@ -714,22 +714,28 @@ const Sheets = (() => {
     }
   }
 
-  // ── F20 刪除：找出連結某發票的 CC 列 ───────────────────────
+  // ── F20 刪除/編輯：找出連結某發票的 CC 列（兩段式，只讀 I:I 定位）──
   async function getCCForInvoice(invNum) {
-    const data = await _get(`${CONFIG.TABS.CC}!A:K`);
-    const rows = (data.values || []).slice(1);
-    const found = [];
-    rows.forEach((r, i) => {
-      const matched = r[8] || '';  // I 欄（顯示文字 = invNum）
-      if (matched === invNum) {
-        found.push({
-          rowIndex: i + 2,
-          bank:   r[0] || '',
-          amount: parseFloat(r[4]) || 0,
-        });
-      }
-    });
-    return found;
+    const iData = await _get(`${CONFIG.TABS.CC}!I:I`);
+    const iRows = (iData.values || []).slice(1);
+    const matches = iRows
+      .map((r, i) => ({ rowIndex: i + 2, matched: r[0] || '' }))
+      .filter(r => r.matched === invNum);
+    if (!matches.length) return [];
+    return await Promise.all(matches.map(async m => {
+      const d = await _get(`${CONFIG.TABS.CC}!A${m.rowIndex}:E${m.rowIndex}`);
+      const r = ((d.values || [[]])[0]) || [];
+      return { rowIndex: m.rowIndex, bank: r[0] || '', amount: parseFloat(r[4]) || 0 };
+    }));
+  }
+
+  // ── F20 CC 月度帳本 G/H 直接更新（CC 配對靜態值同步）─────────
+  async function updateMonthlyGH(rowIndex, sinShare, bearShare, ym) {
+    await _batchUpdate([
+      { range: `${CONFIG.TABS.MONTHLY}!G${rowIndex}`, values: [[sinShare]] },
+      { range: `${CONFIG.TABS.MONTHLY}!H${rowIndex}`, values: [[bearShare]] },
+    ]);
+    if (ym) invalidateMonth(ym);
   }
 
   // ── F20 解除配對：清 CC H/I 欄 + 重設 K=FALSE ───────────────
@@ -754,6 +760,6 @@ const Sheets = (() => {
     importToMonthly,
     deleteInvoiceRow, deleteItemRows,
     updateInvoiceFields, updateItemFields, updateMonthlyFields,
-    getCCForInvoice, unlinkCC,
+    getCCForInvoice, updateMonthlyGH, unlinkCC,
   };
 })();

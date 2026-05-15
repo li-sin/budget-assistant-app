@@ -18,6 +18,7 @@ const Ledger = (() => {
   let _itemsCache    = null;
   let _itemsCacheTs  = 0;
   const ITEMS_CACHE_TTL = 5 * 60 * 1000;
+  let _expandCCRow   = null; // 展開中發票的 CC 配對列（有配對才非 null）
 
   let _editPayer  = '🌟 Star';
   let _editShared = '是';
@@ -240,13 +241,35 @@ const Ledger = (() => {
     }
   }
 
+  // ── CC 配對 G/H 計算（cc-gh-logic.md）───────────────────────
+  // items: 品項陣列（含 attribution、custom、itemAmount）；shared: 是/否/-/部分；ccAmount: CC 金額
+  function _calcPlatformSplit(items, shared, ccAmount) {
+    if (shared === '是') { const s = Math.floor(ccAmount / 2); return { sinShare: s, bearShare: ccAmount - s }; }
+    if (shared === '否') return { sinShare: 0, bearShare: ccAmount };
+    if (shared === '-')  return { sinShare: ccAmount, bearShare: 0 };
+    // 部分：品項歸屬 + CC差額平分
+    const invTotal = items.reduce((sum, it) => sum + (it.itemAmount || 0), 0);
+    const bearFood = items.reduce((sum, it) => {
+      if (it.attribution === '🐨 Bear') return sum + it.itemAmount;
+      if (it.attribution === '共用') {
+        const c = parseFloat(it.custom);
+        return sum + (isNaN(c) ? Math.floor(it.itemAmount / 2) : c);
+      }
+      return sum;
+    }, 0);
+    const sinFood = invTotal - bearFood;
+    const diff    = ccAmount - invTotal;
+    const diffSin = Math.floor(diff / 2);
+    return { sinShare: sinFood + diffSin, bearShare: bearFood + (diff - diffSin) };
+  }
+
   // ── 展開品項（可編輯，F20）────────────────────────────────────
 
   async function _toggleItemDetail(row, btnEl) {
     const detailId = `item-detail-${row.rowIndex}`;
     const listItem = btnEl.closest('.list-item');
     const existing = document.getElementById(detailId);
-    if (existing) { existing.remove(); btnEl.textContent = '▼'; return; }
+    if (existing) { existing.remove(); btnEl.textContent = '▼'; _expandCCRow = null; return; }
 
     btnEl.textContent = '…';
     try {
@@ -261,6 +284,10 @@ const Ledger = (() => {
       const invRow  = allInvoices.find(inv => inv.invNum === invNum);
       const invItems = _itemsCache.filter(it => it.invNum === invNum);
 
+      // 查 CC 配對（一次，快取到 _expandCCRow 供所有儲存操作共用）
+      const ccRows = await Sheets.getCCForInvoice(invNum);
+      _expandCCRow = ccRows.length ? ccRows[0] : null;
+
       const detail = document.createElement('div');
       detail.id        = detailId;
       detail.className = 'item-detail-list';
@@ -268,7 +295,7 @@ const Ledger = (() => {
       const isSin = _isSin();
 
       // ── 發票層欄位（可編輯，Sin only）────────────────────────
-      const invSection = _buildInvoiceEditSection(row, invRow, isSin);
+      const invSection = _buildInvoiceEditSection(row, invRow, isSin, _expandCCRow);
       detail.appendChild(invSection);
 
       // ── 品項層 ────────────────────────────────────────────────
@@ -279,7 +306,7 @@ const Ledger = (() => {
         detail.appendChild(empty);
       } else {
         invItems.forEach(it => {
-          const itRow = _buildItemEditRow(it, isSin);
+          const itRow = _buildItemEditRow(it, isSin, _expandCCRow);
           detail.appendChild(itRow);
         });
       }
@@ -296,7 +323,7 @@ const Ledger = (() => {
 
   // ── 發票層編輯區（G 類別 / H 是否共用 / I 備註）─────────────
 
-  function _buildInvoiceEditSection(monthlyRow, invRow, isSin) {
+  function _buildInvoiceEditSection(monthlyRow, invRow, isSin, ccRow) {
     const wrap = document.createElement('div');
     wrap.className = 'inv-edit-section';
 
@@ -372,7 +399,7 @@ const Ledger = (() => {
       const newCat    = wrap.querySelector('.inv-cat-select').value;
       const newShared = currentShared;
       const newNote   = wrap.querySelector('.inv-note-input').value.trim();
-      await _saveInvoiceFields(invRow, monthlyRow, newCat, newShared, newNote, wrap);
+      await _saveInvoiceFields(invRow, monthlyRow, newCat, newShared, newNote, wrap, ccRow);
     });
 
     return wrap;
@@ -402,7 +429,7 @@ const Ledger = (() => {
 
   // ── 儲存發票層欄位（含月度帳本同步與特殊情境）──────────────
 
-  async function _saveInvoiceFields(invRow, monthlyRow, newCat, newShared, newNote, wrapEl) {
+  async function _saveInvoiceFields(invRow, monthlyRow, newCat, newShared, newNote, wrapEl, ccRow) {
     const errEl = wrapEl.querySelector('.inv-edit-error');
     const msgEl = wrapEl.querySelector('.inv-save-msg');
     const btn   = wrapEl.querySelector('.btn-inv-save');
@@ -445,7 +472,7 @@ const Ledger = (() => {
           // 有品項 → 開品項歸屬 modal
           btn.disabled = false;
           btn.textContent = '儲存發票欄位';
-          _openItemAttrModal(invRow, monthlyRow, invItems, newCat, newNote, wrapEl);
+          _openItemAttrModal(invRow, monthlyRow, invItems, newCat, newNote, wrapEl, ccRow);
           return;
         } else {
           // 無品項 → 讓使用者選擇
@@ -459,11 +486,18 @@ const Ledger = (() => {
           await Sheets.appendSyntheticItemRow(
             { carrier: invRow.carrier, date: invRow.date, invNum: invRow.invNum, shop: invRow.shop },
             { itemName: invRow.shop || '（整體）', itemAmount: invRow.amount,
-              attribution: '共用', customAmount: String(choice.bearShare) }
+              attribution: '共用', customAmount: String(choice.bearShare),
+              note: '新增此欄用以修改自訂Bear負擔金額' }
           );
           await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: newShared, note: newNote });
           // 月度帳本 E/F 更新；G/H 由公式自動重算，不直接寫入
           await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: '部分', category: newCat }, ym);
+          // CC 連結：靜態 G/H 需手動重算
+          if (ccRow) {
+            const syntheticItem = { itemAmount: invRow.amount, attribution: '共用', custom: String(choice.bearShare) };
+            const { sinShare, bearShare } = _calcPlatformSplit([syntheticItem], '部分', ccRow.amount);
+            await Sheets.updateMonthlyGH(monthlyRow.rowIndex, sinShare, bearShare, ym);
+          }
         }
       } else if (oldShared === '部分' && ['是', '否', '-'].includes(newShared)) {
         // 部分 → 其他：清掉所有品項 G 歸屬
@@ -486,11 +520,21 @@ const Ledger = (() => {
         }
         await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: newShared, note: newNote });
         await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: newShared, category: newCat }, ym);
+        // CC 連結：靜態 G/H 需手動重算（品項歸屬已清除，items 傳 []）
+        if (ccRow) {
+          const { sinShare, bearShare } = _calcPlatformSplit([], newShared, ccRow.amount);
+          await Sheets.updateMonthlyGH(monthlyRow.rowIndex, sinShare, bearShare, ym);
+        }
       } else {
         // 一般情況
         await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: newShared, note: newNote });
-        const monthlyShared = newShared; // mapping 1:1（是/否/部分/-/x 已在上方處理）
-        await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: monthlyShared, category: newCat }, ym);
+        await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: newShared, category: newCat }, ym);
+        // CC 連結：靜態 G/H 需手動重算
+        if (ccRow) {
+          const currentItems = (_itemsCache || []).filter(it => it.invNum === invRow.invNum);
+          const { sinShare, bearShare } = _calcPlatformSplit(currentItems, newShared, ccRow.amount);
+          await Sheets.updateMonthlyGH(monthlyRow.rowIndex, sinShare, bearShare, ym);
+        }
       }
 
       msgEl.style.display = 'inline';
@@ -557,7 +601,7 @@ const Ledger = (() => {
 
   // ── 品項歸屬 Modal（是/否/- → 部分，有品項時）──────────────
 
-  function _openItemAttrModal(invRow, monthlyRow, invItems, newCat, newNote, wrapEl) {
+  function _openItemAttrModal(invRow, monthlyRow, invItems, newCat, newNote, wrapEl, ccRow) {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
 
@@ -643,13 +687,24 @@ const Ledger = (() => {
         }
         // 更新發票 H
         await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: '部分', note: newNote });
-        await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: '部分', category: newCat }, monthlyRow.date.slice(0, 7));
+        const ym = monthlyRow.date.slice(0, 7);
+        await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: '部分', category: newCat }, ym);
+        // CC 連結：靜態 G/H 需手動重算（從 modal DOM 讀取剛設定的歸屬）
+        if (ccRow) {
+          const modalItems = Array.from(overlay.querySelectorAll('.item-attr-block')).map((block, i) => {
+            const it = invItems[i];
+            const activeChip = block.querySelector('.item-attr-chip.active');
+            const opt = activeChip ? activeChip.dataset.opt : (it.attribution || '');
+            let attribution = opt === '部分' ? '共用' : opt;
+            let custom = opt === '部分' ? (block.querySelector('.bear-amt-input')?.value || '') : '';
+            return { itemAmount: it.itemAmount, attribution, custom };
+          });
+          const { sinShare, bearShare } = _calcPlatformSplit(modalItems, '部分', ccRow.amount);
+          await Sheets.updateMonthlyGH(monthlyRow.rowIndex, sinShare, bearShare, ym);
+        }
         _itemsCache = null;
         overlay.remove();
-
-        const r = _allRows.find(r => r.rowIndex === monthlyRow.rowIndex);
-        if (r) { r.category = newCat; r.shared = '部分'; r.note = newNote; }
-        _renderList();
+        await _load();
         window.Home?.reload();
       } catch (e) {
         errEl.textContent = '儲存失敗：' + e.message;
@@ -662,7 +717,7 @@ const Ledger = (() => {
 
   // ── 品項列（可編輯，Sin only）────────────────────────────────
 
-  function _buildItemEditRow(it, isSin) {
+  function _buildItemEditRow(it, isSin, ccRow) {
     const wrap = document.createElement('div');
     wrap.className = 'item-detail-row item-edit-row';
 
@@ -736,9 +791,18 @@ const Ledger = (() => {
         it.note        = note;
         msgEl.style.display = 'inline';
         setTimeout(() => { msgEl.style.display = 'none'; }, 2000);
-        // 月度帳本 G/H 是公式欄，自動重算，只需清快取
         const ym = (it.date || '').slice(0, 7);
-        if (ym) Sheets.invalidateMonth(ym);
+        // CC 連結：月度 G/H 為靜態值，需手動重算
+        if (ccRow) {
+          const allItems = (_itemsCache || []).filter(ii => ii.invNum === it.invNum);
+          const monthlyRow = _allRows.find(r => r.sourceLink === it.invNum);
+          if (monthlyRow) {
+            const { sinShare, bearShare } = _calcPlatformSplit(allItems, monthlyRow.shared, ccRow.amount);
+            await Sheets.updateMonthlyGH(monthlyRow.rowIndex, sinShare, bearShare, ym);
+          }
+        } else if (ym) {
+          Sheets.invalidateMonth(ym);
+        }
         window.Home?.reload();
       } catch (e) {
         errEl.textContent = '儲存失敗：' + e.message;

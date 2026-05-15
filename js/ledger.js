@@ -1315,10 +1315,17 @@ const Ledger = (() => {
 
     const pending = _pendingFilter;
     _pendingFilter = null;
+    const ym = `${year}-${String(month).padStart(2, '0')}`;
+    const cacheExists = !!sessionStorage.getItem(`ba_monthly_${ym}`);
+
     if (year !== _year || month !== _month) {
       _year = year; _month = month;
       if (pending) { _resetFilters(); _applyFilter(pending); }
       _updateMonthLabel();
+      _load();
+    } else if (!cacheExists) {
+      // 其他 tab 操作（如 CC 配對）清除了快取，強制重新讀取
+      if (pending) { _resetFilters(); _applyFilter(pending); }
       _load();
     } else if (pending) {
       _resetFilters();

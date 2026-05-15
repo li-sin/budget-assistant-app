@@ -140,6 +140,7 @@
   padding: 12px 0;
   border-bottom: 1px solid var(--divider);
   background: var(--bg-card);
+  z-index: 1;
 }
 .list-item:last-child { border-bottom: none; }
 .list-item-icon  { font-size: 22px; width: 36px; text-align: center; }
@@ -638,6 +639,10 @@ select.field-input { height: 44px; }
   align-items: center;
   justify-content: center;
   border-radius: 0 8px 8px 0;
+  pointer-events: none;
+}
+.swipe-container.swipe-open .swipe-delete-bg {
+  pointer-events: auto;
 }
 .swipe-del-btn {
   background: none;

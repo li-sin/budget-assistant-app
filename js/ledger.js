@@ -30,6 +30,7 @@ const Ledger = (() => {
 
   function _collapseActiveSwipe() {
     if (!_swipeActiveWrap) return;
+    _swipeActiveWrap.classList.remove('swipe-open');
     const inner = _swipeActiveWrap.querySelector('.list-item');
     inner.style.transition = 'transform 0.2s';
     inner.style.transform  = '';
@@ -39,6 +40,11 @@ const Ledger = (() => {
 
   let _editPayer  = '🌟 Star';
   let _editShared = '是';
+
+  let _invSubEditRow = null;
+  let _invSubEditShared = '';
+  let _ccSubEditRow = null;
+  let _ccSubEditShared = '';
 
   function _fmt(n) {
     return '$' + Math.abs(n).toLocaleString('zh-TW');
@@ -227,11 +233,15 @@ const Ledger = (() => {
           inner.style.transform  = `translateX(${SNAP_OPEN}px)`;
           inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
           _swipeActiveWrap = wrap;
+          wrap.classList.add('swipe-open');
         } else {
           inner.style.transition = 'transform 0.2s';
           inner.style.transform  = '';
           inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
-          if (_swipeActiveWrap === wrap) _swipeActiveWrap = null;
+          if (_swipeActiveWrap === wrap) {
+            _swipeActiveWrap = null;
+            wrap.classList.remove('swipe-open');
+          }
         }
       }, { passive: true });
     });
@@ -1351,6 +1361,179 @@ const Ledger = (() => {
     }
   }
 
+  // ── 發票明細 Sub-tab Edit Modal ──────────────────────────────
+
+  function _buildInvSubEditModal() {
+    if (document.getElementById('inv-sub-edit-modal')) return;
+    const el = document.createElement('div');
+    el.id = 'inv-sub-edit-modal';
+    el.className = 'modal-overlay hidden';
+    el.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <span class="modal-title">編輯發票明細</span>
+          <button class="modal-close" id="inv-sub-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div id="inv-sub-info" style="font-size:13px;color:var(--text-sub);margin-bottom:12px;line-height:1.6;"></div>
+          <label class="field-label">類別</label>
+          <select id="inv-sub-cat" class="field-input cat-select">
+            <option value="">（未分類）</option>
+            ${CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}
+          </select>
+          <label class="field-label">是否共用</label>
+          <div class="chip-row" id="inv-sub-shared-chips">
+            ${SHARED_OPTS.map(v => `<button class="chip" data-val="${v}">${v}</button>`).join('')}
+          </div>
+          <label class="field-label">備註</label>
+          <input type="text" id="inv-sub-note" class="field-input">
+          <p id="inv-sub-error" class="add-error hidden"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="inv-sub-cancel">取消</button>
+          <button class="btn-primary" id="inv-sub-save">儲存</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    document.getElementById('inv-sub-close').addEventListener('click', _closeInvSubModal);
+    document.getElementById('inv-sub-cancel').addEventListener('click', _closeInvSubModal);
+    el.addEventListener('click', e => { if (e.target === el) _closeInvSubModal(); });
+    el.querySelectorAll('#inv-sub-shared-chips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        el.querySelectorAll('#inv-sub-shared-chips .chip').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        _invSubEditShared = btn.dataset.val;
+      });
+    });
+    document.getElementById('inv-sub-save').addEventListener('click', async () => {
+      const row = _invSubEditRow;
+      if (!row) return;
+      const btn   = document.getElementById('inv-sub-save');
+      const errEl = document.getElementById('inv-sub-error');
+      const cat   = document.getElementById('inv-sub-cat').value;
+      const note  = document.getElementById('inv-sub-note').value.trim();
+      errEl.classList.add('hidden');
+      btn.disabled = true; btn.textContent = '儲存中…';
+      try {
+        await Sheets.updateInvoiceFields(row.rowIndex, { category: cat, shared: _invSubEditShared, note });
+        _closeInvSubModal();
+        _invRows = [];
+        await _loadInvoiceTab();
+      } catch (e) {
+        errEl.textContent = '儲存失敗：' + e.message;
+        errEl.classList.remove('hidden');
+      } finally {
+        btn.disabled = false; btn.textContent = '儲存';
+      }
+    });
+  }
+
+  function _openInvSubModal(row) {
+    _buildInvSubEditModal();
+    _invSubEditRow   = row;
+    _invSubEditShared = row.shared || '';
+    document.getElementById('inv-sub-info').innerHTML =
+      `${row.shop || '（未知）'}　${row.date}　${row.invNum}<br>金額 $${row.amount.toLocaleString('zh-TW')}`;
+    document.getElementById('inv-sub-cat').value  = row.category || '';
+    document.getElementById('inv-sub-note').value = row.note     || '';
+    document.getElementById('inv-sub-error').classList.add('hidden');
+    document.querySelectorAll('#inv-sub-shared-chips .chip')
+      .forEach(b => b.classList.toggle('active', b.dataset.val === _invSubEditShared));
+    document.getElementById('inv-sub-edit-modal').classList.remove('hidden');
+  }
+
+  function _closeInvSubModal() {
+    document.getElementById('inv-sub-edit-modal')?.classList.add('hidden');
+    _invSubEditRow = null;
+  }
+
+  // ── CC明細 Sub-tab Edit Modal ────────────────────────────────
+
+  function _buildCCSubEditModal() {
+    if (document.getElementById('cc-sub-edit-modal')) return;
+    const CC_SHARED = ['是', '否', '部分', '-'];
+    const el = document.createElement('div');
+    el.id = 'cc-sub-edit-modal';
+    el.className = 'modal-overlay hidden';
+    el.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <span class="modal-title">編輯CC明細</span>
+          <button class="modal-close" id="cc-sub-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div id="cc-sub-info" style="font-size:13px;color:var(--text-sub);margin-bottom:12px;line-height:1.6;"></div>
+          <label class="field-label">類別</label>
+          <select id="cc-sub-cat" class="field-input cat-select">
+            <option value="">（未分類）</option>
+            ${CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}
+          </select>
+          <label class="field-label">是否共用</label>
+          <div class="chip-row" id="cc-sub-shared-chips">
+            ${CC_SHARED.map(v => `<button class="chip" data-val="${v}">${v}</button>`).join('')}
+          </div>
+          <label class="field-label">備註</label>
+          <input type="text" id="cc-sub-note" class="field-input">
+          <p id="cc-sub-error" class="add-error hidden"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="cc-sub-cancel">取消</button>
+          <button class="btn-primary" id="cc-sub-save">儲存</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    document.getElementById('cc-sub-close').addEventListener('click', _closeCCSubModal);
+    document.getElementById('cc-sub-cancel').addEventListener('click', _closeCCSubModal);
+    el.addEventListener('click', e => { if (e.target === el) _closeCCSubModal(); });
+    el.querySelectorAll('#cc-sub-shared-chips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        el.querySelectorAll('#cc-sub-shared-chips .chip').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        _ccSubEditShared = btn.dataset.val;
+      });
+    });
+    document.getElementById('cc-sub-save').addEventListener('click', async () => {
+      const row = _ccSubEditRow;
+      if (!row) return;
+      const btn   = document.getElementById('cc-sub-save');
+      const errEl = document.getElementById('cc-sub-error');
+      const cat   = document.getElementById('cc-sub-cat').value;
+      const note  = document.getElementById('cc-sub-note').value.trim();
+      errEl.classList.add('hidden');
+      btn.disabled = true; btn.textContent = '儲存中…';
+      try {
+        await Sheets.updateCCFields(row.rowIndex, { category: cat, shared: _ccSubEditShared, note });
+        _closeCCSubModal();
+        _ccRows = [];
+        await _loadCCTab();
+      } catch (e) {
+        errEl.textContent = '儲存失敗：' + e.message;
+        errEl.classList.remove('hidden');
+      } finally {
+        btn.disabled = false; btn.textContent = '儲存';
+      }
+    });
+  }
+
+  function _openCCSubModal(row) {
+    _buildCCSubEditModal();
+    _ccSubEditRow    = row;
+    _ccSubEditShared = row.shared || '';
+    document.getElementById('cc-sub-info').innerHTML =
+      `${row.bank}　${row.shop || '（未知）'}　${row.txDate}<br>金額 $${row.amount.toLocaleString('zh-TW')}`;
+    document.getElementById('cc-sub-cat').value  = row.category || '';
+    document.getElementById('cc-sub-note').value = row.note     || '';
+    document.getElementById('cc-sub-error').classList.add('hidden');
+    document.querySelectorAll('#cc-sub-shared-chips .chip')
+      .forEach(b => b.classList.toggle('active', b.dataset.val === _ccSubEditShared));
+    document.getElementById('cc-sub-edit-modal').classList.remove('hidden');
+  }
+
+  function _closeCCSubModal() {
+    document.getElementById('cc-sub-edit-modal')?.classList.add('hidden');
+    _ccSubEditRow = null;
+  }
+
   // ── Sub-tab 輔助 ──────────────────────────────────────────────
 
   function _reloadActiveTab() {
@@ -1386,13 +1569,14 @@ const Ledger = (() => {
       el.innerHTML = '<div class="empty-state"><span>📭</span><p>沒有符合條件的記錄</p></div>';
       return;
     }
+    const isSin = _isSin();
     el.innerHTML = rows.map(r => {
       const mm = r.date.slice(5, 7), dd = r.date.slice(8, 10);
       const sharedLabel  = r.shared  ? `<span class="tag-shared">${r.shared}</span>` : '';
       const voidStyle    = r.status === '作廢' ? 'style="color:var(--salmon)"' : '';
       const voidBadge    = r.status === '作廢' ? '<span class="raw-badge">作廢</span>' : '';
       return `
-        <div class="list-item">
+        <div class="list-item${isSin ? ' list-item-editable' : ''}" data-row="${r.rowIndex}">
           <span class="list-item-icon">${r.category || '🧾'}</span>
           <div class="list-item-body">
             <div class="list-item-title" ${voidStyle}>${r.shop || '（未知）'} ${sharedLabel}</div>
@@ -1404,6 +1588,14 @@ const Ledger = (() => {
           </div>
         </div>`;
     }).join('');
+    if (isSin) {
+      el.querySelectorAll('.list-item[data-row]').forEach(item => {
+        item.addEventListener('click', () => {
+          const row = _invRows.find(r => r.rowIndex === parseInt(item.dataset.row, 10));
+          if (row) _openInvSubModal(row);
+        });
+      });
+    }
   }
 
   async function _loadCCTab() {
@@ -1433,12 +1625,13 @@ const Ledger = (() => {
       el.innerHTML = '<div class="empty-state"><span>📭</span><p>沒有符合條件的記錄</p></div>';
       return;
     }
+    const isSin = _isSin();
     el.innerHTML = rows.map(r => {
       const mmdd = r.txDate.slice(5).replace('-', '/');
       const sharedLabel   = r.shared ? `<span class="tag-shared">${r.shared}</span>` : '';
       const importedBadge = r.posted ? '<span class="raw-badge">已匯入</span>' : '';
       return `
-        <div class="list-item">
+        <div class="list-item${isSin ? ' list-item-editable' : ''}" data-row="${r.rowIndex}">
           <span class="list-item-icon">${r.category || '💳'}</span>
           <div class="list-item-body">
             <div class="list-item-title">${r.shop || '（未知）'} ${sharedLabel}</div>
@@ -1450,6 +1643,14 @@ const Ledger = (() => {
           </div>
         </div>`;
     }).join('');
+    if (isSin) {
+      el.querySelectorAll('.list-item[data-row]').forEach(item => {
+        item.addEventListener('click', () => {
+          const row = _ccRows.find(r => r.rowIndex === parseInt(item.dataset.row, 10));
+          if (row) _openCCSubModal(row);
+        });
+      });
+    }
   }
 
   // ── Shell ─────────────────────────────────────────────────────

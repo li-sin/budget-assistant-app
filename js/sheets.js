@@ -685,6 +685,15 @@ const Sheets = (() => {
     return res.json();
   }
 
+  // ── Sub-tab：更新信用卡明細 G（類別）/ H（共用）/ J（備註）──
+  async function updateCCFields(rowIndex, { category, shared, note } = {}) {
+    const updates = [];
+    if (category !== undefined) updates.push({ range: `${CONFIG.TABS.CC}!G${rowIndex}`, values: [[category]] });
+    if (shared   !== undefined) updates.push({ range: `${CONFIG.TABS.CC}!H${rowIndex}`, values: [[shared]] });
+    if (note     !== undefined) updates.push({ range: `${CONFIG.TABS.CC}!J${rowIndex}`, values: [[note]] });
+    if (updates.length) await _batchUpdate(updates);
+  }
+
   // ── F20 編輯：更新發票明細 G/H/I 欄 ─────────────────────────
   async function updateInvoiceFields(rowIndex, { category, shared, note } = {}) {
     const updates = [];
@@ -817,5 +826,6 @@ const Sheets = (() => {
     getCCForInvoice, updateMonthlyGH, unlinkCC,
     findCCRowByDateAmount, resetCCImported,
     getInvoiceSheetData, getCCSheetData,
+    updateCCFields,
   };
 })();

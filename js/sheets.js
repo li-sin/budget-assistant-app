@@ -747,6 +747,60 @@ const Sheets = (() => {
     ]);
   }
 
+  // ── 依日期+金額找 CC 明細列（CC月度刪除用）───────────────────
+  async function findCCRowByDateAmount(date, amount) {
+    const data = await _get(`${CONFIG.TABS.CC}!B:E`);
+    const rows  = (data.values || []).slice(1);
+    const target = Math.round(amount);
+    const tDate  = new Date(date);
+    for (let i = 0; i < rows.length; i++) {
+      const r   = rows[i];
+      const amt = Math.round(parseFloat(r[3]) || 0);
+      if (amt !== target) continue;
+      const rDate = new Date(r[0] || '');
+      const diff  = Math.abs((rDate - tDate) / 86400000);
+      if (diff <= 3) return { rowIndex: i + 2 };
+    }
+    return null;
+  }
+
+  // ── 重設 CC 已匯入 K=FALSE（CC月度刪除用）───────────────────
+  async function resetCCImported(ccRowIndex) {
+    await _batchUpdate([
+      { range: `${CONFIG.TABS.CC}!K${ccRowIndex}`, values: [[false]] },
+    ]);
+  }
+
+  // ── 發票明細 sub-tab 資料（date = YYYYMMDD）──────────────────
+  async function getInvoiceSheetData(year, month) {
+    const data = await _get(`${CONFIG.TABS.INVOICE}!A:K`);
+    const ym = `${year}${String(month).padStart(2, '0')}`;
+    return (data.values || []).slice(1)
+      .map((r, i) => _parseInvoiceRow(r, i + 2))
+      .filter(r => r.date.startsWith(ym));
+  }
+
+  // ── CC明細 sub-tab 資料（txDate = YYYY-MM-DD）────────────────
+  async function getCCSheetData(year, month) {
+    const data = await _get(`${CONFIG.TABS.CC}!A:L`);
+    const ym = `${year}-${String(month).padStart(2, '0')}`;
+    return (data.values || []).slice(1).map((r, i) => ({
+      rowIndex:     i + 2,
+      bank:         r[0]  || '',
+      txDate:       r[1]  || '',
+      entryDate:    r[2]  || '',
+      shop:         r[3]  || '',
+      amount:       parseFloat(r[4]) || 0,
+      country:      r[5]  || '',
+      category:     r[6]  || '',
+      shared:       r[7]  || '',
+      imported:     r[8]  || '',
+      note:         r[9]  || '',
+      posted:       r[10] === 'TRUE' || r[10] === true,
+      billingMonth: r[11] || '',
+    })).filter(r => r.txDate.startsWith(ym));
+  }
+
   return {
     getMonthlyData, getCreditCardImportStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
@@ -761,5 +815,7 @@ const Sheets = (() => {
     deleteInvoiceRow, deleteItemRows,
     updateInvoiceFields, updateItemFields, updateMonthlyFields,
     getCCForInvoice, updateMonthlyGH, unlinkCC,
+    findCCRowByDateAmount, resetCCImported,
+    getInvoiceSheetData, getCCSheetData,
   };
 })();

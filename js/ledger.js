@@ -1,5 +1,5 @@
 const Ledger = (() => {
-  const CATEGORIES = ['🍴', '🛒', '⛽', '📦', '🎬', '👗', '🏠', '💊'];
+  const CATEGORIES = ['🍴', '🛒', '⛽', '📦', '🎬', '👗', '🏠', '💊', '🧋'];
   const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
   const ITEM_ATTR_OPTS = ['🌟 Sin', '🐨 Bear', '共用', '部分'];
 
@@ -19,6 +19,23 @@ const Ledger = (() => {
   let _itemsCacheTs  = 0;
   const ITEMS_CACHE_TTL = 5 * 60 * 1000;
   let _expandCCRow   = null; // 展開中發票的 CC 配對列（有配對才非 null）
+  let _swipeActiveWrap = null;
+  let _activeSubTab    = 'monthly';
+  let _invRows         = [];
+  let _invSharedFilter = '';
+  let _invSearchQuery  = '';
+  let _ccRows          = [];
+  let _ccSharedFilter  = '';
+  let _ccSearchQuery   = '';
+
+  function _collapseActiveSwipe() {
+    if (!_swipeActiveWrap) return;
+    const inner = _swipeActiveWrap.querySelector('.list-item');
+    inner.style.transition = 'transform 0.2s';
+    inner.style.transform  = '';
+    inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
+    _swipeActiveWrap = null;
+  }
 
   let _editPayer  = '🌟 Star';
   let _editShared = '是';
@@ -105,28 +122,31 @@ const Ledger = (() => {
       // 非發票列才加 list-item-editable（讓 click-to-edit 生效）
       const editableClass = isSin && !isInvoice ? ' list-item-editable' : '';
       return `
-        <div class="list-item${editableClass}" data-row="${r.rowIndex}" data-is-invoice="${isInvoice ? '1' : ''}">
-          <span class="list-item-icon">${cat}</span>
-          <div class="list-item-body">
-            <div class="list-item-title">${r.item || '（未命名）'} ${bearBadge} ${sharedLabel}</div>
-            <div class="list-item-sub">
-              ${mmdd}　${srcIcon(r.source)} ${r.source}
-              ${shares.length ? '　' + shares.join(' · ') : ''}
-              ${noteText}
+        <div class="swipe-container">
+          ${isSin ? `<div class="swipe-delete-bg"><button class="swipe-del-btn" data-row="${r.rowIndex}">刪除</button></div>` : ''}
+          <div class="list-item${editableClass}" data-row="${r.rowIndex}" data-is-invoice="${isInvoice ? '1' : ''}">
+            <span class="list-item-icon">${cat}</span>
+            <div class="list-item-body">
+              <div class="list-item-title">${r.item || '（未命名）'} ${bearBadge} ${sharedLabel}</div>
+              <div class="list-item-sub">
+                ${mmdd}　${srcIcon(r.source)} ${r.source}
+                ${shares.length ? '　' + shares.join(' · ') : ''}
+                ${noteText}
+              </div>
             </div>
-          </div>
-          <div class="list-item-right">
-            <div class="amount-expense">${_fmt(r.amount)}</div>
-            ${isInvoice ? `<button class="expand-btn" data-row="${r.rowIndex}">▼</button>` : ''}
-            ${isInvoice && isSin ? `<button class="delete-inv-btn" data-row="${r.rowIndex}" title="刪除此發票">🗑</button>` : ''}
+            <div class="list-item-right">
+              <div class="amount-expense">${_fmt(r.amount)}</div>
+              ${isInvoice ? `<button class="expand-btn" data-row="${r.rowIndex}">▼</button>` : ''}
+            </div>
           </div>
         </div>`;
     }).join('');
 
-    // 非發票列：click-to-edit
+    // 非發票列：click-to-edit（swipe 開啟時只 collapse，不觸發 edit）
     if (isSin) {
       el.querySelectorAll('.list-item:not([data-is-invoice="1"])').forEach(item => {
         item.addEventListener('click', () => {
+          if (_swipeActiveWrap) { _collapseActiveSwipe(); return; }
           const rowIndex = parseInt(item.dataset.row, 10);
           const row = _allRows.find(r => r.rowIndex === rowIndex);
           if (row) _openEdit(row);
@@ -134,25 +154,19 @@ const Ledger = (() => {
       });
     }
 
-    // expand 按鈕
+    // expand 按鈕（swipe 開啟時只 collapse）
     el.querySelectorAll('.expand-btn').forEach(btn => {
       btn.addEventListener('click', e => {
         e.stopPropagation();
+        if (_swipeActiveWrap) { _collapseActiveSwipe(); return; }
         const rowIndex = parseInt(btn.dataset.row, 10);
         const row = _allRows.find(r => r.rowIndex === rowIndex);
         if (row) _toggleItemDetail(row, btn);
       });
     });
 
-    // 刪除按鈕
-    el.querySelectorAll('.delete-inv-btn').forEach(btn => {
-      btn.addEventListener('click', e => {
-        e.stopPropagation();
-        const rowIndex = parseInt(btn.dataset.row, 10);
-        const row = _allRows.find(r => r.rowIndex === rowIndex);
-        if (row) _openDeleteModal(row);
-      });
-    });
+    // 右滑刪除
+    if (isSin) _setupSwipeDelete(el);
 
     if (_pendingScrollRow !== null) {
       const rowIndex = _pendingScrollRow;
@@ -165,6 +179,172 @@ const Ledger = (() => {
           setTimeout(() => target.classList.remove('list-item-highlight'), 1500);
         }
       });
+    }
+  }
+
+  // ── 右滑刪除手勢設定 ─────────────────────────────────────────
+
+  function _setupSwipeDelete(containerEl) {
+    const SNAP_OPEN = -80;  // px，刪除按鈕寬度
+    const THRESHOLD = -40;  // px，超過才彈開
+
+    containerEl.querySelectorAll('.swipe-container').forEach(wrap => {
+      const inner = wrap.querySelector('.list-item');
+      if (!inner) return;
+      let startX = 0, startY = 0, dragging = false, isHoriz = null, startOffset = 0;
+
+      inner.addEventListener('touchstart', e => {
+        if (e.touches.length !== 1) return;
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        startOffset = _swipeActiveWrap === wrap ? SNAP_OPEN : 0;
+        dragging  = true;
+        isHoriz   = null;
+        inner.style.transition = '';
+      }, { passive: true });
+
+      inner.addEventListener('touchmove', e => {
+        if (!dragging || e.touches.length !== 1) return;
+        const dx = e.touches[0].clientX - startX;
+        const dy = e.touches[0].clientY - startY;
+        if (isHoriz === null) {
+          if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+          isHoriz = Math.abs(dx) > Math.abs(dy);
+        }
+        if (!isHoriz) { dragging = false; return; }
+        e.preventDefault();
+        const x = Math.min(0, Math.max(SNAP_OPEN, startOffset + dx));
+        inner.style.transform = `translateX(${x}px)`;
+      }, { passive: false });
+
+      inner.addEventListener('touchend', e => {
+        if (!dragging || !isHoriz) { dragging = false; return; }
+        dragging = false;
+        const dx = e.changedTouches[0].clientX - startX;
+        if (startOffset + dx < THRESHOLD) {
+          if (_swipeActiveWrap && _swipeActiveWrap !== wrap) _collapseActiveSwipe();
+          inner.style.transition = 'transform 0.2s';
+          inner.style.transform  = `translateX(${SNAP_OPEN}px)`;
+          inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
+          _swipeActiveWrap = wrap;
+        } else {
+          inner.style.transition = 'transform 0.2s';
+          inner.style.transform  = '';
+          inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
+          if (_swipeActiveWrap === wrap) _swipeActiveWrap = null;
+        }
+      }, { passive: true });
+    });
+
+    // 刪除按鈕點擊
+    containerEl.querySelectorAll('.swipe-del-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const rowIndex = parseInt(btn.dataset.row, 10);
+        const row = _allRows.find(r => r.rowIndex === rowIndex);
+        if (!row) return;
+        _collapseActiveSwipe();
+        const src = row.source || '';
+        if (src === '發票' || src === '掃描發票') {
+          _openDeleteModal(row);
+        } else if (src === '信用卡') {
+          _openCCDeleteModal(row);
+        } else {
+          _openManualDeleteModal(row);
+        }
+      });
+    });
+  }
+
+  // ── 手動記帳刪除（直接 confirm）──────────────────────────────
+
+  function _openManualDeleteModal(row) {
+    if (!confirm(`確定刪除「${row.item || '此筆'}」？此操作無法復原。`)) return;
+    const ym = row.date.slice(0, 7);
+    Sheets.deleteMonthlyRow(row.rowIndex, ym)
+      .then(() => { _load(); window.Home?.reload(); })
+      .catch(e => alert('刪除失敗：' + e.message));
+  }
+
+  // ── CC 月度帳本列刪除 Modal ──────────────────────────────────
+
+  function _buildCCDeleteModal() {
+    if (document.getElementById('del-cc-modal')) return;
+    const el = document.createElement('div');
+    el.id = 'del-cc-modal';
+    el.className = 'modal-overlay hidden';
+    el.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <span class="modal-title" id="del-cc-title">刪除</span>
+          <button class="modal-close" id="del-cc-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size:13px;color:var(--text-sub);margin-bottom:12px;">以下關聯資料將一起處理，請確認後再刪除。</p>
+          <div class="del-section">
+            <div class="del-section-header">
+              <input type="checkbox" id="del-cc-chk-monthly" checked disabled>
+              <label for="del-cc-chk-monthly" class="del-section-label">月度帳本（此筆）</label>
+            </div>
+          </div>
+          <div class="del-section">
+            <div class="del-section-header">
+              <input type="checkbox" id="del-cc-chk-reset" checked>
+              <label for="del-cc-chk-reset" class="del-section-label">重設信用卡已匯入狀態</label>
+            </div>
+          </div>
+          <p id="del-cc-error" class="add-error hidden" style="margin-top:12px;"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="del-cc-cancel">取消</button>
+          <button class="btn-primary" id="del-cc-confirm">確認刪除</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    document.getElementById('del-cc-close').addEventListener('click',  _closeCCDeleteModal);
+    document.getElementById('del-cc-cancel').addEventListener('click', _closeCCDeleteModal);
+    el.addEventListener('click', e => { if (e.target === el) _closeCCDeleteModal(); });
+    document.getElementById('del-cc-confirm').addEventListener('click', _confirmCCDelete);
+  }
+
+  function _openCCDeleteModal(row) {
+    _buildCCDeleteModal();
+    _deleteModalRow = row;
+    document.getElementById('del-cc-title').textContent = `刪除 ${row.item || '此筆'}`;
+    document.getElementById('del-cc-error').classList.add('hidden');
+    document.getElementById('del-cc-confirm').disabled    = false;
+    document.getElementById('del-cc-confirm').textContent = '確認刪除';
+    document.getElementById('del-cc-modal').classList.remove('hidden');
+  }
+
+  function _closeCCDeleteModal() {
+    document.getElementById('del-cc-modal')?.classList.add('hidden');
+    _deleteModalRow = null;
+  }
+
+  async function _confirmCCDelete() {
+    const row = _deleteModalRow;
+    if (!row) return;
+    const doReset = document.getElementById('del-cc-chk-reset').checked;
+    const errEl   = document.getElementById('del-cc-error');
+    const btn     = document.getElementById('del-cc-confirm');
+    errEl.classList.add('hidden');
+    btn.disabled    = true;
+    btn.textContent = '刪除中…';
+    try {
+      if (doReset) {
+        const ccRow = await Sheets.findCCRowByDateAmount(row.date, row.amount);
+        if (ccRow) await Sheets.resetCCImported(ccRow.rowIndex);
+      }
+      await Sheets.deleteMonthlyRow(row.rowIndex, row.date.slice(0, 7));
+      _closeCCDeleteModal();
+      await _load();
+      window.Home?.reload();
+    } catch (e) {
+      errEl.textContent = '刪除失敗：' + e.message;
+      errEl.classList.remove('hidden');
+      btn.disabled    = false;
+      btn.textContent = '確認刪除';
     }
   }
 
@@ -293,6 +473,18 @@ const Ledger = (() => {
       detail.className = 'item-detail-list';
 
       const isSin = _isSin();
+
+      // ── 備註聚合（月度 / [R] 發票 / [1][2]... 品項）──────────
+      const noteParts = [];
+      if (row.note)     noteParts.push(row.note);
+      if (invRow?.note) noteParts.push(`[R] ${invRow.note}`);
+      invItems.forEach((it, idx) => { if (it.note) noteParts.push(`[${idx + 1}] ${it.note}`); });
+      if (noteParts.length) {
+        const noteAgg = document.createElement('div');
+        noteAgg.className = 'note-aggregate';
+        noteAgg.textContent = noteParts.join(' / ');
+        detail.appendChild(noteAgg);
+      }
 
       // ── 發票層欄位（可編輯，Sin only）────────────────────────
       const invSection = _buildInvoiceEditSection(row, invRow, isSin, _expandCCRow);
@@ -1159,6 +1351,107 @@ const Ledger = (() => {
     }
   }
 
+  // ── Sub-tab 輔助 ──────────────────────────────────────────────
+
+  function _reloadActiveTab() {
+    if (_activeSubTab === 'invoice') { _invRows = []; _loadInvoiceTab(); }
+    else if (_activeSubTab === 'cc') { _ccRows  = []; _loadCCTab(); }
+    else _load();
+  }
+
+  async function _loadInvoiceTab() {
+    const el = document.getElementById('inv-list');
+    if (!el) return;
+    el.innerHTML = '<div class="spinner"></div>';
+    document.getElementById('inv-count').textContent = '';
+    try {
+      _invRows = await Sheets.getInvoiceSheetData(_year, _month);
+      _renderInvoiceList();
+    } catch (e) {
+      el.innerHTML = `<div class="empty-state"><span>⚠️</span><p>${e.message}</p></div>`;
+    }
+  }
+
+  function _renderInvoiceList() {
+    const el = document.getElementById('inv-list');
+    if (!el) return;
+    const q = _invSearchQuery.toLowerCase();
+    let rows = _invRows;
+    if (_invSharedFilter) rows = rows.filter(r => r.shared === _invSharedFilter);
+    if (q) rows = rows.filter(r =>
+      (r.shop || '').toLowerCase().includes(q) || (r.note || '').toLowerCase().includes(q)
+    );
+    document.getElementById('inv-count').textContent = `${rows.length} 筆`;
+    if (!rows.length) {
+      el.innerHTML = '<div class="empty-state"><span>📭</span><p>沒有符合條件的記錄</p></div>';
+      return;
+    }
+    el.innerHTML = rows.map(r => {
+      const mm = r.date.slice(4, 6), dd = r.date.slice(6, 8);
+      const sharedLabel  = r.shared  ? `<span class="tag-shared">${r.shared}</span>` : '';
+      const voidStyle    = r.status === '作廢' ? 'style="color:var(--salmon)"' : '';
+      const voidBadge    = r.status === '作廢' ? '<span class="raw-badge">作廢</span>' : '';
+      return `
+        <div class="list-item">
+          <span class="list-item-icon">${r.category || '🧾'}</span>
+          <div class="list-item-body">
+            <div class="list-item-title" ${voidStyle}>${r.shop || '（未知）'} ${sharedLabel}</div>
+            <div class="list-item-sub">${mm}/${dd}　${r.invNum}${r.note ? '　' + r.note : ''}</div>
+          </div>
+          <div class="list-item-right">
+            <div class="amount-expense">$${r.amount.toLocaleString('zh-TW')}</div>
+            ${voidBadge}
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  async function _loadCCTab() {
+    const el = document.getElementById('cc-list');
+    if (!el) return;
+    el.innerHTML = '<div class="spinner"></div>';
+    document.getElementById('cc-count').textContent = '';
+    try {
+      _ccRows = await Sheets.getCCSheetData(_year, _month);
+      _renderCCList();
+    } catch (e) {
+      el.innerHTML = `<div class="empty-state"><span>⚠️</span><p>${e.message}</p></div>`;
+    }
+  }
+
+  function _renderCCList() {
+    const el = document.getElementById('cc-list');
+    if (!el) return;
+    const q = _ccSearchQuery.toLowerCase();
+    let rows = _ccRows;
+    if (_ccSharedFilter) rows = rows.filter(r => r.shared === _ccSharedFilter);
+    if (q) rows = rows.filter(r =>
+      (r.shop || '').toLowerCase().includes(q) || (r.note || '').toLowerCase().includes(q)
+    );
+    document.getElementById('cc-count').textContent = `${rows.length} 筆`;
+    if (!rows.length) {
+      el.innerHTML = '<div class="empty-state"><span>📭</span><p>沒有符合條件的記錄</p></div>';
+      return;
+    }
+    el.innerHTML = rows.map(r => {
+      const mmdd = r.txDate.slice(5).replace('-', '/');
+      const sharedLabel   = r.shared ? `<span class="tag-shared">${r.shared}</span>` : '';
+      const importedBadge = r.posted ? '<span class="raw-badge">已匯入</span>' : '';
+      return `
+        <div class="list-item">
+          <span class="list-item-icon">${r.category || '💳'}</span>
+          <div class="list-item-body">
+            <div class="list-item-title">${r.shop || '（未知）'} ${sharedLabel}</div>
+            <div class="list-item-sub">${mmdd}　${r.bank}${r.note ? '　' + r.note : ''}</div>
+          </div>
+          <div class="list-item-right">
+            <div class="amount-expense">$${r.amount.toLocaleString('zh-TW')}</div>
+            ${importedBadge}
+          </div>
+        </div>`;
+    }).join('');
+  }
+
   // ── Shell ─────────────────────────────────────────────────────
 
   function _buildShell() {
@@ -1170,50 +1463,102 @@ const Ledger = (() => {
         <button class="month-btn refresh-btn" id="ledger-refresh">↺</button>
       </div>
 
-      <div class="ledger-filters card">
-        <div class="search-row">
-          <div class="search-wrap">
-            <input type="text" id="ledger-search" class="field-input" placeholder="搜尋項目或備註…">
-            <button class="search-clear hidden" id="ledger-search-clear">✕</button>
-          </div>
-        </div>
-        <div class="chip-row">
-          <button class="chip active" data-member="all">全部</button>
-          <button class="chip" data-member="sin">🌟 Sin</button>
-          <button class="chip" data-member="bear">🐨 Bear</button>
-        </div>
-        <div class="chip-row" id="ledger-shared-chips">
-          <button class="chip active" data-shared-filter="all">全部</button>
-          <button class="chip" data-shared-filter="是">是</button>
-          <button class="chip" data-shared-filter="部分">部分</button>
-          <button class="chip" data-shared-filter="否">否</button>
-          <button class="chip" data-shared-filter="-">-</button>
-        </div>
-        <div class="filter-row">
-          <select id="ledger-source" class="cat-select">
-            <option value="">全部來源</option>
-            <option value="信用卡">💳 信用卡</option>
-            <option value="發票">🧾 發票</option>
-            <option value="掃描發票">📷 掃描</option>
-            <option value="手動記帳">✏️ 手動</option>
-          </select>
-          <select id="ledger-cat" class="cat-select">
-            <option value="">全部類別</option>
-          </select>
-          <select id="ledger-sort" class="cat-select">
-            <option value="date-desc">交易時間 ↓</option>
-            <option value="date-asc">交易時間 ↑</option>
-            <option value="import-desc">匯入時間 ↓</option>
-            <option value="import-asc">匯入時間 ↑</option>
-            <option value="amount-desc">金額高→低</option>
-            <option value="amount-asc">金額低→高</option>
-          </select>
-          <span id="ledger-count" class="ledger-count"></span>
-        </div>
-        <div id="ledger-summary" class="ledger-summary hidden"></div>
+      <div class="sub-tab-bar">
+        <button class="sub-tab-btn active" data-subtab="monthly">月度帳本</button>
+        <button class="sub-tab-btn" data-subtab="invoice">發票明細</button>
+        <button class="sub-tab-btn" data-subtab="cc">CC明細</button>
       </div>
 
-      <div class="card" id="ledger-list"></div>
+      <!-- 月度帳本 -->
+      <div id="monthly-section">
+        <div class="ledger-filters card">
+          <div class="search-row">
+            <div class="search-wrap">
+              <input type="text" id="ledger-search" class="field-input" placeholder="搜尋項目或備註…">
+              <button class="search-clear hidden" id="ledger-search-clear">✕</button>
+            </div>
+          </div>
+          <div class="chip-row">
+            <button class="chip active" data-member="all">全部</button>
+            <button class="chip" data-member="sin">🌟 Sin</button>
+            <button class="chip" data-member="bear">🐨 Bear</button>
+          </div>
+          <div class="chip-row" id="ledger-shared-chips">
+            <button class="chip active" data-shared-filter="all">全部</button>
+            <button class="chip" data-shared-filter="是">是</button>
+            <button class="chip" data-shared-filter="部分">部分</button>
+            <button class="chip" data-shared-filter="否">否</button>
+            <button class="chip" data-shared-filter="-">-</button>
+          </div>
+          <div class="filter-row">
+            <select id="ledger-source" class="cat-select">
+              <option value="">全部來源</option>
+              <option value="信用卡">💳 信用卡</option>
+              <option value="發票">🧾 發票</option>
+              <option value="掃描發票">📷 掃描</option>
+              <option value="手動記帳">✏️ 手動</option>
+            </select>
+            <select id="ledger-cat" class="cat-select">
+              <option value="">全部類別</option>
+            </select>
+            <select id="ledger-sort" class="cat-select">
+              <option value="date-desc">交易時間 ↓</option>
+              <option value="date-asc">交易時間 ↑</option>
+              <option value="import-desc">匯入時間 ↓</option>
+              <option value="import-asc">匯入時間 ↑</option>
+              <option value="amount-desc">金額高→低</option>
+              <option value="amount-asc">金額低→高</option>
+            </select>
+            <span id="ledger-count" class="ledger-count"></span>
+          </div>
+          <div id="ledger-summary" class="ledger-summary hidden"></div>
+        </div>
+        <div class="card" id="ledger-list"></div>
+      </div>
+
+      <!-- 發票明細 -->
+      <div id="inv-section" class="hidden">
+        <div class="ledger-filters card">
+          <div class="search-row">
+            <div class="search-wrap">
+              <input type="text" id="inv-search" class="field-input" placeholder="搜尋商店或備註…">
+              <button class="search-clear hidden" id="inv-search-clear">✕</button>
+            </div>
+          </div>
+          <div class="chip-row" id="inv-shared-chips">
+            <button class="chip active" data-inv-shared="all">全部</button>
+            <button class="chip" data-inv-shared="是">是</button>
+            <button class="chip" data-inv-shared="部分">部分</button>
+            <button class="chip" data-inv-shared="否">否</button>
+            <button class="chip" data-inv-shared="-">-</button>
+            <button class="chip" data-inv-shared="x">x</button>
+          </div>
+          <span id="inv-count" class="ledger-count"></span>
+        </div>
+        <div class="card" id="inv-list"></div>
+      </div>
+
+      <!-- CC明細 -->
+      <div id="cc-section" class="hidden">
+        <div class="ledger-filters card">
+          <div class="search-row">
+            <div class="search-wrap">
+              <input type="text" id="cc-search" class="field-input" placeholder="搜尋商店或備註…">
+              <button class="search-clear hidden" id="cc-search-clear">✕</button>
+            </div>
+          </div>
+          <div class="chip-row" id="cc-shared-chips">
+            <button class="chip active" data-cc-shared="all">全部</button>
+            <button class="chip" data-cc-shared="是">是</button>
+            <button class="chip" data-cc-shared="部分">部分</button>
+            <button class="chip" data-cc-shared="否">否</button>
+            <button class="chip" data-cc-shared="-">-</button>
+            <button class="chip" data-cc-shared="x">x</button>
+          </div>
+          <span id="cc-count" class="ledger-count"></span>
+        </div>
+        <div class="card" id="cc-list"></div>
+      </div>
     `;
 
     document.getElementById('ledger-prev').addEventListener('click', () => {
@@ -1221,16 +1566,18 @@ const Ledger = (() => {
       if (_month < 1) { _month = 12; _year--; }
       window.AppMonth.set(_year, _month);
       _updateMonthLabel();
-      _load();
+      _reloadActiveTab();
     });
     document.getElementById('ledger-next').addEventListener('click', () => {
       _month++;
       if (_month > 12) { _month = 1; _year++; }
       window.AppMonth.set(_year, _month);
       _updateMonthLabel();
-      _load();
+      _reloadActiveTab();
     });
     document.getElementById('ledger-refresh').addEventListener('click', () => {
+      if (_activeSubTab === 'invoice') { _invRows = []; _loadInvoiceTab(); return; }
+      if (_activeSubTab === 'cc')      { _ccRows  = []; _loadCCTab();      return; }
       Object.keys(sessionStorage)
         .filter(k => k.startsWith('ba_monthly_'))
         .forEach(k => sessionStorage.removeItem(k));
@@ -1238,6 +1585,62 @@ const Ledger = (() => {
       window.Home?.reload();
       window.Stats?.reload?.();
       window.Pending?.reload?.();
+    });
+
+    // Sub-tab 切換
+    document.querySelectorAll('.sub-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        _activeSubTab = btn.dataset.subtab;
+        document.getElementById('monthly-section').classList.toggle('hidden', _activeSubTab !== 'monthly');
+        document.getElementById('inv-section').classList.toggle('hidden', _activeSubTab !== 'invoice');
+        document.getElementById('cc-section').classList.toggle('hidden', _activeSubTab !== 'cc');
+        if (_activeSubTab === 'invoice') _loadInvoiceTab();
+        else if (_activeSubTab === 'cc') _loadCCTab();
+      });
+    });
+
+    // 發票明細篩選
+    document.querySelectorAll('#inv-shared-chips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#inv-shared-chips .chip').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        _invSharedFilter = btn.dataset.invShared === 'all' ? '' : btn.dataset.invShared;
+        _renderInvoiceList();
+      });
+    });
+    document.getElementById('inv-search').addEventListener('input', e => {
+      _invSearchQuery = e.target.value.trim();
+      document.getElementById('inv-search-clear').classList.toggle('hidden', !_invSearchQuery);
+      _renderInvoiceList();
+    });
+    document.getElementById('inv-search-clear').addEventListener('click', () => {
+      _invSearchQuery = '';
+      document.getElementById('inv-search').value = '';
+      document.getElementById('inv-search-clear').classList.add('hidden');
+      _renderInvoiceList();
+    });
+
+    // CC明細篩選
+    document.querySelectorAll('#cc-shared-chips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#cc-shared-chips .chip').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        _ccSharedFilter = btn.dataset.ccShared === 'all' ? '' : btn.dataset.ccShared;
+        _renderCCList();
+      });
+    });
+    document.getElementById('cc-search').addEventListener('input', e => {
+      _ccSearchQuery = e.target.value.trim();
+      document.getElementById('cc-search-clear').classList.toggle('hidden', !_ccSearchQuery);
+      _renderCCList();
+    });
+    document.getElementById('cc-search-clear').addEventListener('click', () => {
+      _ccSearchQuery = '';
+      document.getElementById('cc-search').value = '';
+      document.getElementById('cc-search-clear').classList.add('hidden');
+      _renderCCList();
     });
 
     document.querySelectorAll('#tab-ledger .chip[data-member]').forEach(btn => {

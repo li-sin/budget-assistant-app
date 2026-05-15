@@ -1,5 +1,5 @@
 const Scan = (() => {
-  const CATEGORIES = ['🍴', '🛒', '⛽', '📦', '🎬', '👗', '🏠', '💊'];
+  const CATEGORIES = ['🍴', '🛒', '⛽', '📦', '🎬', '👗', '🏠', '💊', '🧋'];
 
   let _stream    = null;
   let _rafId     = null;

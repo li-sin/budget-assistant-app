@@ -48,8 +48,9 @@ const NoteChips = (() => {
       btn.addEventListener('click', () => {
         const inp = document.getElementById(inputId);
         if (!inp) return;
-        const cur = inp.value.trim();
-        inp.value = cur ? cur + ' ' + btn.dataset.chip : btn.dataset.chip;
+        const cur  = inp.value.trim();
+        const tag  = `[${btn.dataset.chip}]`;
+        inp.value = cur ? cur + ' ' + tag : tag;
       });
     });
   }

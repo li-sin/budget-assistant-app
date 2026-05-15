@@ -434,6 +434,7 @@ const Pending = (() => {
         _closeDetail();
         await _reload();
         window.Home?.reload();
+        window.Ledger?.reload();
       } catch (e) {
         errEl.textContent = '儲存失敗：' + e.message;
         errEl.classList.remove('hidden');
@@ -493,6 +494,7 @@ const Pending = (() => {
         _closeDetail();
         await _reload();
         window.Home?.reload();
+        window.Ledger?.reload();
       } catch (e) {
         errEl.textContent = '儲存失敗：' + e.message;
         errEl.classList.remove('hidden');
@@ -543,6 +545,7 @@ const Pending = (() => {
         _closeDetail();
         await _reload();
         window.Home?.reload();
+        window.Ledger?.reload();
       } catch (e) {
         document.getElementById('dup-error').textContent = '刪除失敗：' + e.message;
         document.getElementById('dup-error').classList.remove('hidden');
@@ -777,6 +780,7 @@ const Pending = (() => {
           _closeDetail();
           await _reload();
           window.Home?.reload();
+          window.Ledger?.reload();
         } catch (e) {
           errEl.textContent = '儲存失敗：' + e.message;
           errEl.classList.remove('hidden');
@@ -892,6 +896,7 @@ const Pending = (() => {
         _closeDetail();
         await _reload();
         window.Home?.reload();
+        window.Ledger?.reload();
       } catch (e) {
         errEl.textContent = '儲存失敗：' + e.message;
         errEl.classList.remove('hidden');

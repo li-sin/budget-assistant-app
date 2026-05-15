@@ -285,6 +285,9 @@ const Ledger = (() => {
       }
 
       listItem.insertAdjacentElement('afterend', detail);
+      detail.querySelectorAll('input[data-notechips]').forEach(inp => {
+        if (inp.id) NoteChips?.render(inp.id);
+      });
       btnEl.textContent = '▲';
     } catch (e) {
       btnEl.textContent = '▼';
@@ -346,7 +349,7 @@ const Ledger = (() => {
       </div>
       <div class="inv-edit-row">
         <span class="inv-edit-label">備註</span>
-        <input type="text" class="inv-note-input field-input" style="font-size:13px;padding:4px 8px;" value="${invRow.note || ''}">
+        <input type="text" id="inv-note-${monthlyRow.rowIndex}" class="inv-note-input field-input" data-notechips="true" style="font-size:13px;padding:4px 8px;" value="${invRow.note || ''}">
       </div>
       <div class="inv-edit-actions">
         <button class="btn-inv-save btn-primary" style="padding:7px 18px;font-size:13px;">儲存發票欄位</button>
@@ -373,6 +376,28 @@ const Ledger = (() => {
     });
 
     return wrap;
+  }
+
+  // ── 通用確認 Modal（含取消按鈕，取代原生 alert/confirm）──────
+
+  function _showConfirm(message) {
+    return new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal-sheet" style="max-height:50dvh;">
+          <div class="modal-body" style="gap:16px;padding-top:24px;">
+            <p style="font-size:14px;line-height:1.6;">${message}</p>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-secondary" id="sc-cancel">取消</button>
+            <button class="btn-primary" id="sc-ok">確認</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      overlay.querySelector('#sc-cancel').addEventListener('click', () => { overlay.remove(); resolve(false); });
+      overlay.querySelector('#sc-ok').addEventListener('click',     () => { overlay.remove(); resolve(true);  });
+    });
   }
 
   // ── 儲存發票層欄位（含月度帳本同步與特殊情境）──────────────
@@ -453,7 +478,12 @@ const Ledger = (() => {
         }
         const invItems = _itemsCache.filter(it => it.invNum === invRow.invNum);
         if (invItems.length) {
-          alert('此發票有品項歸屬，品項歸屬將一起清除，請至品項重新確認。');
+          const ok = await _showConfirm('此發票有品項歸屬，品項歸屬將一起清除，請至品項重新確認。確認繼續？');
+          if (!ok) {
+            btn.disabled = false;
+            btn.textContent = '儲存發票欄位';
+            return;
+          }
           for (const it of invItems) {
             await Sheets.updateItemFields(it.rowIndex, { attribution: '', customAmount: '' });
           }
@@ -468,14 +498,10 @@ const Ledger = (() => {
         await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: monthlyShared, category: newCat }, ym);
       }
 
-      // 更新本地快取的 row 資料
-      const r = _allRows.find(r => r.rowIndex === monthlyRow.rowIndex);
-      if (r) { r.category = newCat; r.shared = newShared; r.note = newNote; }
-      invRow.category = newCat; invRow.shared = newShared; invRow.note = newNote;
-
       msgEl.style.display = 'inline';
       setTimeout(() => { msgEl.style.display = 'none'; }, 2000);
-      _renderList();
+      _itemsCache = null;
+      await _load();
       window.Home?.reload();
     } catch (e) {
       errEl.textContent = '儲存失敗：' + e.message;
@@ -517,8 +543,19 @@ const Ledger = (() => {
       });
       overlay.querySelector('#pnp-confirm').addEventListener('click', () => {
         const bear = parseFloat(overlay.querySelector('#pnp-bear').value);
+        if (isNaN(bear) || bear < 0) {
+          let errEl = overlay.querySelector('#pnp-error');
+          if (!errEl) {
+            errEl = document.createElement('p');
+            errEl.id = 'pnp-error';
+            errEl.style.cssText = 'font-size:12px;color:var(--salmon);margin:4px 0 0;';
+            overlay.querySelector('#pnp-confirm').insertAdjacentElement('afterend', errEl);
+          }
+          errEl.textContent = '請輸入有效的 Bear 負擔金額';
+          return;
+        }
         overlay.remove();
-        resolve({ bearShare: isNaN(bear) ? null : bear });
+        resolve({ bearShare: bear });
       });
     });
   }
@@ -663,7 +700,7 @@ const Ledger = (() => {
         </div>
       </div>
       <div>
-        <input type="text" class="field-input item-note-input" style="font-size:12px;padding:5px 8px;" placeholder="備註（J欄）" value="${currentNote}">
+        <input type="text" id="item-note-${it.rowIndex}" class="field-input item-note-input" data-notechips="true" style="font-size:12px;padding:5px 8px;" placeholder="備註（J欄）" value="${currentNote}">
       </div>
       <div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
         <button class="btn-item-save btn-primary" style="padding:5px 12px;font-size:12px;">儲存</button>
@@ -753,7 +790,7 @@ const Ledger = (() => {
           </div>
           <div id="del-cc-section" class="del-section hidden">
             <div class="del-section-header">
-              <input type="checkbox" id="del-chk-cc">
+              <input type="checkbox" id="del-chk-cc" checked>
               <label for="del-chk-cc" class="del-section-label">解除信用卡配對</label>
               <span id="del-cc-info" class="del-section-count"></span>
             </div>
@@ -1135,8 +1172,13 @@ const Ledger = (() => {
       _load();
     });
     document.getElementById('ledger-refresh').addEventListener('click', () => {
-      Sheets.invalidateMonth(_ym());
+      Object.keys(sessionStorage)
+        .filter(k => k.startsWith('ba_monthly_'))
+        .forEach(k => sessionStorage.removeItem(k));
       _load();
+      window.Home?.reload();
+      window.Stats?.reload?.();
+      window.Pending?.reload?.();
     });
 
     document.querySelectorAll('#tab-ledger .chip[data-member]').forEach(btn => {

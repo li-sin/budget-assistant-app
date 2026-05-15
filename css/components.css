@@ -636,7 +636,7 @@ select.field-input { height: 44px; }
 .inv-edit-section {
   background: rgba(255,255,255,0.04);
   border-left: 2px solid var(--teal);
-  margin: 0 0 0 40px;
+  margin: 0 0 8px 0;
   padding: 8px 12px;
   border-radius: 0 6px 0 0;
 }

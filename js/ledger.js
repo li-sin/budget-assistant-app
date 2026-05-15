@@ -1387,7 +1387,7 @@ const Ledger = (() => {
       return;
     }
     el.innerHTML = rows.map(r => {
-      const mm = r.date.slice(4, 6), dd = r.date.slice(6, 8);
+      const mm = r.date.slice(5, 7), dd = r.date.slice(8, 10);
       const sharedLabel  = r.shared  ? `<span class="tag-shared">${r.shared}</span>` : '';
       const voidStyle    = r.status === '作廢' ? 'style="color:var(--salmon)"' : '';
       const voidBadge    = r.status === '作廢' ? '<span class="raw-badge">作廢</span>' : '';

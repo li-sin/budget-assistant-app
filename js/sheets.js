@@ -774,7 +774,7 @@ const Sheets = (() => {
   // ── 發票明細 sub-tab 資料（date = YYYYMMDD）──────────────────
   async function getInvoiceSheetData(year, month) {
     const data = await _get(`${CONFIG.TABS.INVOICE}!A:K`);
-    const ym = `${year}${String(month).padStart(2, '0')}`;
+    const ym = `${year}-${String(month).padStart(2, '0')}`;
     return (data.values || []).slice(1)
       .map((r, i) => _parseInvoiceRow(r, i + 2))
       .filter(r => r.date.startsWith(ym));

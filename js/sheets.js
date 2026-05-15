@@ -787,7 +787,7 @@ const Sheets = (() => {
     return (data.values || []).slice(1).map((r, i) => ({
       rowIndex:     i + 2,
       bank:         r[0]  || '',
-      txDate:       r[1]  || '',
+      txDate:       (r[1] || '').replace(/^'/, '').replace(/\//g, '-'),
       entryDate:    r[2]  || '',
       shop:         r[3]  || '',
       amount:       parseFloat(r[4]) || 0,

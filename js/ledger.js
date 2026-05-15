@@ -503,7 +503,7 @@ const Ledger = (() => {
         });
       }
 
-      listItem.insertAdjacentElement('afterend', detail);
+      (listItem.closest('.swipe-container') || listItem).insertAdjacentElement('afterend', detail);
       detail.querySelectorAll('input[data-notechips]').forEach(inp => {
         if (inp.id) NoteChips?.render(inp.id);
       });

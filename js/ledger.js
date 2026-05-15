@@ -278,6 +278,7 @@ const Ledger = (() => {
       };
       inner.addEventListener('mousedown', e => {
         if (e.button !== 0) return;
+        if (navigator.maxTouchPoints > 0) return; // 觸控裝置略過（iOS 合成 mouse 事件會誤觸）
         mouseStartX = e.clientX;
         mouseStartOffset = _swipeActiveWrap === wrap ? SNAP_OPEN : 0;
         mouseDragging = true;

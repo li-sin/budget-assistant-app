@@ -639,8 +639,6 @@ select.field-input { height: 44px; }
 /* ── 右滑刪除 ────────────────────────────────────── */
 .swipe-container {
   position: relative;
-  overflow: hidden;
-  clip-path: inset(0);
 }
 /* touch-action:pan-y 讓瀏覽器自行處理垂直捲動；
    不需 e.preventDefault() 也能防止橫向捲動，且合成 click 不會被阻擋 */
@@ -650,9 +648,6 @@ select.field-input { height: 44px; }
 .swipe-delete-bg {
   position: absolute;
   right: 0;
-  top: 0;
-  bottom: 0;
-  border-radius: 0;
   width: 80px;
   background: var(--salmon);
   display: flex;
@@ -660,10 +655,10 @@ select.field-input { height: 44px; }
   justify-content: center;
   border-radius: 0 8px 8px 0;
   pointer-events: none;
+  z-index: 0;
 }
-.swipe-container.swipe-open .swipe-delete-bg {
+.swipe-delete-bg.swipe-open {
   pointer-events: auto;
-  border-radius: 0 8px 8px 0;
 }
 .swipe-del-btn {
   background: none;

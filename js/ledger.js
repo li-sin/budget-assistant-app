@@ -19,7 +19,8 @@ const Ledger = (() => {
   let _itemsCacheTs  = 0;
   const ITEMS_CACHE_TTL = 5 * 60 * 1000;
   let _expandCCRow   = null; // 展開中發票的 CC 配對列（有配對才非 null）
-  let _swipeActiveWrap = null;
+  let _swipeActiveWrap  = null;
+  let _sharedDeleteBg   = null;
   let _activeSubTab    = 'monthly';
   let _invRows         = [];
   let _invSharedFilter = new Set();
@@ -31,6 +32,7 @@ const Ledger = (() => {
   function _collapseActiveSwipe() {
     if (!_swipeActiveWrap) return;
     _swipeActiveWrap.classList.remove('swipe-open');
+    if (_sharedDeleteBg) { _sharedDeleteBg.classList.remove('swipe-open'); _sharedDeleteBg.style.display = 'none'; }
     const inner = _swipeActiveWrap.querySelector('.list-item');
     inner.style.transition = 'transform 0.2s';
     inner.style.transform  = '';
@@ -90,6 +92,8 @@ const Ledger = (() => {
   }
 
   function _renderList() {
+    _swipeActiveWrap = null;
+    _sharedDeleteBg  = null;
     const el   = document.getElementById('ledger-list');
     const rows = _filtered();
 
@@ -129,7 +133,6 @@ const Ledger = (() => {
         ? `<div class="ledger-shares">${shares.join('　')}</div>` : '';
       return `
         <div class="swipe-container">
-          ${isSin ? `<div class="swipe-delete-bg"><button class="swipe-del-btn" data-row="${r.rowIndex}">刪除</button></div>` : ''}
           <div class="list-item" data-row="${r.rowIndex}" data-is-invoice="${isInvoice ? '1' : ''}">
             <span class="list-item-icon">${cat}</span>
             <div class="list-item-body">
@@ -170,15 +173,10 @@ const Ledger = (() => {
         if (target) {
           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
           const container = target.closest('.swipe-container');
-          const deleteBg = container?.querySelector('.swipe-delete-bg');
-          if (deleteBg) deleteBg.style.visibility = 'hidden';
           const overlay = document.createElement('div');
           overlay.className = 'highlight-overlay';
           (container || target).appendChild(overlay);
-          overlay.addEventListener('animationend', () => {
-            overlay.remove();
-            if (deleteBg) deleteBg.style.visibility = '';
-          });
+          overlay.addEventListener('animationend', () => { overlay.remove(); });
         }
       });
     }
@@ -187,11 +185,39 @@ const Ledger = (() => {
   // ── 右滑刪除手勢設定 ─────────────────────────────────────────
 
   function _setupSwipeDelete(containerEl) {
-    const SNAP_OPEN = -80;  // px，刪除按鈕寬度
-    const THRESHOLD = -40;  // px，超過才彈開
-
-    // 追蹤最後 touchend 時間，供 mousedown 判斷是否為 iOS 合成事件
+    const SNAP_OPEN = -80;
+    const THRESHOLD = -40;
     let _lastTouchEnd = 0;
+
+    // 共用刪除背景（一個列表只建一個，放在 containerEl 內，與各 swipe-container 平行）
+    containerEl.style.position = 'relative';
+    const sharedBg = document.createElement('div');
+    sharedBg.className = 'swipe-delete-bg';
+    sharedBg.innerHTML = '<button class="swipe-del-btn">刪除</button>';
+    sharedBg.style.display = 'none';
+    containerEl.appendChild(sharedBg);
+    _sharedDeleteBg = sharedBg;
+
+    function _positionBg(wrap) {
+      sharedBg.style.top    = wrap.offsetTop + 'px';
+      sharedBg.style.height = wrap.offsetHeight + 'px';
+      sharedBg.style.display = '';
+      sharedBg.classList.remove('swipe-open');
+    }
+
+    sharedBg.querySelector('.swipe-del-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      const wrap = _swipeActiveWrap;
+      if (!wrap) return;
+      const rowIndex = parseInt(wrap.querySelector('.list-item').dataset.row, 10);
+      const row = _allRows.find(r => r.rowIndex === rowIndex);
+      if (!row) return;
+      _collapseActiveSwipe();
+      const src = row.source || '';
+      if (src === '發票' || src === '掃描發票') _openDeleteModal(row);
+      else if (src === '信用卡') _openCCDeleteModal(row);
+      else _openManualDeleteModal(row);
+    });
 
     containerEl.querySelectorAll('.swipe-container').forEach(wrap => {
       const inner = wrap.querySelector('.list-item');
@@ -203,8 +229,8 @@ const Ledger = (() => {
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
         startOffset = _swipeActiveWrap === wrap ? SNAP_OPEN : 0;
-        dragging  = true;
-        isHoriz   = null;
+        dragging = true;
+        isHoriz  = null;
         inner.style.transition = '';
       }, { passive: true });
 
@@ -215,8 +241,8 @@ const Ledger = (() => {
         const dy = e.touches[0].clientY - startY;
         if (isHoriz === null) {
           if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-          // 水平需明顯大於垂直兩倍才視為左滑，避免快速上下滑誤判
           isHoriz = Math.abs(dx) > Math.abs(dy) * 2;
+          if (isHoriz) _positionBg(wrap);  // 確認水平才顯示共用背景
         }
         if (!isHoriz) { dragging = false; return; }
         const x = Math.min(0, Math.max(SNAP_OPEN, startOffset + dx));
@@ -229,8 +255,6 @@ const Ledger = (() => {
         dragging = false;
         const dx = e.changedTouches[0].clientX - startX;
         if (startOffset + dx < THRESHOLD) {
-          // 已 open + 輕觸（微小水平偏移誤判 isHoriz），視為 tap-to-close
-          // 不依賴可能被瀏覽器抑制的 click event
           if (startOffset === SNAP_OPEN && Math.abs(dx) < 20) {
             _collapseActiveSwipe();
           } else {
@@ -238,43 +262,42 @@ const Ledger = (() => {
             inner.style.transition = 'transform 0.2s';
             inner.style.transform  = `translateX(${SNAP_OPEN}px)`;
             inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
+            _positionBg(wrap);
+            sharedBg.classList.add('swipe-open');
             _swipeActiveWrap = wrap;
             wrap.classList.add('swipe-open');
           }
         } else {
           inner.style.transition = 'transform 0.2s';
           inner.style.transform  = '';
+          sharedBg.classList.remove('swipe-open');
+          sharedBg.style.display = 'none';
           inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
-          if (_swipeActiveWrap === wrap) {
-            _swipeActiveWrap = null;
-            wrap.classList.remove('swipe-open');
-          }
+          if (_swipeActiveWrap === wrap) { _swipeActiveWrap = null; wrap.classList.remove('swipe-open'); }
         }
       }, { passive: true });
 
       // 桌面滑鼠支援：touchend 後 500ms 內的 mousedown 為 iOS 合成事件，略過
-      // mouseDragging 採 lazy 模式：mousedown 不立即設 true，
-      // 等 mousemove 超過 10px 才確認為拖曳，避免純點擊觸發 swipe
       let mouseStartX = 0, mouseStartOffset = 0, mouseDragging = false;
       const onMouseMove = e => {
         const dx = e.clientX - mouseStartX;
         if (!mouseDragging) {
-          if (Math.abs(dx) < 10) return;  // 未達拖曳門檻，忽略
+          if (Math.abs(dx) < 10) return;
           mouseDragging = true;
           inner.style.transition = '';
           inner.style.cursor = 'grabbing';
+          _positionBg(wrap);
         }
         inner.style.transform = `translateX(${Math.min(0, Math.max(SNAP_OPEN, mouseStartOffset + dx))}px)`;
       };
       const onMouseUp = e => {
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
-        if (!mouseDragging) return;  // 純點擊，不干預 click 事件
+        if (!mouseDragging) return;
         mouseDragging = false;
         inner.style.cursor = '';
         const dx = e.clientX - mouseStartX;
         if (mouseStartOffset + dx < THRESHOLD) {
-          // 已 open + 輕觸（滑鼠 lazy drag 超過 10px 門檻），視為 tap-to-close
           if (mouseStartOffset === SNAP_OPEN && Math.abs(dx) < 30) {
             _collapseActiveSwipe();
           } else {
@@ -282,46 +305,28 @@ const Ledger = (() => {
             inner.style.transition = 'transform 0.2s';
             inner.style.transform  = `translateX(${SNAP_OPEN}px)`;
             inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
+            _positionBg(wrap);
+            sharedBg.classList.add('swipe-open');
             _swipeActiveWrap = wrap;
             wrap.classList.add('swipe-open');
           }
         } else {
           inner.style.transition = 'transform 0.2s';
           inner.style.transform  = '';
+          sharedBg.classList.remove('swipe-open');
+          sharedBg.style.display = 'none';
           inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
-          if (_swipeActiveWrap === wrap) {
-            _swipeActiveWrap = null;
-            wrap.classList.remove('swipe-open');
-          }
+          if (_swipeActiveWrap === wrap) { _swipeActiveWrap = null; wrap.classList.remove('swipe-open'); }
         }
       };
       inner.addEventListener('mousedown', e => {
         if (e.button !== 0) return;
-        if (Date.now() - _lastTouchEnd < 500) return; // iOS 合成 mouse 事件，略過
+        if (Date.now() - _lastTouchEnd < 500) return;
         mouseStartX = e.clientX;
         mouseStartOffset = _swipeActiveWrap === wrap ? SNAP_OPEN : 0;
-        mouseDragging = false;  // lazy：等 mousemove 超過門檻才設 true
+        mouseDragging = false;
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
-      });
-    });
-
-    // 刪除按鈕點擊
-    containerEl.querySelectorAll('.swipe-del-btn').forEach(btn => {
-      btn.addEventListener('click', e => {
-        e.stopPropagation();
-        const rowIndex = parseInt(btn.dataset.row, 10);
-        const row = _allRows.find(r => r.rowIndex === rowIndex);
-        if (!row) return;
-        _collapseActiveSwipe();
-        const src = row.source || '';
-        if (src === '發票' || src === '掃描發票') {
-          _openDeleteModal(row);
-        } else if (src === '信用卡') {
-          _openCCDeleteModal(row);
-        } else {
-          _openManualDeleteModal(row);
-        }
       });
     });
   }

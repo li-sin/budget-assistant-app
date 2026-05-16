@@ -199,8 +199,10 @@ const Ledger = (() => {
     _sharedDeleteBg = sharedBg;
 
     function _positionBg(wrap) {
-      sharedBg.style.top    = wrap.offsetTop + 'px';
-      sharedBg.style.height = wrap.offsetHeight + 'px';
+      const wr = wrap.getBoundingClientRect();
+      const cr = containerEl.getBoundingClientRect();
+      sharedBg.style.top    = (wr.top - cr.top + containerEl.scrollTop) + 'px';
+      sharedBg.style.height = wr.height + 'px';
       sharedBg.style.display = '';
       sharedBg.classList.remove('swipe-open');
     }

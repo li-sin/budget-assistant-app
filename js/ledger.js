@@ -169,10 +169,10 @@ const Ledger = (() => {
         const target = el.querySelector(`[data-row="${rowIndex}"]`);
         if (target) {
           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          const container = target.closest('.swipe-container');
           const overlay = document.createElement('div');
           overlay.className = 'highlight-overlay';
-          const container = target.closest('.swipe-container') || target;
-          container.appendChild(overlay);
+          (container || target).appendChild(overlay);
           overlay.addEventListener('animationend', () => overlay.remove());
         }
       });

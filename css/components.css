@@ -154,9 +154,8 @@
   position: absolute;
   inset: 0;
   background: rgba(0,201,167,0.55);
-  border-radius: 8px;
   pointer-events: none;
-  z-index: 2;
+  z-index: 9;
   animation: highlight-fade 2s ease-out forwards;
 }
 .expand-btn:hover { border-color: var(--primary); color: var(--primary); }

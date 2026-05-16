@@ -170,10 +170,15 @@ const Ledger = (() => {
         if (target) {
           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
           const container = target.closest('.swipe-container');
+          const deleteBg = container?.querySelector('.swipe-delete-bg');
+          if (deleteBg) deleteBg.style.visibility = 'hidden';
           const overlay = document.createElement('div');
           overlay.className = 'highlight-overlay';
           (container || target).appendChild(overlay);
-          overlay.addEventListener('animationend', () => overlay.remove());
+          overlay.addEventListener('animationend', () => {
+            overlay.remove();
+            if (deleteBg) deleteBg.style.visibility = '';
+          });
         }
       });
     }

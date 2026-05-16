@@ -165,14 +165,14 @@ const Ledger = (() => {
     if (_pendingScrollRow !== null) {
       const rowIndex = _pendingScrollRow;
       _pendingScrollRow = null;
-      requestAnimationFrame(() => {
+      setTimeout(() => {
         const target = el.querySelector(`[data-row="${rowIndex}"]`);
         if (target) {
           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
           target.classList.add('list-item-highlight');
-          setTimeout(() => target.classList.remove('list-item-highlight'), 1500);
+          setTimeout(() => target.classList.remove('list-item-highlight'), 2000);
         }
-      });
+      }, 150);
     }
   }
 

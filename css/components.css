@@ -652,6 +652,7 @@ select.field-input { height: 44px; }
   right: 0;
   top: 0;
   bottom: 0;
+  border-radius: 0;
   width: 80px;
   background: var(--salmon);
   display: flex;
@@ -662,6 +663,7 @@ select.field-input { height: 44px; }
 }
 .swipe-container.swipe-open .swipe-delete-bg {
   pointer-events: auto;
+  border-radius: 0 8px 8px 0;
 }
 .swipe-del-btn {
   background: none;

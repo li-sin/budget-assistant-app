@@ -133,7 +133,6 @@
 /* ── List Item ──────────────────────────────────── */
 .list-item {
   position: relative;
-  will-change: transform;
   display: flex;
   align-items: center;
   gap: 12px;

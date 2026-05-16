@@ -191,7 +191,7 @@
   z-index: 200;
   display: flex;
   align-items: flex-end;
-  padding-top: env(safe-area-inset-top);
+  padding-top: max(env(safe-area-inset-top), 20px);
   padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
 }
 .modal-overlay.hidden { display: none; }

@@ -153,7 +153,7 @@
 .highlight-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0,201,167,0.35);
+  background: rgba(0,201,167,0.55);
   border-radius: 8px;
   pointer-events: none;
   z-index: 2;

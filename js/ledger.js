@@ -165,14 +165,17 @@ const Ledger = (() => {
     if (_pendingScrollRow !== null) {
       const rowIndex = _pendingScrollRow;
       _pendingScrollRow = null;
-      setTimeout(() => {
+      requestAnimationFrame(() => {
         const target = el.querySelector(`[data-row="${rowIndex}"]`);
         if (target) {
           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          target.classList.add('list-item-highlight');
-          setTimeout(() => target.classList.remove('list-item-highlight'), 2000);
+          const overlay = document.createElement('div');
+          overlay.className = 'highlight-overlay';
+          const container = target.closest('.swipe-container') || target;
+          container.appendChild(overlay);
+          overlay.addEventListener('animationend', () => overlay.remove());
         }
-      }, 150);
+      });
     }
   }
 

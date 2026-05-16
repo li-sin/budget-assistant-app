@@ -656,6 +656,7 @@ select.field-input { height: 44px; }
   border-radius: 0 8px 8px 0;
   pointer-events: none;
   z-index: 0;
+  transform: translateZ(0); /* GPU 層：與 .list-item 同一物理像素 snap，消除次像素抗鋸齒紅線 */
 }
 .swipe-delete-bg.swipe-open {
   pointer-events: auto;

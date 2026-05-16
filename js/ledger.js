@@ -123,20 +123,19 @@ const Ledger = (() => {
       const bearBadge = r.payer === '🐨 Bear'
         ? '<span class="badge badge-bear">Bear付</span>' : '';
       const sharedLabel = r.shared ? `<span class="tag-shared">${r.shared}</span>` : '';
-      const noteText    = r.note   ? `<span class="ledger-note">　${r.note}</span>` : '';
+      const noteText    = r.note   ? `<span class="ledger-note"> ${r.note}</span>` : '';
       const isInvoice   = (r.source === '發票' || r.source === '掃描發票') && r.sourceLink;
+      const sharesRow   = shares.length
+        ? `<div class="ledger-shares">${shares.join('　')}</div>` : '';
       return `
         <div class="swipe-container">
           ${isSin ? `<div class="swipe-delete-bg"><button class="swipe-del-btn" data-row="${r.rowIndex}">刪除</button></div>` : ''}
           <div class="list-item" data-row="${r.rowIndex}" data-is-invoice="${isInvoice ? '1' : ''}">
             <span class="list-item-icon">${cat}</span>
             <div class="list-item-body">
-              <div class="list-item-title">${r.item || '（未命名）'} ${bearBadge} ${sharedLabel}</div>
-              <div class="list-item-sub">
-                ${mmdd}　${srcIcon(r.source)} ${r.source}
-                ${shares.length ? '　' + shares.join(' · ') : ''}
-                ${noteText}
-              </div>
+              <div class="list-item-title">${srcIcon(r.source)} ${r.item || '（未命名）'}</div>
+              <div class="list-item-sub">${mmdd}　${sharedLabel}${bearBadge}${noteText}</div>
+              ${sharesRow}
             </div>
             <div class="list-item-right">
               <div class="amount-expense">${_fmt(r.amount)}</div>
@@ -166,14 +165,14 @@ const Ledger = (() => {
     if (_pendingScrollRow !== null) {
       const rowIndex = _pendingScrollRow;
       _pendingScrollRow = null;
-      requestAnimationFrame(() => {
+      setTimeout(() => {
         const target = el.querySelector(`[data-row="${rowIndex}"]`);
         if (target) {
           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
           target.classList.add('list-item-highlight');
-          setTimeout(() => target.classList.remove('list-item-highlight'), 1500);
+          setTimeout(() => target.classList.remove('list-item-highlight'), 2000);
         }
-      });
+      }, 150);
     }
   }
 
@@ -1755,9 +1754,10 @@ const Ledger = (() => {
     const isSin = _isSin();
     el.innerHTML = rows.map(r => {
       const mm = r.date.slice(5, 7), dd = r.date.slice(8, 10);
-      const sharedLabel  = r.shared  ? `<span class="tag-shared">${r.shared}</span>` : '';
-      const voidStyle    = r.status === '作廢' ? 'style="color:var(--salmon)"' : '';
-      const voidBadge    = r.status === '作廢' ? '<span class="raw-badge">作廢</span>' : '';
+      const sharedLabel    = r.shared  ? `<span class="tag-shared">${r.shared}</span>` : '';
+      const voidStyle      = r.status === '作廢' ? 'style="color:var(--salmon)"' : '';
+      const voidBadge      = r.status === '作廢' ? '<span class="raw-badge">作廢</span>' : '';
+      const importedBadge  = r.imported ? '<span class="badge-imported">已匯入</span>' : '';
       return `
         <div class="list-item${isSin ? ' list-item-editable' : ''}" data-row="${r.rowIndex}">
           <span class="list-item-icon">${r.category || '🧾'}</span>
@@ -1767,7 +1767,7 @@ const Ledger = (() => {
           </div>
           <div class="list-item-right">
             <div class="amount-expense">$${r.amount.toLocaleString('zh-TW')}</div>
-            ${voidBadge}
+            ${importedBadge}${voidBadge}
           </div>
         </div>`;
     }).join('');
@@ -1812,7 +1812,7 @@ const Ledger = (() => {
     el.innerHTML = rows.map(r => {
       const mmdd = r.txDate.slice(5).replace('-', '/');
       const sharedLabel   = r.shared ? `<span class="tag-shared">${r.shared}</span>` : '';
-      const importedBadge = r.posted ? '<span class="raw-badge">已匯入</span>' : '';
+      const importedBadge = r.posted ? '<span class="badge-imported">已匯入</span>' : '';
       return `
         <div class="list-item${isSin ? ' list-item-editable' : ''}" data-row="${r.rowIndex}">
           <span class="list-item-icon">${r.category || '💳'}</span>

@@ -140,7 +140,7 @@ const Ledger = (() => {
             </div>
             <div class="list-item-right">
               <div class="amount-expense">${_fmt(r.amount)}</div>
-              ${isSin ? `<button class="expand-btn" data-row="${r.rowIndex}">▼</button>` : ''}
+              ${isSin ? `<button class="expand-btn" data-row="${r.rowIndex}">${isInvoice ? '▼' : '✎'}</button>` : ''}
             </div>
           </div>
         </div>`;
@@ -582,7 +582,7 @@ const Ledger = (() => {
     const detailId = `ne-detail-${row.rowIndex}`;
     const listItem = btnEl.closest('.list-item');
     const existing = document.getElementById(detailId);
-    if (existing) { existing.remove(); btnEl.textContent = '▼'; return; }
+    if (existing) { existing.remove(); btnEl.textContent = '✎'; return; }
 
     btnEl.textContent = '▲';
 

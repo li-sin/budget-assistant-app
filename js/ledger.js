@@ -34,7 +34,7 @@ const Ledger = (() => {
     const inner = _swipeActiveWrap.querySelector('.list-item');
     inner.style.transition = 'transform 0.2s';
     inner.style.transform  = '';
-    inner.addEventListener('transitionend', () => { inner.style.transition = ''; inner.style.willChange = ''; }, { once: true });
+    inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
     _swipeActiveWrap = null;
   }
 
@@ -206,7 +206,6 @@ const Ledger = (() => {
         dragging  = true;
         isHoriz   = null;
         inner.style.transition = '';
-        inner.style.willChange = 'transform';
       }, { passive: true });
 
       // touch-action:pan-y（CSS）已讓瀏覽器自行防止橫向捲動，不需 preventDefault
@@ -226,7 +225,7 @@ const Ledger = (() => {
 
       inner.addEventListener('touchend', e => {
         _lastTouchEnd = Date.now();
-        if (!dragging || !isHoriz) { dragging = false; inner.style.willChange = ''; return; }
+        if (!dragging || !isHoriz) { dragging = false; return; }
         dragging = false;
         const dx = e.changedTouches[0].clientX - startX;
         if (startOffset + dx < THRESHOLD) {
@@ -245,7 +244,7 @@ const Ledger = (() => {
         } else {
           inner.style.transition = 'transform 0.2s';
           inner.style.transform  = '';
-          inner.addEventListener('transitionend', () => { inner.style.transition = ''; inner.style.willChange = ''; }, { once: true });
+          inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
           if (_swipeActiveWrap === wrap) {
             _swipeActiveWrap = null;
             wrap.classList.remove('swipe-open');
@@ -263,7 +262,6 @@ const Ledger = (() => {
           if (Math.abs(dx) < 10) return;  // 未達拖曳門檻，忽略
           mouseDragging = true;
           inner.style.transition = '';
-          inner.style.willChange = 'transform';
           inner.style.cursor = 'grabbing';
         }
         inner.style.transform = `translateX(${Math.min(0, Math.max(SNAP_OPEN, mouseStartOffset + dx))}px)`;
@@ -271,7 +269,7 @@ const Ledger = (() => {
       const onMouseUp = e => {
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
-        if (!mouseDragging) { inner.style.willChange = ''; return; }  // 純點擊，不干預 click 事件
+        if (!mouseDragging) return;  // 純點擊，不干預 click 事件
         mouseDragging = false;
         inner.style.cursor = '';
         const dx = e.clientX - mouseStartX;
@@ -290,7 +288,7 @@ const Ledger = (() => {
         } else {
           inner.style.transition = 'transform 0.2s';
           inner.style.transform  = '';
-          inner.addEventListener('transitionend', () => { inner.style.transition = ''; inner.style.willChange = ''; }, { once: true });
+          inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
           if (_swipeActiveWrap === wrap) {
             _swipeActiveWrap = null;
             wrap.classList.remove('swipe-open');

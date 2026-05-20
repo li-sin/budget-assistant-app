@@ -141,6 +141,66 @@ const Scan = (() => {
     }
   }
 
+  function _normalizeOcrText(text) {
+    return String(text || '')
+      .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+      .replace(/[，,]/g, '')
+      .replace(/[：]/g, ':');
+  }
+
+  function _parseOcrItems(text, total) {
+    const skipRe = /(發票|電子發票|證明聯|明細|品名|數量|單價|金額|合計|總計|小計|稅|買方|賣方|日期|時間|隨機碼|發票號碼|營業人|統一編號|課稅|應稅|免稅|折扣|載具|平台|QR|Barcode)/i;
+    const seen = new Set();
+    const result = [];
+
+    _normalizeOcrText(text).split(/\r?\n/).forEach(line => {
+      const clean = line.replace(/\s+/g, ' ').trim();
+      if (!clean || skipRe.test(clean)) return;
+
+      const nums = clean.match(/\d+(?:\.\d+)?/g);
+      if (!nums?.length) return;
+
+      const amount = Math.round(parseFloat(nums[nums.length - 1]));
+      if (!(amount > 0) || amount > total) return;
+
+      const trailingNums = clean.match(/(?:\s+\d+(?:\.\d+)?){1,4}\s*$/);
+      let name = trailingNums ? clean.slice(0, trailingNums.index).trim() : clean.replace(/\d+(?:\.\d+)?\s*$/, '').trim();
+      name = name
+        .replace(/^[\s\-:：|｜]+/, '')
+        .replace(/[\s\-:：|｜]+$/, '')
+        .replace(/[^\p{L}\p{N}\s（）()\-_.]/gu, '')
+        .trim();
+
+      if (!name || /^\d+$/.test(name)) return;
+
+      const key = `${name}|${amount}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      result.push({ name, qty: 1, price: amount, amount, manual: true, ocr: true });
+    });
+
+    return result;
+  }
+
+  async function _runOcr(file, total, onStatus) {
+    if (!window.Tesseract?.recognize) {
+      throw new Error('OCR 套件尚未載入，請確認網路後重試');
+    }
+    onStatus?.('OCR 載入中…');
+    const res = await window.Tesseract.recognize(file, 'chi_tra+eng', {
+      logger: msg => {
+        if (msg.status === 'recognizing text') {
+          onStatus?.(`OCR 辨識中 ${Math.round((msg.progress || 0) * 100)}%`);
+        } else if (msg.status) {
+          onStatus?.(`OCR ${msg.status}`);
+        }
+      },
+    });
+    const text = res?.data?.text || '';
+    const items = _parseOcrItems(text, total);
+    return { text, items };
+  }
+
   // ── 鏡頭掃描 UI ──────────────────────────────────────────────
   function _buildScanOverlay() {
     if (document.getElementById('scan-overlay')) return;
@@ -280,6 +340,9 @@ const Scan = (() => {
     const leftItems  = (_left?.leftItems  || []).filter(it => !(it.qty === 0 && it.price === 0));
     const rightItems = _right?.items || [];
     let items = [...leftItems, ...rightItems];
+    let ocrItems = [];
+    let ocrRawText = '';
+    let ocrStatus = '';
 
     let el = document.getElementById('scan-confirm-modal');
     if (!el) {
@@ -391,6 +454,25 @@ const Scan = (() => {
               <input type="number" id="sconf-manual-amount" class="field-input" placeholder="金額" min="1" step="1" inputmode="decimal">
               <button class="btn-secondary" id="sconf-add-item">新增品項</button>
             </div>
+            <div class="sconf-ocr-box">
+              <input type="file" id="sconf-ocr-file" accept="image/*" class="hidden">
+              <button class="btn-secondary" id="sconf-ocr-pick">截圖 OCR 補明細</button>
+              <span class="sconf-ocr-status">${_escapeHtml(ocrStatus)}</span>
+              <div id="sconf-ocr-wrap">
+                ${ocrItems.length ? `
+                  <div class="sconf-ocr-title">OCR 候選品項</div>
+                  ${ocrItems.map((it, idx) => `
+                    <div class="sconf-ocr-row" data-ocr-idx="${idx}">
+                      <input type="text" class="field-input sconf-ocr-name" value="${_escapeHtml(it.name)}" placeholder="品項名稱">
+                      <input type="number" class="field-input sconf-ocr-amount" value="${Number(it.amount || 0)}" min="1" step="1" inputmode="decimal" placeholder="金額">
+                      <button class="sconf-item-remove sconf-ocr-remove" data-ocr-remove="${idx}" aria-label="移除 OCR 品項">✕</button>
+                    </div>
+                  `).join('')}
+                  <div class="sconf-ocr-summary">OCR 合計 $${_sumItems(ocrItems).toLocaleString('zh-TW')} / 發票總額 $${total.toLocaleString('zh-TW')}</div>
+                  <button class="btn-secondary sconf-ocr-use" id="sconf-ocr-use">使用 OCR 明細</button>
+                ` : ocrRawText ? `<p class="sconf-ocr-empty">OCR 未解析出品項，請改用手動補品項或補差額。</p>` : ''}
+              </div>
+            </div>
           </div>` : '';
       }
 
@@ -427,6 +509,73 @@ const Scan = (() => {
           return;
         }
         items = [...items, { name, qty: 1, price: amount, amount, manual: true }];
+        renderItemsAndGuard();
+      });
+
+      document.getElementById('sconf-ocr-pick')?.addEventListener('click', () => {
+        document.getElementById('sconf-ocr-file')?.click();
+      });
+
+      document.getElementById('sconf-ocr-file')?.addEventListener('change', async e => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const pickBtn = document.getElementById('sconf-ocr-pick');
+        if (pickBtn) pickBtn.disabled = true;
+        try {
+          const res = await _runOcr(file, total, status => {
+            ocrStatus = status;
+            const statusEl = document.querySelector('.sconf-ocr-status');
+            if (statusEl) statusEl.textContent = status;
+          });
+          ocrRawText = res.text;
+          ocrItems = res.items;
+          ocrStatus = ocrItems.length ? `已解析 ${ocrItems.length} 筆候選品項` : 'OCR 完成，但未解析出品項';
+          renderItemsAndGuard();
+        } catch (err) {
+          ocrStatus = `OCR 失敗：${err.message}`;
+          renderItemsAndGuard();
+        } finally {
+          const btn = document.getElementById('sconf-ocr-pick');
+          if (btn) btn.disabled = false;
+          e.target.value = '';
+        }
+      });
+
+      el.querySelectorAll('.sconf-ocr-row').forEach(row => {
+        const idx = parseInt(row.dataset.ocrIdx, 10);
+        row.querySelector('.sconf-ocr-name')?.addEventListener('input', e => {
+          if (ocrItems[idx]) ocrItems[idx].name = e.target.value.trim();
+        });
+        row.querySelector('.sconf-ocr-amount')?.addEventListener('input', e => {
+          const amount = Math.round(parseFloat(e.target.value || '0'));
+          if (ocrItems[idx]) {
+            ocrItems[idx].amount = amount;
+            ocrItems[idx].price = amount;
+          }
+        });
+      });
+
+      el.querySelectorAll('.sconf-ocr-remove').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.ocrRemove, 10);
+          ocrItems = ocrItems.filter((_, itemIdx) => itemIdx !== idx);
+          renderItemsAndGuard();
+        });
+      });
+
+      document.getElementById('sconf-ocr-use')?.addEventListener('click', () => {
+        const cleaned = ocrItems
+          .map(it => ({ ...it, name: (it.name || '').trim(), amount: Math.round(Number(it.amount) || 0) }))
+          .filter(it => it.name && it.amount > 0)
+          .map(it => ({ ...it, qty: 1, price: it.amount, manual: true, ocr: true }));
+        if (!cleaned.length) {
+          alert('請先確認 OCR 候選品項名稱與金額');
+          return;
+        }
+        items = cleaned;
+        ocrItems = [];
+        ocrRawText = '';
+        ocrStatus = '已使用 OCR 明細取代 QR 品項';
         renderItemsAndGuard();
       });
 

@@ -658,6 +658,47 @@ select.field-input { height: 44px; }
   padding-right: 0;
   font-size: 16px;
 }
+.sconf-ocr-box {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--divider);
+}
+.sconf-ocr-box > .btn-secondary {
+  width: 100%;
+  padding: 9px 10px;
+  font-size: 13px;
+}
+.sconf-ocr-status,
+.sconf-ocr-empty,
+.sconf-ocr-summary {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-sub);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.sconf-ocr-title {
+  margin-top: 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.sconf-ocr-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(72px, 0.5fr) 28px;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.sconf-ocr-row .field-input {
+  min-width: 0;
+}
+.sconf-ocr-use {
+  width: 100%;
+  margin-top: 8px;
+  padding: 9px 10px;
+  font-size: 13px;
+}
 .sconf-manual-add {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(78px, 0.8fr) auto;

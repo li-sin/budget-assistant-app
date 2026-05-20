@@ -668,7 +668,12 @@ select.field-input { height: 44px; }
   padding-top: 10px;
   border-top: 1px solid var(--divider);
 }
-.sconf-ocr-box > .btn-secondary {
+.sconf-ocr-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.sconf-ocr-actions .btn-secondary {
   width: 100%;
   padding: 9px 10px;
   font-size: 13px;

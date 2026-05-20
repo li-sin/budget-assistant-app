@@ -259,10 +259,10 @@ const Scan = (() => {
     });
   }
 
-  async function _preprocessOcrImage(file) {
+  async function _preprocessOcrImage(file, mode = 'soft') {
     const img = await _loadImageForOcr(file);
     const maxSide = 2600;
-    const baseScale = 2;
+    const baseScale = mode === 'binary' ? 2 : 2.4;
     const naturalW = img.naturalWidth || img.width;
     const naturalH = img.naturalHeight || img.height;
     const scale = Math.min(baseScale, maxSide / Math.max(naturalW, naturalH));
@@ -282,14 +282,62 @@ const Scan = (() => {
     const data = imageData.data;
     for (let i = 0; i < data.length; i += 4) {
       const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-      const contrasted = Math.max(0, Math.min(255, (gray - 128) * 1.45 + 128));
-      const bw = contrasted > 176 ? 255 : 0;
-      data[i] = bw;
-      data[i + 1] = bw;
-      data[i + 2] = bw;
+      const contrasted = Math.max(0, Math.min(255, (gray - 128) * 1.35 + 128));
+      const value = mode === 'binary' ? (contrasted > 176 ? 255 : 0) : contrasted;
+      data[i] = value;
+      data[i + 1] = value;
+      data[i + 2] = value;
     }
     ctx.putImageData(imageData, 0, 0);
     return canvas;
+  }
+
+  async function _readClipboardImage() {
+    if (!navigator.clipboard?.read) {
+      throw new Error('此瀏覽器不支援直接貼上圖片，請改用上傳截圖');
+    }
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      const imageType = item.types.find(type => type.startsWith('image/'));
+      if (imageType) return item.getType(imageType);
+    }
+    throw new Error('剪貼簿沒有圖片，請先複製截圖或改用上傳截圖');
+  }
+
+  function _scoreOcrCandidate(candidate, total) {
+    const parsed = candidate.parsed || { items: [] };
+    let score = parsed.foundTable ? 30 : 0;
+    score += Math.min(parsed.items.length, 20) * 5;
+    if (Number.isInteger(parsed.expectedCount)) {
+      if (parsed.items.length === parsed.expectedCount) score += 80;
+      else score -= Math.abs(parsed.items.length - parsed.expectedCount) * 12;
+    }
+    const itemTotal = _sumItems(parsed.items);
+    if (total && itemTotal === total) score += 25;
+    score += Math.max(0, Math.min(100, Number(candidate.confidence) || 0)) / 4;
+    return score;
+  }
+
+  async function _recognizeOcrSource(source, label, total, onStatus) {
+    onStatus?.(`OCR ${label}辨識中…`);
+    const res = await window.Tesseract.recognize(source, 'chi_tra+eng', {
+      tessedit_pageseg_mode: '6',
+      preserve_interword_spaces: '1',
+      user_defined_dpi: '300',
+      logger: msg => {
+        if (msg.status === 'recognizing text') {
+          onStatus?.(`OCR ${label}${Math.round((msg.progress || 0) * 100)}%`);
+        } else if (msg.status) {
+          onStatus?.(`OCR ${label}${msg.status}`);
+        }
+      },
+    });
+    const text = res?.data?.text || '';
+    return {
+      text,
+      confidence: res?.data?.confidence,
+      parsed: _parseOcrItems(text, total),
+    };
   }
 
   async function _runOcr(file, total, onStatus) {
@@ -297,28 +345,23 @@ const Scan = (() => {
       throw new Error('OCR 套件尚未載入，請確認網路後重試');
     }
     onStatus?.('OCR 圖片前處理中…');
-    let source = file;
+    const sources = [];
     try {
-      source = await _preprocessOcrImage(file);
+      sources.push({ label: '強化 1/2 ', source: await _preprocessOcrImage(file, 'soft') });
+      sources.push({ label: '黑白 2/2 ', source: await _preprocessOcrImage(file, 'binary') });
     } catch {
-      source = file;
+      sources.push({ label: '', source: file });
     }
 
     onStatus?.('OCR 載入中…');
-    const res = await window.Tesseract.recognize(source, 'chi_tra+eng', {
-      tessedit_pageseg_mode: '6',
-      preserve_interword_spaces: '1',
-      logger: msg => {
-        if (msg.status === 'recognizing text') {
-          onStatus?.(`OCR 辨識中 ${Math.round((msg.progress || 0) * 100)}%`);
-        } else if (msg.status) {
-          onStatus?.(`OCR ${msg.status}`);
-        }
-      },
-    });
-    const text = res?.data?.text || '';
-    const parsed = _parseOcrItems(text, total);
-    return { text, ...parsed };
+    const candidates = [];
+    for (const item of sources) {
+      candidates.push(await _recognizeOcrSource(item.source, item.label, total, onStatus));
+    }
+    const best = candidates
+      .map(candidate => ({ ...candidate, score: _scoreOcrCandidate(candidate, total) }))
+      .sort((a, b) => b.score - a.score)[0];
+    return { text: best.text, ...best.parsed };
   }
 
   // ── 鏡頭掃描 UI ──────────────────────────────────────────────
@@ -531,6 +574,29 @@ const Scan = (() => {
       return '未讀到截圖的「共 x 筆」，請確認候選品項數量。';
     }
 
+    async function handleOcrSource(source) {
+      const buttons = Array.from(document.querySelectorAll('.sconf-ocr-action'));
+      buttons.forEach(btn => { btn.disabled = true; });
+      try {
+        const res = await _runOcr(source, total, status => {
+          ocrStatus = status;
+          const statusEl = document.querySelector('.sconf-ocr-status');
+          if (statusEl) statusEl.textContent = status;
+        });
+        ocrRawText = res.text;
+        ocrItems = (res.items || []).filter(it => (it.name || '').trim() && Number.isFinite(Number(it.amount)) && Number(it.amount) !== 0);
+        ocrExpectedCount = Number.isInteger(res.expectedCount) ? res.expectedCount : null;
+        ocrFoundTable = !!res.foundTable;
+        ocrStatus = ocrItems.length ? `已解析 ${ocrItems.length} 筆候選品項` : 'OCR 完成，但未解析出品項';
+        renderItemsAndGuard();
+      } catch (err) {
+        ocrStatus = `OCR 失敗：${err.message}`;
+        renderItemsAndGuard();
+      } finally {
+        document.querySelectorAll('.sconf-ocr-action').forEach(btn => { btn.disabled = false; });
+      }
+    }
+
     function renderItemsAndGuard() {
       const itemsWrap = document.getElementById('sconf-items-wrap');
       const missingWrap = document.getElementById('sconf-missing-wrap');
@@ -589,7 +655,10 @@ const Scan = (() => {
             </div>
             <div class="sconf-ocr-box">
               <input type="file" id="sconf-ocr-file" accept="image/*" class="hidden">
-              <button class="btn-secondary" id="sconf-ocr-pick">截圖 OCR 補明細</button>
+              <div class="sconf-ocr-actions">
+                <button class="btn-secondary sconf-ocr-action" id="sconf-ocr-paste">貼上截圖</button>
+                <button class="btn-secondary sconf-ocr-action" id="sconf-ocr-pick">上傳截圖</button>
+              </div>
               <span class="sconf-ocr-status">${_escapeHtml(ocrStatus)}</span>
               <div id="sconf-ocr-wrap">
                 ${ocrItems.length ? `
@@ -650,31 +719,21 @@ const Scan = (() => {
         document.getElementById('sconf-ocr-file')?.click();
       });
 
+      document.getElementById('sconf-ocr-paste')?.addEventListener('click', async () => {
+        try {
+          const image = await _readClipboardImage();
+          await handleOcrSource(image);
+        } catch (err) {
+          ocrStatus = err.message;
+          renderItemsAndGuard();
+        }
+      });
+
       document.getElementById('sconf-ocr-file')?.addEventListener('change', async e => {
         const file = e.target.files?.[0];
         if (!file) return;
-        const pickBtn = document.getElementById('sconf-ocr-pick');
-        if (pickBtn) pickBtn.disabled = true;
-        try {
-          const res = await _runOcr(file, total, status => {
-            ocrStatus = status;
-            const statusEl = document.querySelector('.sconf-ocr-status');
-            if (statusEl) statusEl.textContent = status;
-          });
-          ocrRawText = res.text;
-          ocrItems = (res.items || []).filter(it => (it.name || '').trim() && Number.isFinite(Number(it.amount)) && Number(it.amount) !== 0);
-          ocrExpectedCount = Number.isInteger(res.expectedCount) ? res.expectedCount : null;
-          ocrFoundTable = !!res.foundTable;
-          ocrStatus = ocrItems.length ? `已解析 ${ocrItems.length} 筆候選品項` : 'OCR 完成，但未解析出品項';
-          renderItemsAndGuard();
-        } catch (err) {
-          ocrStatus = `OCR 失敗：${err.message}`;
-          renderItemsAndGuard();
-        } finally {
-          const btn = document.getElementById('sconf-ocr-pick');
-          if (btn) btn.disabled = false;
-          e.target.value = '';
-        }
+        await handleOcrSource(file);
+        e.target.value = '';
       });
 
       el.querySelectorAll('.sconf-ocr-row').forEach(row => {

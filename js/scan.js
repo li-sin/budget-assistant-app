@@ -243,12 +243,71 @@ const Scan = (() => {
     return { items: result, expectedCount, foundTable };
   }
 
+  function _loadImageForOcr(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('圖片讀取失敗'));
+      };
+      img.src = url;
+    });
+  }
+
+  async function _preprocessOcrImage(file) {
+    const img = await _loadImageForOcr(file);
+    const maxSide = 2600;
+    const baseScale = 2;
+    const naturalW = img.naturalWidth || img.width;
+    const naturalH = img.naturalHeight || img.height;
+    const scale = Math.min(baseScale, maxSide / Math.max(naturalW, naturalH));
+    const width = Math.max(1, Math.round(naturalW * scale));
+    const height = Math.max(1, Math.round(naturalH * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) throw new Error('無法建立 OCR 圖片處理器');
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+      const contrasted = Math.max(0, Math.min(255, (gray - 128) * 1.45 + 128));
+      const bw = contrasted > 176 ? 255 : 0;
+      data[i] = bw;
+      data[i + 1] = bw;
+      data[i + 2] = bw;
+    }
+    ctx.putImageData(imageData, 0, 0);
+    return canvas;
+  }
+
   async function _runOcr(file, total, onStatus) {
     if (!window.Tesseract?.recognize) {
       throw new Error('OCR 套件尚未載入，請確認網路後重試');
     }
+    onStatus?.('OCR 圖片前處理中…');
+    let source = file;
+    try {
+      source = await _preprocessOcrImage(file);
+    } catch {
+      source = file;
+    }
+
     onStatus?.('OCR 載入中…');
-    const res = await window.Tesseract.recognize(file, 'chi_tra+eng', {
+    const res = await window.Tesseract.recognize(source, 'chi_tra+eng', {
+      tessedit_pageseg_mode: '6',
+      preserve_interword_spaces: '1',
       logger: msg => {
         if (msg.status === 'recognizing text') {
           onStatus?.(`OCR 辨識中 ${Math.round((msg.progress || 0) * 100)}%`);

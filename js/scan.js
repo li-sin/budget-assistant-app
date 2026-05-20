@@ -491,11 +491,11 @@ const Scan = (() => {
                 </div>`).join('')}
             </div>
             <div class="sconf-warning-actions">
+              <button class="btn-secondary" id="sconf-fill-missing" data-missing="${missing}">補差額品項繼續</button>
               ${_queryLaunchLinks().map(link => `
                 <a class="btn-secondary sconf-query-link" href="${_escapeHtml(link.href)}"${link.target ? ` target="${link.target}"` : ''}${link.rel ? ` rel="${link.rel}"` : ''}>${link.label}</a>
               `).join('')}
               <button class="btn-secondary sconf-share-btn" id="sconf-share-query" aria-label="分享查詢頁" title="分享查詢頁">📤</button>
-              <button class="btn-secondary" id="sconf-fill-missing" data-missing="${missing}">補差額品項繼續</button>
             </div>
             <div class="sconf-manual-add">
               <input type="text" id="sconf-manual-name" class="field-input" placeholder="缺漏品項名稱">

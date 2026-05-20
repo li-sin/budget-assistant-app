@@ -557,6 +557,7 @@ select.field-input { height: 44px; }
 .sconf-item-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   padding: 7px 0;
   border-bottom: 1px solid var(--divider);
   font-size: 13px;
@@ -564,6 +565,100 @@ select.field-input { height: 44px; }
 .sconf-item-row:last-child { border-bottom: none; }
 .sconf-item-name   { color: var(--text); flex: 1; }
 .sconf-item-amount { color: var(--text-sub); margin-left: 12px; }
+.sconf-item-remove {
+  margin-left: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-sub);
+  font-size: 14px;
+}
+.sconf-item-remove:active { background: var(--divider); color: var(--salmon); }
+
+.sconf-warning {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 149, 0, 0.4);
+  border-radius: 8px;
+  background: rgba(255, 149, 0, 0.08);
+}
+.sconf-warning-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffb340;
+  margin-bottom: 8px;
+}
+.sconf-warning-grid {
+  display: grid;
+  grid-template-columns: minmax(84px, 1fr) auto;
+  gap: 5px 12px;
+  font-size: 13px;
+}
+.sconf-warning-grid span,
+.sconf-warning-text,
+.sconf-copy-label {
+  color: var(--text-sub);
+}
+.sconf-warning-text {
+  margin: 10px 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.sconf-query-box {
+  border-top: 1px solid var(--divider);
+  border-bottom: 1px solid var(--divider);
+  padding: 6px 0;
+  margin: 8px 0;
+}
+.sconf-copy-row {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+}
+.sconf-copy-label { font-size: 12px; }
+.sconf-copy-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: 12px;
+}
+.sconf-copy-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.sconf-warning-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+.sconf-warning-actions .btn-secondary,
+.sconf-manual-add .btn-secondary {
+  padding: 9px 10px;
+  font-size: 13px;
+}
+.sconf-manual-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(78px, 0.8fr) auto;
+  gap: 8px;
+  margin-top: 10px;
+}
+.sconf-manual-add .field-input {
+  min-width: 0;
+}
+@media (max-width: 380px) {
+  .sconf-warning-actions,
+  .sconf-manual-add {
+    grid-template-columns: 1fr;
+  }
+}
 
 /* ── Settings version ───────────────────────────── */
 .settings-version {

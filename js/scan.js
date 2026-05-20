@@ -1,5 +1,6 @@
 const Scan = (() => {
   const CATEGORIES = ['🍴', '🛒', '⛽', '📦', '🎬', '👗', '🏠', '💊', '🧋'];
+  const INVOICE_QUERY_URL = 'https://www.einvoice.nat.gov.tw/portal/btc/audit/btc601w/search';
 
   let _stream    = null;
   let _rafId     = null;
@@ -75,6 +76,52 @@ const Scan = (() => {
     const year = yyy + 1911;
     const dateForSheet = `${year}-${mm}-${dd}`;
     return { invNum, dateForSheet, rand, total };
+  }
+
+  function _escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function _sumItems(items) {
+    return items.reduce((sum, it) => sum + (Number(it.amount) || 0), 0);
+  }
+
+  function _missingAmount(total, items) {
+    return Math.round((Number(total) || 0) - _sumItems(items));
+  }
+
+  function _formatQueryDate(date) {
+    return date ? date.replace(/-/g, '/') : '';
+  }
+
+  async function _copyText(value, btn) {
+    const text = String(value ?? '');
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      }
+      if (btn) {
+        const oldText = btn.textContent;
+        btn.textContent = '已複製';
+        setTimeout(() => { btn.textContent = oldText; }, 1000);
+      }
+    } catch {
+      alert(`複製失敗，請手動複製：${text}`);
+    }
   }
 
   // ── 鏡頭掃描 UI ──────────────────────────────────────────────
@@ -215,7 +262,7 @@ const Scan = (() => {
     // 合併左側品項（leftItems）與右側品項（_right.items），去除數量/單價均為 0 的標示列
     const leftItems  = (_left?.leftItems  || []).filter(it => !(it.qty === 0 && it.price === 0));
     const rightItems = _right?.items || [];
-    const items = [...leftItems, ...rightItems];
+    let items = [...leftItems, ...rightItems];
 
     let el = document.getElementById('scan-confirm-modal');
     if (!el) {
@@ -225,6 +272,7 @@ const Scan = (() => {
       document.body.appendChild(el);
     }
 
+    const queryDate = _formatQueryDate(date);
     el.innerHTML = `
       <div class="modal-sheet">
         <div class="modal-header">
@@ -232,20 +280,13 @@ const Scan = (() => {
           <button class="modal-close" id="sconf-close">✕</button>
         </div>
         <div class="modal-body">
-          <div class="sconf-row"><span class="sconf-label">發票號碼</span><span class="sconf-val">${invNum}</span></div>
-          <div class="sconf-row"><span class="sconf-label">日期</span><span class="sconf-val">${date || '—'}</span></div>
+          <div class="sconf-row"><span class="sconf-label">發票號碼</span><span class="sconf-val">${_escapeHtml(invNum)}</span></div>
+          <div class="sconf-row"><span class="sconf-label">日期</span><span class="sconf-val">${_escapeHtml(date || '—')}</span></div>
           <div class="sconf-row"><span class="sconf-label">金額</span><span class="sconf-val amount-expense">$${total.toLocaleString('zh-TW')}</span></div>
-          <div class="sconf-row"><span class="sconf-label">商店</span><input type="text" id="sconf-shop" class="field-input" style="flex:1;margin-left:8px" value="${shop}"></div>
+          <div class="sconf-row"><span class="sconf-label">商店</span><input type="text" id="sconf-shop" class="field-input" style="flex:1;margin-left:8px" value="${_escapeHtml(shop)}"></div>
 
-          ${items.length ? `
-          <div class="section-title" style="margin-top:12px">品項明細</div>
-          <div class="sconf-items">
-            ${items.map(it => `
-              <div class="sconf-item-row">
-                <span class="sconf-item-name">${it.name}${it.qty > 1 ? ` ×${it.qty}` : ''}</span>
-                <span class="sconf-item-amount">$${it.amount.toLocaleString('zh-TW')}</span>
-              </div>`).join('')}
-          </div>` : ''}
+          <div id="sconf-missing-wrap"></div>
+          <div id="sconf-items-wrap"></div>
 
           <label class="field-label" style="margin-top:16px">類別</label>
           <div class="chip-row cat-chip-row" id="sconf-cat-chips">
@@ -264,7 +305,7 @@ const Scan = (() => {
           </div>
 
           <label class="field-label">備註</label>
-          <input type="text" id="sconf-note" class="field-input" placeholder="（選填）" value="${orderNote}">
+          <input type="text" id="sconf-note" class="field-input" placeholder="（選填）" value="${_escapeHtml(orderNote)}">
 
           <p id="sconf-error" class="add-error hidden"></p>
         </div>
@@ -277,6 +318,100 @@ const Scan = (() => {
 
     el.classList.remove('hidden');
     NoteChips.render('sconf-note');
+
+    function renderItemsAndGuard() {
+      const itemsWrap = document.getElementById('sconf-items-wrap');
+      const missingWrap = document.getElementById('sconf-missing-wrap');
+      const itemTotal = _sumItems(items);
+      const missing = _missingAmount(total, items);
+
+      if (itemsWrap) {
+        itemsWrap.innerHTML = items.length ? `
+          <div class="section-title" style="margin-top:12px">品項明細</div>
+          <div class="sconf-items">
+            ${items.map((it, idx) => `
+              <div class="sconf-item-row">
+                <span class="sconf-item-name">${_escapeHtml(it.name)}${it.qty > 1 ? ` ×${it.qty}` : ''}</span>
+                <span class="sconf-item-amount">$${Number(it.amount || 0).toLocaleString('zh-TW')}</span>
+                ${it.manual ? `<button class="sconf-item-remove" data-remove-idx="${idx}" aria-label="移除品項">✕</button>` : ''}
+              </div>`).join('')}
+          </div>` : '';
+      }
+
+      if (missingWrap) {
+        missingWrap.innerHTML = missing > 1 ? `
+          <div class="sconf-warning">
+            <div class="sconf-warning-title">QR Code 明細可能不完整</div>
+            <div class="sconf-warning-grid">
+              <span>發票總額</span><strong>$${total.toLocaleString('zh-TW')}</strong>
+              <span>QR 品項合計</span><strong>$${itemTotal.toLocaleString('zh-TW')}</strong>
+              <span>差額</span><strong class="amount-expense">$${missing.toLocaleString('zh-TW')}</strong>
+            </div>
+            <p class="sconf-warning-text">若這張發票要做「部分」分帳，建議先查詢完整明細或補上差額品項，避免分帳金額錯誤。</p>
+            <div class="sconf-query-box">
+              ${[
+                ['發票號碼', invNum],
+                ['發票日期', queryDate],
+                ['隨機碼', _left?.rand || ''],
+                ['賣方統編', sellerId],
+                ['總金額', total],
+              ].map(([label, value]) => `
+                <div class="sconf-copy-row">
+                  <span class="sconf-copy-label">${label}</span>
+                  <code class="sconf-copy-value">${_escapeHtml(value)}</code>
+                  <button class="btn-secondary sconf-copy-btn" data-copy="${_escapeHtml(value)}">複製</button>
+                </div>`).join('')}
+            </div>
+            <div class="sconf-warning-actions">
+              <button class="btn-secondary" id="sconf-open-query">開啟財政部查詢頁</button>
+              <button class="btn-secondary" id="sconf-fill-missing" data-missing="${missing}">補差額品項繼續</button>
+            </div>
+            <div class="sconf-manual-add">
+              <input type="text" id="sconf-manual-name" class="field-input" placeholder="缺漏品項名稱">
+              <input type="number" id="sconf-manual-amount" class="field-input" placeholder="金額" min="1" step="1" inputmode="decimal">
+              <button class="btn-secondary" id="sconf-add-item">新增品項</button>
+            </div>
+          </div>` : '';
+      }
+
+      el.querySelectorAll('.sconf-copy-btn').forEach(btn => {
+        btn.addEventListener('click', () => _copyText(btn.dataset.copy, btn));
+      });
+
+      document.getElementById('sconf-open-query')?.addEventListener('click', () => {
+        window.open(INVOICE_QUERY_URL, '_blank', 'noopener');
+      });
+
+      document.getElementById('sconf-fill-missing')?.addEventListener('click', e => {
+        const amount = parseInt(e.currentTarget.dataset.missing, 10);
+        if (!(amount > 0)) return;
+        items = [...items, { name: '未列明細差額', qty: 1, price: amount, amount, manual: true }];
+        renderItemsAndGuard();
+      });
+
+      document.getElementById('sconf-add-item')?.addEventListener('click', () => {
+        const nameEl = document.getElementById('sconf-manual-name');
+        const amountEl = document.getElementById('sconf-manual-amount');
+        const name = nameEl?.value.trim() || '';
+        const amount = Math.round(parseFloat(amountEl?.value || '0'));
+        if (!name || !(amount > 0)) {
+          alert('請輸入缺漏品項名稱與有效金額');
+          return;
+        }
+        items = [...items, { name, qty: 1, price: amount, amount, manual: true }];
+        renderItemsAndGuard();
+      });
+
+      el.querySelectorAll('.sconf-item-remove').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.removeIdx, 10);
+          items = items.filter((_, itemIdx) => itemIdx !== idx);
+          renderItemsAndGuard();
+        });
+      });
+    }
+
+    renderItemsAndGuard();
 
     // 類別 chips
     el.querySelectorAll('.cat-chip').forEach(btn => {
@@ -313,6 +448,15 @@ const Scan = (() => {
       errEl.classList.add('hidden');
 
       try {
+        const missing = _missingAmount(total, items);
+        if (missing > 1 && _shared === '部分') {
+          errEl.textContent = 'QR 品項合計仍小於發票總額；請先補齊品項或使用「補差額品項繼續」再做部分分帳';
+          errEl.classList.remove('hidden');
+          btn.disabled = false;
+          btn.textContent = '寫入發票明細';
+          return;
+        }
+
         // 重複發票號碼檢查
         let noteToWrite = note;
         const dups = await Sheets.checkDuplicateInvoice(invNum);

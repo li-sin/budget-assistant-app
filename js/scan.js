@@ -1,9 +1,7 @@
 const Scan = (() => {
   const CATEGORIES = ['🍴', '🛒', '⛽', '📦', '🎬', '👗', '🏠', '💊', '🧋'];
   const INVOICE_QUERY_URL = 'https://www.einvoice.nat.gov.tw/portal/btc/audit/btc601w/search';
-  const IOS_CHROME_QUERY_URL = INVOICE_QUERY_URL.replace(/^https?:\/\//, 'googlechrome://');
   const IOS_SAFARI_QUERY_URL = `x-safari-${INVOICE_QUERY_URL}`;
-  const IOS_SAFARI_TAB_QUERY_URL = `com-apple-mobilesafari-tab:${INVOICE_QUERY_URL}`;
   const ANDROID_CHROME_QUERY_URL = `intent://${INVOICE_QUERY_URL.replace(/^https?:\/\//, '')}#Intent;scheme=https;package=com.android.chrome;end`;
 
   let _stream    = null;
@@ -108,21 +106,14 @@ const Scan = (() => {
   }
 
   function _queryLaunchLinks() {
-    const links = [
-      { label: '一般新分頁', href: INVOICE_QUERY_URL, target: '_blank', rel: 'noopener noreferrer external' },
-    ];
-
     if (_isIOS()) {
-      links.push(
-        { label: '嘗試 iOS Safari', href: IOS_SAFARI_QUERY_URL },
-        { label: '嘗試 Safari Tab', href: IOS_SAFARI_TAB_QUERY_URL },
-        { label: '嘗試 iOS Chrome', href: IOS_CHROME_QUERY_URL },
-      );
-    } else if (_isAndroid()) {
-      links.push({ label: '嘗試 Android Chrome', href: ANDROID_CHROME_QUERY_URL });
+      return [{ label: '用 Safari 開啟', href: IOS_SAFARI_QUERY_URL }];
+    }
+    if (_isAndroid()) {
+      return [{ label: '用 Chrome 開啟', href: ANDROID_CHROME_QUERY_URL }];
     }
 
-    return links;
+    return [{ label: '開啟查詢頁', href: INVOICE_QUERY_URL, target: '_blank', rel: 'noopener noreferrer external' }];
   }
 
   async function _copyText(value, btn) {
@@ -392,7 +383,7 @@ const Scan = (() => {
               ${_queryLaunchLinks().map(link => `
                 <a class="btn-secondary sconf-query-link" href="${_escapeHtml(link.href)}"${link.target ? ` target="${link.target}"` : ''}${link.rel ? ` rel="${link.rel}"` : ''}>${link.label}</a>
               `).join('')}
-              <button class="btn-secondary" id="sconf-share-query">系統分享網址</button>
+              <button class="btn-secondary sconf-share-btn" id="sconf-share-query" aria-label="分享查詢頁" title="分享查詢頁">📤</button>
               <button class="btn-secondary" id="sconf-fill-missing" data-missing="${missing}">補差額品項繼續</button>
             </div>
             <div class="sconf-manual-add">

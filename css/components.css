@@ -635,7 +635,7 @@ select.field-input { height: 44px; }
 }
 .sconf-warning-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr);
   gap: 8px;
   margin-top: 10px;
 }
@@ -651,6 +651,13 @@ select.field-input { height: 44px; }
   text-align: center;
   text-decoration: none;
 }
+.sconf-share-btn {
+  flex: none;
+  min-width: 42px;
+  padding-left: 0;
+  padding-right: 0;
+  font-size: 16px;
+}
 .sconf-manual-add {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(78px, 0.8fr) auto;
@@ -661,9 +668,14 @@ select.field-input { height: 44px; }
   min-width: 0;
 }
 @media (max-width: 380px) {
-  .sconf-warning-actions,
   .sconf-manual-add {
     grid-template-columns: 1fr;
+  }
+  .sconf-warning-actions {
+    grid-template-columns: minmax(0, 1fr) 42px;
+  }
+  .sconf-warning-actions #sconf-fill-missing {
+    grid-column: 1 / -1;
   }
 }
 

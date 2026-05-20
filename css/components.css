@@ -634,8 +634,9 @@ select.field-input { height: 44px; }
   white-space: nowrap;
 }
 .sconf-warning-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   margin-top: 10px;
 }
@@ -643,9 +644,11 @@ select.field-input { height: 44px; }
 .sconf-manual-add .btn-secondary {
   padding: 9px 10px;
   font-size: 13px;
+  width: auto;
+  white-space: nowrap;
 }
 .sconf-query-link {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   text-align: center;
@@ -653,7 +656,9 @@ select.field-input { height: 44px; }
 }
 .sconf-share-btn {
   flex: none;
+  width: 42px;
   min-width: 42px;
+  max-width: 42px;
   padding-left: 0;
   padding-right: 0;
   font-size: 16px;
@@ -711,12 +716,6 @@ select.field-input { height: 44px; }
 @media (max-width: 380px) {
   .sconf-manual-add {
     grid-template-columns: 1fr;
-  }
-  .sconf-warning-actions {
-    grid-template-columns: minmax(0, 1fr) 42px;
-  }
-  .sconf-warning-actions #sconf-fill-missing {
-    grid-column: 1 / -1;
   }
 }
 

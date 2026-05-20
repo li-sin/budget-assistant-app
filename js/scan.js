@@ -152,66 +152,92 @@ const Scan = (() => {
       .replace(/[|｜]/g, ' ');
   }
 
+  function _compactOcrName(name) {
+    return String(name || '')
+      .replace(/\s+/g, '')
+      .replace(/^[\s\-:：]+/, '')
+      .replace(/[\s\-:：]+$/, '')
+      .replace(/[^\p{L}\p{N}（）()\-_.#]/gu, '')
+      .trim();
+  }
+
+  function _isOcrDetailTitle(line) {
+    return /消費明細/.test(line.replace(/\s+/g, ''));
+  }
+
+  function _isOcrTableHeader(line) {
+    const compact = line.replace(/\s+/g, '');
+    return /品名/.test(compact) &&
+      (/數量|数量/.test(compact)) &&
+      (/單價|单價|單价|单价/.test(compact)) &&
+      /金額|金额/.test(compact);
+  }
+
+  function _extractOcrExpectedCount(lines, detailIdx, headerIdx) {
+    const start = Math.max(0, detailIdx >= 0 ? detailIdx - 1 : 0);
+    const end = Math.min(lines.length, headerIdx >= 0 ? headerIdx + 1 : start + 6);
+    const scope = lines.slice(start, end).join(' ');
+    const match = scope.match(/共\s*(\d{1,3})\s*(?:筆|笔|莖|隻)?/);
+    return match ? parseInt(match[1], 10) : null;
+  }
+
+  function _isOcrTableEnd(line) {
+    return /頁\s*\/\s*顯示/.test(line) ||
+      /顯示/.test(line) ||
+      /上一頁|下一頁|列印/.test(line) ||
+      /^\d+\s*(頁|筆)$/.test(line);
+  }
+
   function _extractOcrDetailLines(text) {
     const lines = _normalizeOcrText(text).split(/\r?\n/)
       .map(line => line.replace(/\s+/g, ' ').trim())
       .filter(Boolean);
-    const fullText = lines.join('\n');
-    const countMatch = fullText.match(/共\s*(\d+)\s*筆/);
-    const expectedCount = countMatch ? parseInt(countMatch[1], 10) : null;
+    const detailIdx = lines.findIndex(_isOcrDetailTitle);
+    const headerIdx = lines.findIndex((line, idx) => idx >= Math.max(detailIdx, 0) && _isOcrTableHeader(line));
+    const expectedCount = _extractOcrExpectedCount(lines, detailIdx, headerIdx);
+    if (detailIdx < 0 || headerIdx < 0) {
+      return { expectedCount, lines: [], foundTable: false };
+    }
 
-    const detailIdx = lines.findIndex(line => /消費\s*明細/.test(line));
-    const headerIdx = lines.findIndex((line, idx) =>
-      idx >= Math.max(detailIdx, 0) &&
-      /品名/.test(line) &&
-      (/數量/.test(line) || /單價/.test(line) || /金額/.test(line))
-    );
-    const startIdx = headerIdx >= 0 ? headerIdx + 1 : (detailIdx >= 0 ? detailIdx + 1 : 0);
+    const startIdx = headerIdx + 1;
     const sliced = lines.slice(startIdx);
-    const endIdx = sliced.findIndex(line =>
-      /頁\s*\/\s*顯示/.test(line) ||
-      /顯示/.test(line) ||
-      /上一頁|下一頁|列印/.test(line) ||
-      /^\d+\s*(頁|筆)$/.test(line)
-    );
+    const endIdx = sliced.findIndex(_isOcrTableEnd);
 
     return {
       expectedCount,
       lines: endIdx >= 0 ? sliced.slice(0, endIdx) : sliced,
-      foundTable: detailIdx >= 0 || headerIdx >= 0,
+      foundTable: true,
     };
+  }
+
+  function _parseOcrTableRow(line, total) {
+    const clean = line.replace(/\s+/g, ' ').trim();
+    const row = clean.match(/^(.+?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*$/);
+    if (!row) return null;
+
+    const name = _compactOcrName(row[1]);
+    const qty = Math.round(parseFloat(row[2]));
+    const price = Math.round(parseFloat(row[3]));
+    const amount = Math.round(parseFloat(row[4]));
+    if (!name || /^\d+$/.test(name)) return null;
+    if (!Number.isFinite(qty) || qty === 0 || Math.abs(qty) > 999) return null;
+    if (!Number.isFinite(price) || price === 0 || Math.abs(price) > Math.max(Math.abs(total) * 2, 99999)) return null;
+    if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > Math.max(Math.abs(total) * 2, 99999)) return null;
+    return { name, qty, price, amount, manual: true, ocr: true };
   }
 
   function _parseOcrItems(text, total) {
     const { expectedCount, lines, foundTable } = _extractOcrDetailLines(text);
-    const skipRe = /(發票|電子發票|證明聯|查詢結果|備註|買方地址|機:|銀:|序:|列印|品名|數量|單價|金額|合計|總計|小計|稅|買方|賣方|日期|時間|隨機碼|發票號碼|營業人|統一編號|課稅|應稅|免稅|載具|平台|QR|Barcode|共\s*\d+\s*筆)/i;
     const seen = new Set();
     const result = [];
 
     lines.forEach(line => {
-      const clean = line.replace(/\s+/g, ' ').trim();
-      if (!clean || skipRe.test(clean)) return;
-
-      const nums = clean.match(/-?\d+(?:\.\d+)?/g);
-      if (!nums?.length) return;
-
-      const amount = Math.round(parseFloat(nums[nums.length - 1]));
-      if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > Math.max(Math.abs(total) * 2, 99999)) return;
-
-      const trailingNums = clean.match(/(?:\s+-?\d+(?:\.\d+)?){1,4}\s*$/);
-      let name = trailingNums ? clean.slice(0, trailingNums.index).trim() : clean.replace(/-?\d+(?:\.\d+)?\s*$/, '').trim();
-      name = name
-        .replace(/^[\s\-:：]+/, '')
-        .replace(/[\s\-:：]+$/, '')
-        .replace(/[^\p{L}\p{N}\s（）()\-_.#]/gu, '')
-        .trim();
-
-      if (!name || /^\d+$/.test(name)) return;
-
-      const key = `${name}|${amount}`;
+      const item = _parseOcrTableRow(line, total);
+      if (!item) return;
+      const key = `${item.name}|${item.qty}|${item.price}|${item.amount}`;
       if (seen.has(key)) return;
       seen.add(key);
-      result.push({ name, qty: 1, price: amount, amount, manual: true, ocr: true });
+      result.push(item);
     });
 
     return { items: result, expectedCount, foundTable };

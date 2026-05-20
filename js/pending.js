@@ -7,6 +7,12 @@ const Pending = (() => {
     return '$' + Math.abs(n).toLocaleString('zh-TW');
   }
 
+  function _normalizeItemAttribution(value) {
+    if (value === 'Sin') return '🌟 Sin';
+    if (value === 'Bear') return '🐨 Bear';
+    return value || '';
+  }
+
   // ── 資料收集 ──────────────────────────────────────────────────
 
   async function _collect() {
@@ -317,7 +323,7 @@ const Pending = (() => {
 
   function _renderUntagged(item) {
     document.getElementById('pending-modal-title').textContent = `📋 ${item.shop}`;
-    const ATTR_OPTS = ['Sin', 'Bear', '共用', '部分'];
+    const ATTR_OPTS = ['🌟 Sin', '🐨 Bear', '共用', '部分'];
 
     // 預先建立 attrMap（偵測既有「部分」：G=共用 且 I 欄有自訂金額）
     const attrMap = {};
@@ -327,7 +333,7 @@ const Pending = (() => {
         attrMap[i] = '部分';
         customAmountMap[i] = parseFloat(it.custom);
       } else {
-        attrMap[i] = it.attribution || '';
+        attrMap[i] = _normalizeItemAttribution(it.attribution);
       }
     });
 
@@ -407,14 +413,14 @@ const Pending = (() => {
           await Sheets.updateItemRow(
             item.invItems[i].rowIndex,
             isPartial ? '共用' : attrMap[i],
-            isPartial ? (customAmountMap[i] || 0) : null
+            isPartial ? (customAmountMap[i] || 0) : ''
           );
         }
         // 2. 計算 sinShare / bearShare
         const totalAmount = item.amount;
         let bearTotal = 0;
         item.invItems.forEach((it, i) => {
-          if (attrMap[i] === 'Bear') bearTotal += it.itemAmount;
+          if (attrMap[i] === '🐨 Bear') bearTotal += it.itemAmount;
           else if (attrMap[i] === '共用') bearTotal += Math.floor(it.itemAmount / 2);
           else if (attrMap[i] === '部分') bearTotal += customAmountMap[i] || 0;
         });
@@ -672,7 +678,7 @@ const Pending = (() => {
     }
 
     function _showStep2() {
-      const ATTR_OPTS = ['Sin', 'Bear', '共用', '部分'];
+      const ATTR_OPTS = ['🌟 Sin', '🐨 Bear', '共用', '部分'];
 
       // 預先建立 attrMap（偵測既有「部分」：G=共用 且 I 欄有自訂金額）
       const attrMap = {};
@@ -682,7 +688,7 @@ const Pending = (() => {
           attrMap[i] = '部分';
           customAmountMap[i] = parseFloat(it.custom);
         } else {
-          attrMap[i] = it.attribution || '';
+          attrMap[i] = _normalizeItemAttribution(it.attribution);
         }
       });
 
@@ -758,14 +764,14 @@ const Pending = (() => {
             await Sheets.updateItemRow(
               item.invItems[i].rowIndex,
               isPartial ? '共用' : attrMap[i],
-              isPartial ? (customAmountMap[i] || 0) : null
+              isPartial ? (customAmountMap[i] || 0) : ''
             );
           }
           await Sheets.updateInvoiceShared(inv.rowIndex, '部分共用');
           const totalAmount = inv.amount;
           let bearTotal = 0;
           item.invItems.forEach((it, i) => {
-            if (attrMap[i] === 'Bear') bearTotal += it.itemAmount;
+            if (attrMap[i] === '🐨 Bear') bearTotal += it.itemAmount;
             else if (attrMap[i] === '共用') bearTotal += Math.floor(it.itemAmount / 2);
             else if (attrMap[i] === '部分') bearTotal += customAmountMap[i] || 0;
           });

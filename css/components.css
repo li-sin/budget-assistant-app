@@ -644,6 +644,13 @@ select.field-input { height: 44px; }
   padding: 9px 10px;
   font-size: 13px;
 }
+.sconf-query-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  text-decoration: none;
+}
 .sconf-manual-add {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(78px, 0.8fr) auto;

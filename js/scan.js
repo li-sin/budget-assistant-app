@@ -363,7 +363,7 @@ const Scan = (() => {
                 </div>`).join('')}
             </div>
             <div class="sconf-warning-actions">
-              <button class="btn-secondary" id="sconf-open-query">開啟財政部查詢頁</button>
+              <a class="btn-secondary sconf-query-link" href="${INVOICE_QUERY_URL}" target="_blank" rel="noopener noreferrer external">在瀏覽器開啟財政部查詢頁</a>
               <button class="btn-secondary" id="sconf-fill-missing" data-missing="${missing}">補差額品項繼續</button>
             </div>
             <div class="sconf-manual-add">
@@ -376,10 +376,6 @@ const Scan = (() => {
 
       el.querySelectorAll('.sconf-copy-btn').forEach(btn => {
         btn.addEventListener('click', () => _copyText(btn.dataset.copy, btn));
-      });
-
-      document.getElementById('sconf-open-query')?.addEventListener('click', () => {
-        window.open(INVOICE_QUERY_URL, '_blank', 'noopener');
       });
 
       document.getElementById('sconf-fill-missing')?.addEventListener('click', e => {

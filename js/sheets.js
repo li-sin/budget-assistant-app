@@ -266,7 +266,7 @@ const Sheets = (() => {
     const rows    = items.map(({ name, amount }, idx) => {
       const r       = lastRow + 1 + idx;
       const invLink = `=HYPERLINK("#gid=${invGid}","${invNum}")`;
-      const bearFormula = `=IF(I${r}<>"",I${r},IF(G${r}="🌟 Sin",0,IF(G${r}="🐨 Bear",F${r},IF(G${r}="共用",ROUNDDOWN(F${r}/2,0),0))))`;
+      const bearFormula = `=IF(I${r}<>"",I${r},IF(G${r}="🌟 Sin",0,IF(G${r}="🐨 Bear",F${r},IF(G${r}="共用",ROUND(F${r}/2,0),0))))`;
       return [carrier, date, invLink, shop, name, amount, '', bearFormula, '', ''];
     });
     await _update(`${CONFIG.TABS.ITEMS}!A${lastRow + 1}:J${lastRow + rows.length}`, rows);
@@ -280,7 +280,7 @@ const Sheets = (() => {
     const r       = (data.values || []).length + 1;
     const invGid  = CONFIG.INVOICE_SHEET_ID;
     const invLink = `=HYPERLINK("#gid=${invGid}","${invNum}")`;
-    const bearFormula = `=IF(I${r}<>"",I${r},IF(G${r}="🌟 Sin",0,IF(G${r}="🐨 Bear",F${r},IF(G${r}="共用",ROUNDDOWN(F${r}/2,0),0))))`;
+    const bearFormula = `=IF(I${r}<>"",I${r},IF(G${r}="🌟 Sin",0,IF(G${r}="🐨 Bear",F${r},IF(G${r}="共用",ROUND(F${r}/2,0),0))))`;
     const row = [carrier, date, invLink, shop, itemName, itemAmount, attribution, bearFormula, customAmount, note];
     await _update(`${CONFIG.TABS.ITEMS}!A${r}`, [row]);
   }

@@ -1,6 +1,8 @@
 const Scan = (() => {
   const CATEGORIES = ['🍴', '🛒', '⛽', '📦', '🎬', '👗', '🏠', '💊', '🧋'];
   const INVOICE_QUERY_URL = 'https://www.einvoice.nat.gov.tw/portal/btc/audit/btc601w/search';
+  const IOS_CHROME_QUERY_URL = INVOICE_QUERY_URL.replace(/^https?:\/\//, 'googlechrome://');
+  const ANDROID_CHROME_QUERY_URL = `intent://${INVOICE_QUERY_URL.replace(/^https?:\/\//, '')}#Intent;scheme=https;package=com.android.chrome;end`;
 
   let _stream    = null;
   let _rafId     = null;
@@ -363,7 +365,10 @@ const Scan = (() => {
                 </div>`).join('')}
             </div>
             <div class="sconf-warning-actions">
-              <a class="btn-secondary sconf-query-link" href="${INVOICE_QUERY_URL}" target="_blank" rel="noopener noreferrer external">在瀏覽器開啟財政部查詢頁</a>
+              <a class="btn-secondary sconf-query-link" href="${INVOICE_QUERY_URL}" target="_blank" rel="noopener noreferrer external">一般新分頁</a>
+              <a class="btn-secondary sconf-query-link" href="${IOS_CHROME_QUERY_URL}">嘗試 iOS Chrome</a>
+              <a class="btn-secondary sconf-query-link" href="${ANDROID_CHROME_QUERY_URL}">嘗試 Android Chrome</a>
+              <button class="btn-secondary" id="sconf-share-query">系統分享網址</button>
               <button class="btn-secondary" id="sconf-fill-missing" data-missing="${missing}">補差額品項繼續</button>
             </div>
             <div class="sconf-manual-add">
@@ -376,6 +381,18 @@ const Scan = (() => {
 
       el.querySelectorAll('.sconf-copy-btn').forEach(btn => {
         btn.addEventListener('click', () => _copyText(btn.dataset.copy, btn));
+      });
+
+      document.getElementById('sconf-share-query')?.addEventListener('click', async e => {
+        if (navigator.share) {
+          try {
+            await navigator.share({ title: '財政部電子發票查詢', url: INVOICE_QUERY_URL });
+            return;
+          } catch (err) {
+            if (err?.name === 'AbortError') return;
+          }
+        }
+        await _copyText(INVOICE_QUERY_URL, e.currentTarget);
       });
 
       document.getElementById('sconf-fill-missing')?.addEventListener('click', e => {

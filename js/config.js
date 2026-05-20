@@ -1,5 +1,5 @@
 const CONFIG = {
-  APP_VERSION: '3.9.36',
+  APP_VERSION: '3.9.37',
   CLIENT_ID: '320535010458-j5ud52freto8277f0qp0lr4919b86br4.apps.googleusercontent.com',
   SHEET_ID: '1T2G8leVwJ8EES1GzEcL1bD_NLHe46ylmPPijc-VoKmo',
   SCOPES: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email',

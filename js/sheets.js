@@ -290,9 +290,9 @@ const Sheets = (() => {
     await _update(`${CONFIG.TABS.INVOICE}!J${rowIndex}`, [[true]]);
   }
 
-  // ── 掃描發票直接匯入月度帳本 ────────────────────────────
-  // shared: 是/否/部分/-/x；部分時需傳 sinShare/bearShare
-  async function appendMonthlyFromScan({ date, shop, amount, shared, category, note, invNum, invRowIndex, sinShare, bearShare }) {
+  // ── 發票來源匯入月度帳本 ────────────────────────────
+  // 只寫 A:F 與 I:L，保留 G/H 既有公式自動計算分攤。
+  async function appendMonthlyFromInvoice({ date, shop, amount, shared, category, note = '', invNum, invRowIndex, source = '發票' }) {
     const now        = new Date();
     const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
     const invGid     = CONFIG.INVOICE_SHEET_ID;
@@ -304,19 +304,20 @@ const Sheets = (() => {
     const nextRow = lastRow + 1;
     const tab     = CONFIG.TABS.MONTHLY;
 
-    const updates = [
+    await _batchUpdate([
       { range: `${tab}!A${nextRow}:F${nextRow}`, values: [[date, shop, amount, '🌟 Star', shared, category]] },
-      { range: `${tab}!I${nextRow}:L${nextRow}`, values: [[note, '掃描發票', sourceLink, importedAt]] },
-    ];
-    // 部分共用：公式無法計算品項分攤，需明確寫入 G/H
-    if (shared === '部分' && sinShare != null && bearShare != null) {
-      updates.push({ range: `${tab}!G${nextRow}:H${nextRow}`, values: [[sinShare, bearShare]] });
-    }
-    await _batchUpdate(updates);
+      { range: `${tab}!I${nextRow}:L${nextRow}`, values: [[note, source, sourceLink, importedAt]] },
+    ]);
 
     const ym = (date || '').slice(0, 7);
     if (ym) invalidateMonth(ym);
     await markInvoiceImported(invRowIndex);
+  }
+
+  // ── 掃描發票直接匯入月度帳本 ────────────────────────────
+  // shared: 是/否/部分/-/x；G/H 由月度帳本公式自動計算。
+  async function appendMonthlyFromScan(args) {
+    return appendMonthlyFromInvoice({ ...args, source: '掃描發票' });
   }
 
   // ── 還款記錄（Bear結算 tab G~I 欄）────────────────────────
@@ -815,7 +816,7 @@ const Sheets = (() => {
     updateMonthlyRow, deleteMonthlyRow,
     getInvoiceData, getItemData, updateItemRow,
     checkDuplicateInvoice, appendInvoiceRow, appendItemRows, appendSyntheticItemRow,
-    markInvoiceImported, appendMonthlyFromScan,
+    markInvoiceImported, appendMonthlyFromInvoice, appendMonthlyFromScan,
     upsertRepayment,
     getCCPendingData, updateCCShared, updateInvoiceShared,
     getCCAllData, linkCCToInvoice,

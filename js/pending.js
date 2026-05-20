@@ -46,6 +46,9 @@ const Pending = (() => {
         shop: invRow?.shop || invNum,
         date: invRow?.date || '',
         amount: invRow?.amount || 0,
+        category: invRow?.category || '',
+        note: invRow?.note || '',
+        carrier: invRow?.carrier || '',
         invRowIndex: invRow?.rowIndex,
         invItems,
       });
@@ -416,26 +419,18 @@ const Pending = (() => {
             isPartial ? (customAmountMap[i] || 0) : ''
           );
         }
-        // 2. 計算 sinShare / bearShare
-        const totalAmount = item.amount;
-        let bearTotal = 0;
-        item.invItems.forEach((it, i) => {
-          if (attrMap[i] === '🐨 Bear') bearTotal += it.itemAmount;
-          else if (attrMap[i] === '共用') bearTotal += Math.floor(it.itemAmount / 2);
-          else if (attrMap[i] === '部分') bearTotal += customAmountMap[i] || 0;
+        // 2. 寫入月度帳本：保留 G/H 公式，K 欄連回發票明細
+        await Sheets.appendMonthlyFromInvoice({
+          date: item.date,
+          shop: item.shop,
+          amount: item.amount,
+          shared: '部分',
+          category: item.category || item.invItems[0]?.category || '',
+          note: item.note || '',
+          invNum: item.invNum,
+          invRowIndex: item.invRowIndex,
+          source: item.carrier === '掃描發票' ? '掃描發票' : '發票',
         });
-        const sinTotal = totalAmount - bearTotal;
-
-        // 3. 寫入月度帳本
-        const today = new Date().toISOString().slice(0, 16).replace('T', ' ');
-        const row = [
-          item.date, item.shop, totalAmount,
-          '🌟 Star', '部分', item.invItems[0]?.category || '',
-          sinTotal, bearTotal, '',
-          '發票', item.invNum, today,
-        ];
-        await Sheets.appendMonthlyRow(row);
-
         Sheets.invalidateMonth(item.date.slice(0, 7));
         _closeDetail();
         await _reload();
@@ -768,20 +763,17 @@ const Pending = (() => {
             );
           }
           await Sheets.updateInvoiceShared(inv.rowIndex, '部分共用');
-          const totalAmount = inv.amount;
-          let bearTotal = 0;
-          item.invItems.forEach((it, i) => {
-            if (attrMap[i] === '🐨 Bear') bearTotal += it.itemAmount;
-            else if (attrMap[i] === '共用') bearTotal += Math.floor(it.itemAmount / 2);
-            else if (attrMap[i] === '部分') bearTotal += customAmountMap[i] || 0;
+          await Sheets.appendMonthlyFromInvoice({
+            date: inv.date,
+            shop: inv.shop,
+            amount: inv.amount,
+            shared: '部分',
+            category: item.invItems[0]?.category || inv.category || '',
+            note: inv.note || '',
+            invNum: inv.invNum,
+            invRowIndex: inv.rowIndex,
+            source: inv.carrier === '掃描發票' ? '掃描發票' : '發票',
           });
-          const today = new Date().toISOString().slice(0, 16).replace('T', ' ');
-          await Sheets.appendMonthlyRow([
-            inv.date, inv.shop, totalAmount,
-            '🌟 Star', '部分', item.invItems[0]?.category || '',
-            totalAmount - bearTotal, bearTotal, '',
-            '發票', inv.invNum, today,
-          ]);
           Sheets.invalidateMonth(inv.date.slice(0, 7));
           _closeDetail();
           await _reload();

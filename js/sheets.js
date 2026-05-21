@@ -85,9 +85,9 @@ const Sheets = (() => {
     return `=HYPERLINK("#gid=${CONFIG.INVOICE_SHEET_ID}&range=${targetCol}"&MATCH("${q}",${_sheetRef(CONFIG.TABS.INVOICE)}!$C:$C,0),"${_formulaText(display)}")`;
   }
 
-  function _dynamicItemsLink(invNum, date, shop, display = invNum) {
-    const key = _formulaText(`${date}|${shop}`);
-    return `=HYPERLINK("#gid=${CONFIG.ITEMS_SHEET_ID}&range=G"&MATCH("${key}",ARRAYFORMULA(${_sheetRef(CONFIG.TABS.ITEMS)}!$B:$B&"|"&${_sheetRef(CONFIG.TABS.ITEMS)}!$D:$D),0),"${_formulaText(display)}")`;
+  function _dynamicItemsLink(invNum, display = invNum) {
+    const q = _formulaText(invNum);
+    return `=HYPERLINK("#gid=${CONFIG.ITEMS_SHEET_ID}&range=G"&MATCH("${q}",${_sheetRef(CONFIG.TABS.ITEMS)}!$L:$L,0),"${_formulaText(display)}")`;
   }
 
   function _dynamicCCLink(ccGid, date, shop, amount, display = '→') {
@@ -273,7 +273,7 @@ const Sheets = (() => {
     const data      = await _get(`${CONFIG.TABS.INVOICE}!A:A`);
     const lastRow   = (data.values || []).length;
     const newRow    = lastRow + 1;
-    const invLink   = _dynamicItemsLink(invNum, date, shop);
+    const invLink   = _dynamicItemsLink(invNum);
     const row = [carrier, date, invLink, shop, amount, status, category, shared, note, false];
     await _update(`${CONFIG.TABS.INVOICE}!A${newRow}`, [row]);
     return newRow;
@@ -292,7 +292,12 @@ const Sheets = (() => {
       const bearFormula = `=IF(I${r}<>"",I${r},IF(G${r}="🌟 Sin",0,IF(G${r}="🐨 Bear",F${r},IF(G${r}="共用",ROUND(F${r}/2,0),0))))`;
       return [carrier, date, invLink, shop, name, amount, '', bearFormula, '', ''];
     });
-    await _update(`${CONFIG.TABS.ITEMS}!A${lastRow + 1}:J${lastRow + rows.length}`, rows);
+    const startRow = lastRow + 1;
+    const endRow = lastRow + rows.length;
+    await _batchUpdate([
+      { range: `${CONFIG.TABS.ITEMS}!A${startRow}:J${endRow}`, values: rows },
+      { range: `${CONFIG.TABS.ITEMS}!L${startRow}:L${endRow}`, values: rows.map(() => [invNum]) },
+    ]);
     return lastRow + 1;  // 第一筆品項的列號
   }
 
@@ -304,7 +309,10 @@ const Sheets = (() => {
     const invLink = _dynamicInvoiceLink(invNum, invNum, 'H');
     const bearFormula = `=IF(I${r}<>"",I${r},IF(G${r}="🌟 Sin",0,IF(G${r}="🐨 Bear",F${r},IF(G${r}="共用",ROUND(F${r}/2,0),0))))`;
     const row = [carrier, date, invLink, shop, itemName, itemAmount, attribution, bearFormula, customAmount, note];
-    await _update(`${CONFIG.TABS.ITEMS}!A${r}`, [row]);
+    await _batchUpdate([
+      { range: `${CONFIG.TABS.ITEMS}!A${r}:J${r}`, values: [row] },
+      { range: `${CONFIG.TABS.ITEMS}!L${r}:L${r}`, values: [[invNum]] },
+    ]);
   }
 
   // ── 勾選發票明細已匯入（J欄 = TRUE）────────────────────

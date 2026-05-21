@@ -825,14 +825,7 @@ const Scan = (() => {
       document.body.appendChild(el);
     }
 
-    const invoiceInfoRows = isQueryDetailMode ? `
-          <label class="field-label">發票資訊</label>
-          <div class="sconf-row"><span class="sconf-label">發票號碼</span><input type="text" id="sconf-inv-num" class="field-input" maxlength="11" style="flex:1;margin-left:8px" value="${_escapeHtml(invNum)}" placeholder="BL-12345678"></div>
-          <div class="sconf-row"><span class="sconf-label">日期</span><input type="date" id="sconf-date" class="field-input" style="flex:1;margin-left:8px" value="${_escapeHtml(date)}"></div>
-          <div class="sconf-row"><span class="sconf-label">隨機碼</span><input type="text" id="sconf-rand" class="field-input" maxlength="4" inputmode="numeric" style="flex:1;margin-left:8px" value="${_escapeHtml(rand)}" placeholder="6336"></div>
-          <div class="sconf-row"><span class="sconf-label">賣方統編</span><input type="text" id="sconf-seller" class="field-input" maxlength="8" inputmode="numeric" style="flex:1;margin-left:8px" value="${_escapeHtml(sellerId)}" placeholder="可留空"></div>
-          <div class="sconf-row"><span class="sconf-label">金額</span><input type="number" id="sconf-total" class="field-input" min="1" step="1" inputmode="decimal" style="flex:1;margin-left:8px" value="${total ? Number(total) : ''}" placeholder="可由查詢明細合計"></div>
-    ` : `
+    const invoiceInfoRows = isQueryDetailMode ? '' : `
           <div class="sconf-row"><span class="sconf-label">發票號碼</span><span class="sconf-val">${_escapeHtml(invNum || '—')}</span></div>
           <div class="sconf-row"><span class="sconf-label">日期</span><span class="sconf-val">${_escapeHtml(date || '—')}</span></div>
           <div class="sconf-row"><span class="sconf-label">金額</span><span class="sconf-val amount-expense">$${total.toLocaleString('zh-TW')}</span></div>
@@ -942,6 +935,12 @@ const Scan = (() => {
     }
 
     function renderItemsAndGuard() {
+      if (isQueryDetailMode && document.getElementById('sconf-inv-num')) {
+        invNum = (document.getElementById('sconf-inv-num')?.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        date = document.getElementById('sconf-date')?.value || '';
+        rand = (document.getElementById('sconf-rand')?.value || '').replace(/\D/g, '').slice(0, 4);
+      }
+
       const itemsWrap = document.getElementById('sconf-items-wrap');
       const missingWrap = document.getElementById('sconf-missing-wrap');
       const itemTotal = _sumItems(items);
@@ -973,18 +972,34 @@ const Scan = (() => {
             </div>
             <p class="sconf-warning-text">${isQueryDetailMode ? '請先開啟財政部查詢頁取得消費明細，再貼上文字或截圖解析品項。' : '若這張發票要做「部分」分帳，建議先查詢完整明細或補上差額品項，避免分帳金額錯誤。'}</p>
             <div class="sconf-query-box">
-              ${[
-                ['發票號碼', invNum],
-                ['發票日期', _formatQueryDate(date)],
-                ['隨機碼', rand || ''],
-                ...(sellerId ? [['賣方統編', sellerId]] : []),
-                ...(total > 0 ? [['總金額', total]] : []),
-              ].map(([label, value]) => `
+              ${isQueryDetailMode ? `
                 <div class="sconf-copy-row">
-                  <span class="sconf-copy-label">${label}</span>
-                  <code class="sconf-copy-value">${_escapeHtml(value)}</code>
-                  <button class="btn-secondary sconf-copy-btn" data-copy="${_escapeHtml(value)}">複製</button>
-                </div>`).join('')}
+                  <span class="sconf-copy-label">發票號碼</span>
+                  <input type="text" id="sconf-inv-num" class="field-input sconf-copy-input" maxlength="11" value="${_escapeHtml(invNum)}" placeholder="BL-12345678">
+                  <button class="btn-secondary sconf-copy-btn" data-copy-target="sconf-inv-num">複製</button>
+                </div>
+                <div class="sconf-copy-row">
+                  <span class="sconf-copy-label">發票日期</span>
+                  <input type="date" id="sconf-date" class="field-input sconf-copy-input" value="${_escapeHtml(date)}">
+                  <button class="btn-secondary sconf-copy-btn" data-copy-target="sconf-date" data-copy-format="date">複製</button>
+                </div>
+                <div class="sconf-copy-row">
+                  <span class="sconf-copy-label">隨機碼</span>
+                  <input type="text" id="sconf-rand" class="field-input sconf-copy-input" maxlength="4" inputmode="numeric" value="${_escapeHtml(rand || '')}" placeholder="6336">
+                  <button class="btn-secondary sconf-copy-btn" data-copy-target="sconf-rand">複製</button>
+                </div>
+              ` : [
+                  ['發票號碼', invNum],
+                  ['發票日期', _formatQueryDate(date)],
+                  ['隨機碼', rand || ''],
+                  ...(sellerId ? [['賣方統編', sellerId]] : []),
+                  ...(total > 0 ? [['總金額', total]] : []),
+                ].map(([label, value]) => `
+                  <div class="sconf-copy-row">
+                    <span class="sconf-copy-label">${label}</span>
+                    <code class="sconf-copy-value">${_escapeHtml(value)}</code>
+                    <button class="btn-secondary sconf-copy-btn" data-copy="${_escapeHtml(value)}">複製</button>
+                  </div>`).join('')}
             </div>
             <div class="sconf-warning-actions">
               ${isQueryDetailMode ? '' : `<button class="btn-secondary" id="sconf-fill-missing" data-missing="${missing}">補差額品項繼續</button>`}
@@ -1042,7 +1057,14 @@ const Scan = (() => {
       }
 
       el.querySelectorAll('.sconf-copy-btn').forEach(btn => {
-        btn.addEventListener('click', () => _copyText(btn.dataset.copy, btn));
+        btn.addEventListener('click', () => {
+          let value = btn.dataset.copy;
+          if (btn.dataset.copyTarget) {
+            value = document.getElementById(btn.dataset.copyTarget)?.value || '';
+            if (btn.dataset.copyFormat === 'date') value = _formatQueryDate(value);
+          }
+          _copyText(value, btn);
+        });
       });
 
       document.getElementById('sconf-share-query')?.addEventListener('click', async e => {
@@ -1183,21 +1205,6 @@ const Scan = (() => {
 
     renderItemsAndGuard();
 
-    if (isQueryDetailMode) {
-      const syncQueryInfoDraft = () => {
-        invNum = (document.getElementById('sconf-inv-num')?.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-        date = document.getElementById('sconf-date')?.value || '';
-        rand = (document.getElementById('sconf-rand')?.value || '').replace(/\D/g, '').slice(0, 4);
-        sellerId = (document.getElementById('sconf-seller')?.value || '').replace(/\D/g, '').slice(0, 8);
-        const inputTotal = Math.round(parseFloat(document.getElementById('sconf-total')?.value || '0'));
-        total = inputTotal > 0 ? inputTotal : 0;
-        renderItemsAndGuard();
-      };
-      ['sconf-inv-num', 'sconf-date', 'sconf-rand', 'sconf-seller', 'sconf-total'].forEach(id => {
-        document.getElementById(id)?.addEventListener('input', syncQueryInfoDraft);
-      });
-    }
-
     // 類別 chips
     el.querySelectorAll('.cat-chip').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1245,9 +1252,6 @@ const Scan = (() => {
           invNum = (document.getElementById('sconf-inv-num')?.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
           date = document.getElementById('sconf-date')?.value || '';
           rand = (document.getElementById('sconf-rand')?.value || '').replace(/\D/g, '').slice(0, 4);
-          sellerId = (document.getElementById('sconf-seller')?.value || '').replace(/\D/g, '').slice(0, 8);
-          const inputTotal = Math.round(parseFloat(document.getElementById('sconf-total')?.value || '0'));
-          total = inputTotal > 0 ? inputTotal : total;
 
           if (!/^[A-Z]{2}\d{8}$/.test(invNum) || !date || rand.length !== 4) {
             errEl.textContent = '請確認發票號碼、日期與隨機碼';

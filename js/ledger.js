@@ -60,6 +60,12 @@ const Ledger = (() => {
     return Auth.getEmail() === 'lovelisa00000@gmail.com';
   }
 
+  function _defaultPayer() {
+    const email = (Auth.getEmail() || '').toLowerCase();
+    const bearEmail = (CONFIG.EMAIL_WHITELIST?.[1] || '').toLowerCase();
+    return email === bearEmail ? '🐨 Bear' : '🌟 Star';
+  }
+
   function _updateMonthLabel() {
     document.getElementById('ledger-month').textContent =
       `${_year} 年 ${String(_month).padStart(2, '0')} 月`;
@@ -608,8 +614,9 @@ const Ledger = (() => {
       `<button class="chip ne-shared-chip${(row.shared || '是') === v ? ' active' : ''}" data-val="${v}">${v}</button>`
     ).join('');
 
-    const payerSin  = (!row.payer || row.payer === '🌟 Star') ? ' active' : '';
-    const payerBear = row.payer === '🐨 Bear' ? ' active' : '';
+    const rowPayer = row.payer || _defaultPayer();
+    const payerSin  = rowPayer === '🌟 Star' ? ' active' : '';
+    const payerBear = rowPayer === '🐨 Bear' ? ' active' : '';
 
     const detail = document.createElement('div');
     detail.id = detailId;
@@ -654,7 +661,7 @@ const Ledger = (() => {
         <p class="ne-edit-error hidden" style="font-size:12px;color:var(--salmon);"></p>
       </div>`;
 
-    let currentPayer  = row.payer  || '🌟 Star';
+    let currentPayer  = rowPayer;
     let currentShared = row.shared || '是';
 
     detail.querySelectorAll('.ne-payer-chip').forEach(chip => {
@@ -1493,7 +1500,7 @@ const Ledger = (() => {
     document.getElementById('edit-note').value   = row.note || '';
     document.getElementById('edit-error').classList.add('hidden');
 
-    _editPayer  = row.payer  || '🌟 Star';
+    _editPayer  = row.payer  || _defaultPayer();
     _editShared = row.shared || '是';
 
     document.querySelectorAll('#edit-payer-chips .chip')

@@ -28,6 +28,12 @@ const Add = (() => {
     return d.toISOString().slice(0, 16).replace('T', ' ');
   }
 
+  function _defaultPayer() {
+    const email = (Auth.getEmail() || '').toLowerCase();
+    const bearEmail = (CONFIG.EMAIL_WHITELIST?.[1] || '').toLowerCase();
+    return email === bearEmail ? '🐨 Bear' : '🌟 Star';
+  }
+
   // ── Modal HTML ─────────────────────────────────────────────────
   function _buildModal() {
     if (document.getElementById('add-modal')) return;
@@ -150,7 +156,7 @@ const Add = (() => {
     document.querySelectorAll('#add-modal .cat-chip')
       .forEach(b => b.classList.toggle('active', b.dataset.cat === ''));
 
-    _payer  = '🌟 Star';
+    _payer  = _defaultPayer();
     _shared = '是';
     document.querySelectorAll('#add-modal .chip[data-payer]')
       .forEach(b => b.classList.toggle('active', b.dataset.payer === _payer));

@@ -346,7 +346,7 @@ const Sheets = (() => {
   // ── 掃描發票直接匯入月度帳本 ────────────────────────────
   // shared: 是/否/部分/-/x；G/H 由月度帳本公式自動計算。
   async function appendMonthlyFromScan(args) {
-    return appendMonthlyFromInvoice({ ...args, source: '掃描發票' });
+    return appendMonthlyFromInvoice({ ...args, source: args.source || '掃描發票' });
   }
 
   // ── 還款記錄（Bear結算 tab G~I 欄）────────────────────────

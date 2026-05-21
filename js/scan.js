@@ -433,7 +433,18 @@ const Scan = (() => {
     const totalMatch = totalLine?.match(/(?:總金額|总金额|總計|总计|合計|合计|金額|金额|TOTAL)\s*[:：]?\s*(\d{1,6})(?!\d)/i);
     if (totalMatch) total = parseInt(totalMatch[1], 10) || 0;
 
-    return { invNum, dateForSheet, rand, sellerId, total, rawText: text || '' };
+    const titleIdx = lines.findIndex(line => /電子發票|發票證明聯|发票证明/.test(line));
+    const shopCandidates = lines
+      .slice(0, titleIdx >= 0 ? titleIdx : Math.min(lines.length, 5))
+      .map(line => line.replace(/\s+/g, '').trim())
+      .filter(line =>
+        /[\u4e00-\u9fff]/.test(line) &&
+        !/電子|發票|證明|证明|隨機碼|随机码|賣方|卖方|總計|总计|統編|统一/.test(line) &&
+        !/^\d/.test(line)
+      );
+    const shopName = shopCandidates[0] || '';
+
+    return { invNum, dateForSheet, rand, sellerId, total, shopName, rawText: text || '' };
   }
 
   function _captureVideoFrame(video) {
@@ -674,8 +685,9 @@ const Scan = (() => {
     const rand = String(info.rand || '').replace(/\D/g, '').slice(0, 4);
     const sellerId = String(info.sellerId || '').replace(/\D/g, '').slice(0, 8);
     const total = Math.round(parseFloat(info.total || '0')) || 0;
+    const shopName = String(info.shopName || '').trim();
 
-    _left = { invNum, dateForSheet, rand, sellerId, total, leftItems: [], orderNote: '[查詢明細記帳]' };
+    _left = { invNum, dateForSheet, rand, sellerId, total, shopName, leftItems: [], orderNote: '' };
     _right = { items: [] };
 
     const overlay = document.getElementById('scan-overlay');
@@ -778,7 +790,7 @@ const Scan = (() => {
         return;
       }
 
-      _left = { invNum, dateForSheet, rand, sellerId, total, leftItems: [], orderNote: '[查詢明細記帳]' };
+      _left = { invNum, dateForSheet, rand, sellerId, total, shopName: String(info.shopName || '').trim(), leftItems: [], orderNote: '' };
       _right = { items: [] };
       el.classList.add('hidden');
       const overlay = document.getElementById('scan-overlay');
@@ -801,8 +813,9 @@ const Scan = (() => {
     let total       = _left?.total      || 0;
     const orderNote = _left?.orderNote  || '';
     let payer       = _defaultPayer();
-    // 用賣方統編查經濟部公司名稱；失敗則留空讓使用者手動填
-    const shop = await _fetchSellerName(sellerId) || '';
+    const sourceName = isQueryDetailMode ? '手查發票' : '掃描發票';
+    // 用 OCR 店名優先；沒有時再用賣方統編查名稱；失敗則留空讓使用者手動填
+    const shop = (_left?.shopName || '') || await _fetchSellerName(sellerId) || '';
     // 合併左側品項（leftItems）與右側品項（_right.items），去除數量/單價均為 0 的標示列
     const leftItems  = (_left?.leftItems  || []).filter(it => !(it.qty === 0 && it.price === 0));
     const rightItems = _right?.items || [];
@@ -836,9 +849,10 @@ const Scan = (() => {
           <span class="modal-title">${isQueryDetailMode ? '確認查詢明細記帳' : '確認發票資訊'}</span>
           <button class="modal-close" id="sconf-close">✕</button>
         </div>
-        <div class="modal-body">
+          <div class="modal-body">
           ${invoiceInfoRows}
           <div class="sconf-row"><span class="sconf-label">商店</span><input type="text" id="sconf-shop" class="field-input" style="flex:1;margin-left:8px" value="${_escapeHtml(shop)}"></div>
+          ${isQueryDetailMode ? `<div class="sconf-row"><span class="sconf-label">金額</span><input type="number" id="sconf-total" class="field-input" min="1" step="1" inputmode="decimal" style="flex:1;margin-left:8px" value="${total ? Number(total) : ''}" placeholder="可由查詢明細合計"></div>` : ''}
 
           <div id="sconf-missing-wrap"></div>
           <div id="sconf-items-wrap"></div>
@@ -1261,6 +1275,8 @@ const Scan = (() => {
           invNum = (document.getElementById('sconf-inv-num')?.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
           date = document.getElementById('sconf-date')?.value || '';
           rand = (document.getElementById('sconf-rand')?.value || '').replace(/\D/g, '').slice(0, 4);
+          const inputTotal = Math.round(parseFloat(document.getElementById('sconf-total')?.value || '0'));
+          if (inputTotal > 0) total = inputTotal;
 
           if (!/^[A-Z]{2}\d{8}$/.test(invNum) || !date || rand.length !== 4) {
             errEl.textContent = '請確認發票號碼、日期與隨機碼';
@@ -1318,19 +1334,19 @@ const Scan = (() => {
 
         // 寫入發票明細，取得列號
         const invRowIndex = await Sheets.appendInvoiceRow(
-          '掃描發票', date, invNum, shopValue, effectiveTotal, '開立', category, _shared, noteToWrite
+          sourceName, date, invNum, shopValue, effectiveTotal, '開立', category, _shared, noteToWrite
         );
 
         // 寫入品項明細，取得第一筆列號
         let firstItemRow = null;
         if (items.length) {
-          const invoiceInfo = { carrier: '掃描發票', date, invNum, shop: shopValue };
+          const invoiceInfo = { carrier: sourceName, date, invNum, shop: shopValue };
           firstItemRow = await Sheets.appendItemRows(invoiceInfo, items);
         }
 
         // 關閉確認 Modal，進入歸屬填寫頁
         el.classList.add('hidden');
-        _showAttribution({ date, invNum, shop: shopValue, total: effectiveTotal, category, note, shared: _shared, payer, items, invRowIndex, firstItemRow });
+        _showAttribution({ date, invNum, shop: shopValue, total: effectiveTotal, category, note, shared: _shared, payer, items, invRowIndex, firstItemRow, source: sourceName });
       } catch (e) {
         errEl.textContent = '寫入失敗：' + e.message;
         errEl.classList.remove('hidden');
@@ -1350,7 +1366,7 @@ const Scan = (() => {
 
   // ── 歸屬填寫頁 ───────────────────────────────────────────────
   // shared: 是/否/部分/-/x；items: [{name, amount}]
-  function _showAttribution({ date, invNum, shop, total, category, note, shared, payer, items, invRowIndex, firstItemRow }) {
+  function _showAttribution({ date, invNum, shop, total, category, note, shared, payer, items, invRowIndex, firstItemRow, source = '掃描發票' }) {
     let el = document.getElementById('scan-attr-modal');
     if (!el) {
       el = document.createElement('div');
@@ -1519,7 +1535,7 @@ const Scan = (() => {
           }
         }
 
-        await Sheets.appendMonthlyFromScan({ date, shop, amount: total, shared, category, note, invNum, invRowIndex, payer, sinShare, bearShare });
+        await Sheets.appendMonthlyFromScan({ date, shop, amount: total, shared, category, note, invNum, invRowIndex, payer, source, sinShare, bearShare });
 
         _closeAttribution();
         alert(`✓ 發票 ${invNum} 已匯入月度帳本`);

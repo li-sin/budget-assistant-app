@@ -634,6 +634,7 @@ const Scan = (() => {
 
     function handlePastedText(text) {
       ocrTextDraft = text;
+      ocrTextPanelOpen = false;
       ocrVariants = [buildTextVariant(text)];
       ocrVariantIndex = 0;
       applyOcrVariant(ocrVariants[0], '文字解析完成');
@@ -797,11 +798,11 @@ const Scan = (() => {
       });
 
       document.getElementById('sconf-text-paste')?.addEventListener('click', async () => {
-        ocrTextPanelOpen = true;
         try {
           const text = await _readClipboardText();
           handlePastedText(text);
         } catch (err) {
+          ocrTextPanelOpen = true;
           ocrStatus = `${err.message}；也可以直接貼到下方文字框後按解析文字`;
           renderItemsAndGuard();
         }

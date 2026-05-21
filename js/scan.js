@@ -361,9 +361,6 @@ const Scan = (() => {
     const sources = [];
     try {
       sources.push({ label: '黑白新版 ', source: await _preprocessOcrImage(file, 'binary') });
-      sources.push({ label: '黑白高對比 ', source: await _preprocessOcrImage(file, 'binary-strong') });
-      sources.push({ label: '上一版 ', source: await _preprocessOcrImage(file, 'legacy') });
-      sources.push({ label: '強化灰階 ', source: await _preprocessOcrImage(file, 'soft') });
     } catch {
       sources.push({ label: '原圖 ', source: file });
     }

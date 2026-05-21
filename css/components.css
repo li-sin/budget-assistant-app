@@ -483,13 +483,15 @@ select.field-input { height: 44px; }
   z-index: 300;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
 }
 .scan-overlay.hidden { display: none; }
 
 .scan-header {
   display: flex;
   align-items: center;
-  padding: 16px 20px;
+  flex: none;
+  padding: calc(16px + env(safe-area-inset-top)) 20px 16px;
   background: rgba(0,0,0,0.7);
 }
 .scan-title { flex: 1; font-size: 17px; font-weight: 600; color: #fff; }
@@ -532,7 +534,7 @@ select.field-input { height: 44px; }
   text-align: center;
   color: #fff;
   font-size: 14px;
-  padding: 10px 16px 16px;
+  padding: 10px 16px calc(16px + env(safe-area-inset-bottom));
   background: rgba(0,0,0,0.7);
 }
 

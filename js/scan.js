@@ -934,6 +934,28 @@ const Scan = (() => {
       renderItemsAndGuard();
     }
 
+    function cleanOcrItemsForUse() {
+      return ocrItems
+        .map(it => ({ ...it, name: (it.name || '').trim(), amount: Math.round(Number(it.amount) || 0) }))
+        .filter(it => it.name && it.amount !== 0)
+        .map(it => ({ ...it, qty: 1, price: it.amount, manual: true, ocr: true }));
+    }
+
+    function useOcrItemsIfReady() {
+      const cleaned = cleanOcrItemsForUse();
+      if (!cleaned.length) return false;
+      items = cleaned;
+      if (isQueryDetailMode && !(total > 0)) total = _sumItems(cleaned);
+      ocrItems = [];
+      ocrRawText = '';
+      ocrStatus = isQueryDetailMode ? '已使用查詢明細建立品項' : '已使用 OCR 明細取代 QR 品項';
+      ocrExpectedCount = null;
+      ocrFoundTable = false;
+      ocrVariants = [];
+      ocrVariantIndex = 0;
+      return true;
+    }
+
     function renderItemsAndGuard() {
       if (isQueryDetailMode && document.getElementById('sconf-inv-num')) {
         invNum = (document.getElementById('sconf-inv-num')?.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -1049,7 +1071,7 @@ const Scan = (() => {
                   `).join('')}
                   ${ocrCountNote ? `<div class="sconf-ocr-empty">${_escapeHtml(ocrCountNote)}</div>` : ''}
                   <div class="sconf-ocr-summary">OCR 合計 $${_sumItems(ocrItems).toLocaleString('zh-TW')} / 發票總額 ${totalForUi > 0 ? `$${totalForUi.toLocaleString('zh-TW')}` : '待明細合計'}</div>
-                  <button class="btn-secondary sconf-ocr-use" id="sconf-ocr-use">使用 OCR 明細</button>
+                  <button class="btn-secondary sconf-ocr-use" id="sconf-ocr-use">${isQueryDetailMode ? '使用查詢明細' : '使用 OCR 明細'}</button>
                 ` : ocrRawText ? `<p class="sconf-ocr-empty">${_escapeHtml(ocrCountNote || 'OCR 未解析出品項，請改用手動補品項或補差額。')}</p>` : ''}
               </div>
             </div>
@@ -1174,23 +1196,10 @@ const Scan = (() => {
       });
 
       document.getElementById('sconf-ocr-use')?.addEventListener('click', () => {
-        const cleaned = ocrItems
-          .map(it => ({ ...it, name: (it.name || '').trim(), amount: Math.round(Number(it.amount) || 0) }))
-          .filter(it => it.name && it.amount !== 0)
-          .map(it => ({ ...it, qty: 1, price: it.amount, manual: true, ocr: true }));
-        if (!cleaned.length) {
+        if (!useOcrItemsIfReady()) {
           alert('請先確認 OCR 候選品項名稱與金額');
           return;
         }
-        items = cleaned;
-        if (isQueryDetailMode && !(total > 0)) total = _sumItems(cleaned);
-        ocrItems = [];
-        ocrRawText = '';
-        ocrStatus = isQueryDetailMode ? '已使用查詢明細建立品項' : '已使用 OCR 明細取代 QR 品項';
-        ocrExpectedCount = null;
-        ocrFoundTable = false;
-        ocrVariants = [];
-        ocrVariantIndex = 0;
         renderItemsAndGuard();
       });
 
@@ -1262,9 +1271,13 @@ const Scan = (() => {
           }
         }
 
+        if (isQueryDetailMode && !items.length && ocrItems.length) {
+          useOcrItemsIfReady();
+        }
+
         const effectiveTotal = total > 0 ? total : _sumItems(items);
         if (!(effectiveTotal > 0)) {
-          errEl.textContent = '請先貼上查詢明細或輸入總金額';
+          errEl.textContent = '請先貼上查詢明細，並確認有解析出品項金額';
           errEl.classList.remove('hidden');
           btn.disabled = false;
           btn.textContent = '寫入發票明細';

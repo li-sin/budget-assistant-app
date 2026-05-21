@@ -530,6 +530,20 @@ select.field-input { height: 44px; }
 }
 .scan-dot-done { color: var(--teal); font-weight: 600; }
 
+.scan-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 10px;
+  background: rgba(0,0,0,0.7);
+}
+.scan-query-btn {
+  flex: 1;
+  min-height: 42px;
+  border-color: rgba(255,255,255,0.22);
+  color: #fff;
+  background: rgba(255,255,255,0.08);
+}
+
 .scan-status {
   text-align: center;
   color: #fff;
@@ -734,6 +748,27 @@ select.field-input { height: 44px; }
   margin-top: 8px;
   padding: 9px 10px;
   font-size: 13px;
+}
+.sqinfo-actions {
+  margin-top: 14px;
+}
+.sqinfo-raw {
+  margin-top: 12px;
+  color: var(--text-sub);
+  font-size: 12px;
+}
+.sqinfo-raw summary {
+  cursor: pointer;
+}
+.sqinfo-raw pre {
+  margin-top: 8px;
+  max-height: 150px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 10px;
 }
 .sconf-manual-add {
   display: grid;

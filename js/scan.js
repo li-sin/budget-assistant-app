@@ -9,6 +9,7 @@ const Scan = (() => {
   let _left      = null;  // { invNum, invDate, rand, total }
   let _right     = null;  // { items: [{name, amount}] }
   let _mode = 'idle'; // idle | scanning | confirm
+  let _scanIntent = 'qr'; // qr | query
 
   // ── QR 解析 ──────────────────────────────────────────────────
   // 左側 QR：[invNum10][date7][rand4][sales8][total8][buyId8][sellId8][verify(base64)]:*****:品項數:...
@@ -143,6 +144,7 @@ const Scan = (() => {
 
   function _normalizeOcrText(text) {
     return String(text || '')
+      .replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
       .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
       .replace(/[，,]/g, '')
       .replace(/[：]/g, ':')
@@ -380,6 +382,79 @@ const Scan = (() => {
     return { variants, text: variants[0]?.text || '', ...(variants[0] || { items: [] }) };
   }
 
+  function _pad2(value) {
+    return String(value || '').padStart(2, '0');
+  }
+
+  function _formatInvoiceDate(year, month, day) {
+    const yyyy = Number(year) < 1000 ? Number(year) + 1911 : Number(year);
+    const mm = Number(month);
+    const dd = Number(day);
+    if (!yyyy || !(mm >= 1 && mm <= 12) || !(dd >= 1 && dd <= 31)) return '';
+    return `${yyyy}-${_pad2(mm)}-${_pad2(dd)}`;
+  }
+
+  function _parseInvoiceInfoText(text) {
+    const normalized = _normalizeOcrText(text).toUpperCase();
+    const compact = normalized.replace(/\s+/g, '');
+    const lines = normalized.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+
+    const invMatch = compact.match(/[A-Z]{2}\d{8}/);
+    const invNum = invMatch ? invMatch[0] : '';
+
+    let dateForSheet = '';
+    let dateMatch = normalized.match(/(\d{3,4})\s*[年\/.-]\s*(\d{1,2})\s*[月\/.-]\s*(\d{1,2})/);
+    if (!dateMatch) dateMatch = compact.match(/(\d{3,4})(\d{2})(\d{2})/);
+    if (dateMatch) dateForSheet = _formatInvoiceDate(dateMatch[1], dateMatch[2], dateMatch[3]);
+
+    const randScope = lines.find(line => /隨機碼|随机码|RAND/i.test(line)) || '';
+    const randMatch = randScope.match(/(?:隨機碼|随机码|RAND)?\D*(\d{4})(?!\d)/i);
+    const rand = randMatch ? randMatch[1] : '';
+
+    const sellerScope = lines.find(line => /賣方|卖方|統編|统一编号|統一編號|店家統編/.test(line)) || '';
+    const sellerMatch = sellerScope.match(/(?:賣方|卖方|統編|统一编号|統一編號|店家統編)?\D*(\d{8})(?!\d)/);
+    const sellerId = sellerMatch ? sellerMatch[1] : '';
+
+    let total = 0;
+    const totalLine = lines.find(line => /總金額|总金额|總計|总计|合計|合计|金額|金额|TOTAL/i.test(line));
+    const totalMatch = totalLine?.match(/(?:總金額|总金额|總計|总计|合計|合计|金額|金额|TOTAL)?\D*(\d{1,6})(?!\d)/i);
+    if (totalMatch) total = parseInt(totalMatch[1], 10) || 0;
+
+    return { invNum, dateForSheet, rand, sellerId, total, rawText: text || '' };
+  }
+
+  function _captureVideoFrame(video) {
+    const canvas = document.createElement('canvas');
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('無法建立發票資訊擷取畫布');
+    ctx.drawImage(video, 0, 0, width, height);
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(blob => {
+        if (blob) resolve(blob);
+        else reject(new Error('無法擷取目前相機畫面'));
+      }, 'image/png');
+    });
+  }
+
+  async function _recognizeInvoiceInfoImage(image, onStatus) {
+    if (!window.Tesseract?.recognize) throw new Error('OCR 套件尚未載入，請確認網路後重試');
+    onStatus?.('辨識發票資訊中…');
+    const res = await window.Tesseract.recognize(image, 'chi_tra+eng', {
+      tessedit_pageseg_mode: '6',
+      preserve_interword_spaces: '1',
+      logger: msg => {
+        if (msg.status === 'recognizing text') {
+          onStatus?.(`辨識發票資訊 ${Math.round((msg.progress || 0) * 100)}%`);
+        }
+      },
+    });
+    return _parseInvoiceInfoText(res?.data?.text || '');
+  }
+
   // ── 鏡頭掃描 UI ──────────────────────────────────────────────
   function _buildScanOverlay() {
     if (document.getElementById('scan-overlay')) return;
@@ -399,15 +474,41 @@ const Scan = (() => {
         <span id="scan-left-status" class="scan-dot">○ 左側 QR</span>
         <span id="scan-right-status" class="scan-dot">○ 右側 QR</span>
       </div>
+      <div class="scan-actions">
+        <button class="btn-secondary scan-query-btn" id="scan-query-mode">用查詢明細記帳</button>
+        <button class="btn-secondary scan-query-btn hidden" id="scan-capture-info">拍下發票資訊</button>
+        <button class="btn-secondary scan-query-btn hidden" id="scan-qr-mode">返回 QR 掃描</button>
+      </div>
       <p id="scan-status" class="scan-status">對準發票，左右兩個 QR Code 都掃</p>
     `;
     document.body.appendChild(el);
     document.getElementById('scan-close').addEventListener('click', stop);
+    document.getElementById('scan-query-mode').addEventListener('click', _enterQueryMode);
+    document.getElementById('scan-qr-mode').addEventListener('click', _enterQrMode);
+    document.getElementById('scan-capture-info').addEventListener('click', _captureQueryInfo);
   }
 
   function _updateProgress() {
     const lEl = document.getElementById('scan-left-status');
     const rEl = document.getElementById('scan-right-status');
+    const queryBtn = document.getElementById('scan-query-mode');
+    const captureBtn = document.getElementById('scan-capture-info');
+    const qrBtn = document.getElementById('scan-qr-mode');
+    const isQuery = _scanIntent === 'query';
+    queryBtn?.classList.toggle('hidden', isQuery);
+    captureBtn?.classList.toggle('hidden', !isQuery);
+    qrBtn?.classList.toggle('hidden', !isQuery);
+
+    if (isQuery) {
+      if (lEl) lEl.textContent = '查詢明細模式';
+      if (rEl) rEl.textContent = '拍照辨識資訊';
+      if (lEl) lEl.classList.add('scan-dot-done');
+      if (rEl) rEl.classList.toggle('scan-dot-done', false);
+      const statusEl = document.getElementById('scan-status');
+      if (statusEl) statusEl.textContent = '對準發票資訊區，按「拍下發票資訊」';
+      return;
+    }
+
     if (lEl) lEl.textContent = (_left  ? '✓' : '○') + ' 左側 QR';
     if (rEl) rEl.textContent = (_right ? '✓' : '○') + ' 右側 QR';
     if (lEl) lEl.classList.toggle('scan-dot-done', !!_left);
@@ -424,9 +525,58 @@ const Scan = (() => {
   // 縮小至 640px 寬再解碼，降低 CPU 負擔提升 frame rate
   const DECODE_W = 640;
 
+  function _enterQueryMode() {
+    _scanIntent = 'query';
+    _left = null;
+    _right = null;
+    _updateProgress();
+  }
+
+  function _enterQrMode() {
+    _scanIntent = 'qr';
+    _left = null;
+    _right = null;
+    _updateProgress();
+  }
+
+  async function _captureQueryInfo() {
+    const btn = document.getElementById('scan-capture-info');
+    const statusEl = document.getElementById('scan-status');
+    const video = document.getElementById('scan-video');
+    if (!video || video.readyState < video.HAVE_CURRENT_DATA) {
+      if (statusEl) statusEl.textContent = '相機尚未準備好，請稍後再拍';
+      return;
+    }
+
+    const oldText = btn?.textContent;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '辨識中…';
+    }
+    try {
+      const image = await _captureVideoFrame(video);
+      const info = await _recognizeInvoiceInfoImage(image, status => {
+        if (statusEl) statusEl.textContent = status;
+      });
+      _stopCamera();
+      await _showQueryInfoModal(info);
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `辨識失敗：${err.message}`;
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = oldText || '拍下發票資訊';
+      }
+    }
+  }
+
   function _drawFrame(video, canvas, ctx) {
     if (!_stream || _mode !== 'scanning') return;
     if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      if (_scanIntent === 'query') {
+        _rafId = requestAnimationFrame(() => _drawFrame(video, canvas, ctx));
+        return;
+      }
       const scale   = DECODE_W / video.videoWidth;
       canvas.width  = DECODE_W;
       canvas.height = Math.round(video.videoHeight * scale);
@@ -505,9 +655,114 @@ const Scan = (() => {
     }
   }
 
+  async function _showQueryInfoModal(info = {}) {
+    let el = document.getElementById('scan-query-info-modal');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'scan-query-info-modal';
+      el.className = 'modal-overlay hidden';
+      document.body.appendChild(el);
+    }
+
+    el.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <span class="modal-title">查詢明細記帳</span>
+          <button class="modal-close" id="sqinfo-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="sconf-warning-text">請確認發票資訊。下一步會開啟與 F22 相同的查詢明細流程，可貼上文字或截圖解析品項。</p>
+          <label class="field-label">發票號碼</label>
+          <input type="text" id="sqinfo-inv-num" class="field-input" maxlength="10" value="${_escapeHtml(info.invNum || '')}" placeholder="AB12345678">
+
+          <label class="field-label">發票日期</label>
+          <input type="date" id="sqinfo-date" class="field-input" value="${_escapeHtml(info.dateForSheet || '')}">
+
+          <label class="field-label">隨機碼</label>
+          <input type="text" id="sqinfo-rand" class="field-input" maxlength="4" inputmode="numeric" value="${_escapeHtml(info.rand || '')}" placeholder="1234">
+
+          <label class="field-label">賣方統編</label>
+          <input type="text" id="sqinfo-seller" class="field-input" maxlength="8" inputmode="numeric" value="${_escapeHtml(info.sellerId || '')}" placeholder="12345678">
+
+          <label class="field-label">總金額</label>
+          <input type="number" id="sqinfo-total" class="field-input" min="1" step="1" inputmode="decimal" value="${info.total ? Number(info.total) : ''}" placeholder="發票總金額">
+
+          <div class="sconf-warning-actions sqinfo-actions">
+            ${_queryLaunchLinks().map(link => `
+              <a class="btn-secondary sconf-query-link" href="${_escapeHtml(link.href)}"${link.target ? ` target="${link.target}"` : ''}${link.rel ? ` rel="${link.rel}"` : ''}>${link.label}</a>
+            `).join('')}
+            <button class="btn-secondary sconf-share-btn" id="sqinfo-share-query" aria-label="分享查詢頁" title="分享查詢頁">📤</button>
+          </div>
+
+          <details class="sqinfo-raw">
+            <summary>OCR 原文</summary>
+            <pre>${_escapeHtml(info.rawText || '尚無 OCR 原文')}</pre>
+          </details>
+
+          <p id="sqinfo-error" class="add-error hidden"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="sqinfo-cancel">取消</button>
+          <button class="btn-primary" id="sqinfo-next">下一步：貼上查詢明細</button>
+        </div>
+      </div>
+    `;
+    el.classList.remove('hidden');
+
+    const close = () => {
+      el.classList.add('hidden');
+      _mode = 'idle';
+      _scanIntent = 'qr';
+    };
+
+    document.getElementById('sqinfo-close')?.addEventListener('click', close);
+    document.getElementById('sqinfo-cancel')?.addEventListener('click', close);
+    el.addEventListener('click', e => { if (e.target === el) close(); });
+    document.getElementById('sqinfo-share-query')?.addEventListener('click', async e => {
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: '財政部電子發票查詢', url: INVOICE_QUERY_URL });
+          return;
+        } catch (err) {
+          if (err?.name === 'AbortError') return;
+        }
+      }
+      await _copyText(INVOICE_QUERY_URL, e.currentTarget);
+    });
+
+    document.getElementById('sqinfo-next')?.addEventListener('click', async () => {
+      const invNum = (document.getElementById('sqinfo-inv-num')?.value || '').toUpperCase().replace(/\s+/g, '');
+      const dateForSheet = document.getElementById('sqinfo-date')?.value || '';
+      const rand = (document.getElementById('sqinfo-rand')?.value || '').replace(/\D/g, '').slice(0, 4);
+      const sellerId = (document.getElementById('sqinfo-seller')?.value || '').replace(/\D/g, '').slice(0, 8);
+      const total = Math.round(parseFloat(document.getElementById('sqinfo-total')?.value || '0'));
+      const errEl = document.getElementById('sqinfo-error');
+      errEl?.classList.add('hidden');
+
+      if (!/^[A-Z]{2}\d{8}$/.test(invNum) || !dateForSheet || rand.length !== 4 || sellerId.length !== 8 || !(total > 0)) {
+        if (errEl) {
+          errEl.textContent = '請確認發票號碼、日期、隨機碼、賣方統編與總金額都正確';
+          errEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      _left = { invNum, dateForSheet, rand, sellerId, total, leftItems: [], orderNote: '[查詢明細記帳]' };
+      _right = { items: [] };
+      el.classList.add('hidden');
+      const overlay = document.getElementById('scan-overlay');
+      overlay?.classList.remove('hidden');
+      const statusEl = document.getElementById('scan-status');
+      if (statusEl) statusEl.textContent = '查詢商店資訊中…';
+      await _showConfirm();
+      overlay?.classList.add('hidden');
+    });
+  }
+
   // ── 確認 Modal ────────────────────────────────────────────────
   async function _showConfirm() {
     _mode = 'confirm';
+    const isQueryDetailMode = _scanIntent === 'query';
     const invNum   = _left?.invNum       || '—';
     const date     = _left?.dateForSheet || '';   // YYYY-MM-DD
     const sellerId  = _left?.sellerId   || '';
@@ -541,7 +796,7 @@ const Scan = (() => {
     el.innerHTML = `
       <div class="modal-sheet">
         <div class="modal-header">
-          <span class="modal-title">確認發票資訊</span>
+          <span class="modal-title">${isQueryDetailMode ? '確認查詢明細記帳' : '確認發票資訊'}</span>
           <button class="modal-close" id="sconf-close">✕</button>
         </div>
         <div class="modal-body">
@@ -659,15 +914,15 @@ const Scan = (() => {
       }
 
       if (missingWrap) {
-        missingWrap.innerHTML = missing > 1 ? `
+        missingWrap.innerHTML = (missing > 1 || isQueryDetailMode) ? `
           <div class="sconf-warning">
-            <div class="sconf-warning-title">QR Code 明細可能不完整</div>
+            <div class="sconf-warning-title">${isQueryDetailMode ? '貼上查詢明細建立品項' : 'QR Code 明細可能不完整'}</div>
             <div class="sconf-warning-grid">
               <span>發票總額</span><strong>$${total.toLocaleString('zh-TW')}</strong>
-              <span>QR 品項合計</span><strong>$${itemTotal.toLocaleString('zh-TW')}</strong>
+              <span>${isQueryDetailMode ? '目前品項合計' : 'QR 品項合計'}</span><strong>$${itemTotal.toLocaleString('zh-TW')}</strong>
               <span>差額</span><strong class="amount-expense">$${missing.toLocaleString('zh-TW')}</strong>
             </div>
-            <p class="sconf-warning-text">若這張發票要做「部分」分帳，建議先查詢完整明細或補上差額品項，避免分帳金額錯誤。</p>
+            <p class="sconf-warning-text">${isQueryDetailMode ? '請先開啟財政部查詢頁取得消費明細，再貼上文字或截圖解析品項。' : '若這張發票要做「部分」分帳，建議先查詢完整明細或補上差額品項，避免分帳金額錯誤。'}</p>
             <div class="sconf-query-box">
               ${[
                 ['發票號碼', invNum],
@@ -683,7 +938,7 @@ const Scan = (() => {
                 </div>`).join('')}
             </div>
             <div class="sconf-warning-actions">
-              <button class="btn-secondary" id="sconf-fill-missing" data-missing="${missing}">補差額品項繼續</button>
+              ${isQueryDetailMode ? '' : `<button class="btn-secondary" id="sconf-fill-missing" data-missing="${missing}">補差額品項繼續</button>`}
               ${_queryLaunchLinks().map(link => `
                 <a class="btn-secondary sconf-query-link" href="${_escapeHtml(link.href)}"${link.target ? ` target="${link.target}"` : ''}${link.rel ? ` rel="${link.rel}"` : ''}>${link.label}</a>
               `).join('')}
@@ -859,7 +1114,7 @@ const Scan = (() => {
         items = cleaned;
         ocrItems = [];
         ocrRawText = '';
-        ocrStatus = '已使用 OCR 明細取代 QR 品項';
+        ocrStatus = isQueryDetailMode ? '已使用查詢明細建立品項' : '已使用 OCR 明細取代 QR 品項';
         ocrExpectedCount = null;
         ocrFoundTable = false;
         ocrVariants = [];
@@ -915,7 +1170,9 @@ const Scan = (() => {
       try {
         const missing = _missingAmount(total, items);
         if (missing > 1 && _shared === '部分') {
-          errEl.textContent = 'QR 品項合計仍小於發票總額；請先補齊品項或使用「補差額品項繼續」再做部分分帳';
+          errEl.textContent = isQueryDetailMode
+            ? '品項合計仍小於發票總額；請先貼上查詢明細、補齊品項或改成非部分分帳'
+            : 'QR 品項合計仍小於發票總額；請先補齊品項或使用「補差額品項繼續」再做部分分帳';
           errEl.classList.remove('hidden');
           btn.disabled = false;
           btn.textContent = '寫入發票明細';
@@ -971,6 +1228,7 @@ const Scan = (() => {
   function _closeConfirm() {
     document.getElementById('scan-confirm-modal')?.classList.add('hidden');
     _mode = 'idle';
+    _scanIntent = 'qr';
     _left = null;
     _right = null;
   }
@@ -1161,6 +1419,7 @@ const Scan = (() => {
   function _closeAttribution() {
     document.getElementById('scan-attr-modal')?.classList.add('hidden');
     _mode = 'idle';
+    _scanIntent = 'qr';
     _left = null;
     _right = null;
   }
@@ -1222,6 +1481,7 @@ const Scan = (() => {
     _left  = null;
     _right = null;
     _mode  = 'scanning';
+    _scanIntent = 'qr';
 
     _buildScanOverlay();
     const overlay = document.getElementById('scan-overlay');

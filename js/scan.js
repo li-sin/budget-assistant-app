@@ -235,19 +235,49 @@ const Scan = (() => {
     return { name, qty, price, amount, manual: true, ocr: true };
   }
 
+  function _parseOcrNumberLine(line) {
+    const clean = String(line || '').replace(/[,，]/g, '').trim();
+    if (!/^-?\d+(?:\.\d+)?$/.test(clean)) return null;
+    const value = Math.round(parseFloat(clean));
+    return Number.isFinite(value) ? value : null;
+  }
+
   function _parseOcrItems(text, total) {
     const { expectedCount, lines, foundTable } = _extractOcrDetailLines(text);
     const seen = new Set();
     const result = [];
 
-    lines.forEach(line => {
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx];
       const item = _parseOcrTableRow(line, total);
-      if (!item) return;
+      if (!item) {
+        const name = _compactOcrName(line);
+        const qty = _parseOcrNumberLine(lines[idx + 1]);
+        const price = _parseOcrNumberLine(lines[idx + 2]);
+        const amount = _parseOcrNumberLine(lines[idx + 3]);
+        if (
+          name && !/\d/.test(name) &&
+          Number.isFinite(qty) && Number.isFinite(price) && Number.isFinite(amount) &&
+          qty !== 0 && price !== 0 && amount !== 0 &&
+          Math.abs(qty) <= 999 &&
+          Math.abs(price) <= Math.max(Math.abs(total) * 2, 99999) &&
+          Math.abs(amount) <= Math.max(Math.abs(total) * 2, 99999)
+        ) {
+          const key = `${name}|${qty}|${price}|${amount}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            result.push({ name, qty, price, amount, manual: true, ocr: true });
+          }
+          idx += 3;
+        }
+        continue;
+      }
       const key = `${item.name}|${item.qty}|${item.price}|${item.amount}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      result.push(item);
-    });
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(item);
+      }
+    }
 
     return { items: result, expectedCount, foundTable };
   }
@@ -266,11 +296,14 @@ const Scan = (() => {
       .filter(Boolean);
 
     let shopName = '';
-    for (const line of lines) {
+    const shopLabelRe = /(營業人名稱|賣方營業人名稱|賣方名稱|店家名稱|商店名稱|商家|店名)/i;
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx];
       if (!/(營業人名稱|賣方營業人名稱|賣方名稱|店家名稱|商店名稱|商家|店名)/i.test(line)) continue;
       if (/統一編號|統編|地址|電話/.test(line) && !/名稱/.test(line)) continue;
       const match = line.match(/(?:營業人名稱|賣方營業人名稱|賣方名稱|店家名稱|商店名稱|商家|店名)\s*[:：]?\s*(.+)$/i);
-      const candidate = _cleanQueryMetaShop(match?.[1] || line);
+      const sameLineValue = _cleanQueryMetaShop(match?.[1] || line);
+      const candidate = sameLineValue || (shopLabelRe.test(line) ? _cleanQueryMetaShop(lines[idx + 1] || '') : '');
       if (candidate && /[\p{L}\p{N}]/u.test(candidate) && !/^\d+$/.test(candidate)) {
         shopName = candidate;
         break;
@@ -278,13 +311,20 @@ const Scan = (() => {
     }
 
     let total = 0;
-    for (const line of lines) {
-      if (!/(發票金額|總金額|总金额|總計|总计|合計|合计|應付金額|实付金额|實付金額|含稅總額|含税总额)/i.test(line)) continue;
+    const totalLabelRe = /(發票金額|總金額|总金额|總計|总计|合計|合计|金額|金额|應付金額|实付金额|實付金額|含稅總額|含税总额)/i;
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx];
+      if (!totalLabelRe.test(line)) continue;
       const nums = [...line.matchAll(/-?\d{1,3}(?:,\d{3})*(?:\.\d+)?|-?\d+(?:\.\d+)?/g)]
         .map(m => Math.round(parseFloat(m[0].replace(/,/g, ''))))
         .filter(n => Number.isFinite(n) && Math.abs(n) > 0);
       if (nums.length) {
         total = nums[nums.length - 1];
+        break;
+      }
+      const nextValue = _parseOcrNumberLine(lines[idx + 1]);
+      if (nextValue > 0) {
+        total = nextValue;
         break;
       }
     }
@@ -1332,15 +1372,7 @@ const Scan = (() => {
           date = document.getElementById('sconf-date')?.value || '';
           rand = (document.getElementById('sconf-rand')?.value || '').replace(/\D/g, '').slice(0, 4);
           const inputTotal = Math.round(parseFloat(document.getElementById('sconf-total')?.value || '0'));
-          if (inputTotal > 0) total = inputTotal;
-
-          if (!/^[A-Z]{2}\d{8}$/.test(invNum) || !date || rand.length !== 4) {
-            errEl.textContent = '請確認發票號碼、日期與隨機碼';
-            errEl.classList.remove('hidden');
-            btn.disabled = false;
-            btn.textContent = '寫入發票明細';
-            return;
-          }
+          total = inputTotal > 0 ? inputTotal : 0;
         }
 
         if (isQueryDetailMode && !items.length && ocrItems.length) {
@@ -1348,8 +1380,17 @@ const Scan = (() => {
         }
 
         const effectiveTotal = total > 0 ? total : _sumItems(items);
+        if (isQueryDetailMode && !shopValue) {
+          errEl.textContent = '請確認商店名稱';
+          errEl.classList.remove('hidden');
+          btn.disabled = false;
+          btn.textContent = '寫入發票明細';
+          return;
+        }
         if (!(effectiveTotal > 0)) {
-          errEl.textContent = '請先貼上查詢明細，並確認有解析出品項金額';
+          errEl.textContent = items.length
+            ? '請確認品項金額'
+            : '請貼上查詢明細解析品項，或手動輸入金額';
           errEl.classList.remove('hidden');
           btn.disabled = false;
           btn.textContent = '寫入發票明細';
@@ -1368,7 +1409,7 @@ const Scan = (() => {
 
         // 重複發票號碼檢查
         let noteToWrite = note;
-        const dups = await Sheets.checkDuplicateInvoice(invNum);
+        const dups = /^[A-Z]{2}\d{8}$/.test(invNum) ? await Sheets.checkDuplicateInvoice(invNum) : [];
         if (dups.length > 0) {
           const dupInfo = dups.map(d => `${d.date} ${d.shop}`).join('、');
           const ok = window.confirm(`⚠️ 發票 ${invNum} 已有記錄：\n${dupInfo}\n\n確定繼續記錄？（備註將自動加入原始發票連結）`);

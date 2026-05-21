@@ -195,18 +195,19 @@ const Scan = (() => {
     const detailIdx = lines.findIndex(_isOcrDetailTitle);
     const headerIdx = lines.findIndex((line, idx) => idx >= Math.max(detailIdx, 0) && _isOcrTableHeader(line));
     const expectedCount = _extractOcrExpectedCount(lines, detailIdx, headerIdx);
-    if (detailIdx < 0 || headerIdx < 0) {
+    if (detailIdx < 0) {
       return { expectedCount, lines: [], foundTable: false };
     }
 
-    const startIdx = headerIdx + 1;
+    const startIdx = headerIdx >= 0 ? headerIdx + 1 : detailIdx + 1;
     const sliced = lines.slice(startIdx);
     const endIdx = sliced.findIndex(_isOcrTableEnd);
 
     return {
       expectedCount,
-      lines: endIdx >= 0 ? sliced.slice(0, endIdx) : sliced,
-      foundTable: true,
+      lines: (endIdx >= 0 ? sliced.slice(0, endIdx) : sliced)
+        .filter(line => !/^共\s*\d{1,3}\s*(?:筆|笔)?$/.test(line) && !_isOcrTableHeader(line)),
+      foundTable: headerIdx >= 0 || sliced.some(line => _parseOcrTableRow(line, Number.MAX_SAFE_INTEGER)),
     };
   }
 
@@ -259,10 +260,10 @@ const Scan = (() => {
     });
   }
 
-  async function _preprocessOcrImage(file, mode = 'legacy') {
+  async function _preprocessOcrImage(file, mode = 'binary') {
     const img = await _loadImageForOcr(file);
     const maxSide = 2600;
-    const baseScale = mode === 'soft' ? 2.4 : 2;
+    const baseScale = mode === 'legacy' ? 2 : 2.4;
     const naturalW = img.naturalWidth || img.width;
     const naturalH = img.naturalHeight || img.height;
     const scale = Math.min(baseScale, maxSide / Math.max(naturalW, naturalH));
@@ -282,9 +283,10 @@ const Scan = (() => {
     const data = imageData.data;
     for (let i = 0; i < data.length; i += 4) {
       const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-      const contrast = mode === 'legacy' ? 1.45 : 1.35;
+      const contrast = mode === 'legacy' ? 1.45 : (mode === 'binary-strong' ? 1.55 : 1.35);
       const contrasted = Math.max(0, Math.min(255, (gray - 128) * contrast + 128));
-      const value = mode === 'soft' ? contrasted : (contrasted > 176 ? 255 : 0);
+      const threshold = mode === 'binary-strong' ? 168 : 176;
+      const value = mode === 'soft' ? contrasted : (contrasted > threshold ? 255 : 0);
       data[i] = value;
       data[i + 1] = value;
       data[i + 2] = value;
@@ -358,9 +360,10 @@ const Scan = (() => {
     onStatus?.('OCR 圖片前處理中…');
     const sources = [];
     try {
+      sources.push({ label: '黑白新版 ', source: await _preprocessOcrImage(file, 'binary') });
+      sources.push({ label: '黑白高對比 ', source: await _preprocessOcrImage(file, 'binary-strong') });
       sources.push({ label: '上一版 ', source: await _preprocessOcrImage(file, 'legacy') });
       sources.push({ label: '強化灰階 ', source: await _preprocessOcrImage(file, 'soft') });
-      sources.push({ label: '黑白新版 ', source: await _preprocessOcrImage(file, 'binary') });
     } catch {
       sources.push({ label: '原圖 ', source: file });
     }
@@ -526,6 +529,8 @@ const Scan = (() => {
     let ocrFoundTable = false;
     let ocrVariants = [];
     let ocrVariantIndex = 0;
+    let ocrTextPanelOpen = false;
+    let ocrTextDraft = '';
 
     let el = document.getElementById('scan-confirm-modal');
     if (!el) {
@@ -628,6 +633,7 @@ const Scan = (() => {
     }
 
     function handlePastedText(text) {
+      ocrTextDraft = text;
       ocrVariants = [buildTextVariant(text)];
       ocrVariantIndex = 0;
       applyOcrVariant(ocrVariants[0], '文字解析完成');
@@ -697,6 +703,12 @@ const Scan = (() => {
                 <button class="btn-secondary sconf-ocr-action" id="sconf-ocr-pick">上傳截圖</button>
                 <button class="btn-secondary sconf-ocr-action" id="sconf-text-paste">貼上文字</button>
               </div>
+              ${ocrTextPanelOpen ? `
+                <div class="sconf-text-paste-box">
+                  <textarea id="sconf-text-raw" class="field-input sconf-text-raw" placeholder="貼上消費明細文字">${_escapeHtml(ocrTextDraft)}</textarea>
+                  <button class="btn-secondary sconf-ocr-action" id="sconf-text-parse">解析文字</button>
+                </div>
+              ` : ''}
               <span class="sconf-ocr-status">${_escapeHtml(ocrStatus)}</span>
               <div id="sconf-ocr-wrap">
                 ${ocrItems.length ? `
@@ -785,13 +797,24 @@ const Scan = (() => {
       });
 
       document.getElementById('sconf-text-paste')?.addEventListener('click', async () => {
+        ocrTextPanelOpen = true;
         try {
           const text = await _readClipboardText();
           handlePastedText(text);
         } catch (err) {
-          ocrStatus = err.message;
+          ocrStatus = `${err.message}；也可以直接貼到下方文字框後按解析文字`;
           renderItemsAndGuard();
         }
+      });
+
+      document.getElementById('sconf-text-parse')?.addEventListener('click', () => {
+        const text = document.getElementById('sconf-text-raw')?.value || '';
+        if (!text.trim()) {
+          ocrStatus = '請先貼上消費明細文字';
+          renderItemsAndGuard();
+          return;
+        }
+        handlePastedText(text);
       });
 
       el.querySelectorAll('.sconf-ocr-mode').forEach(btn => {

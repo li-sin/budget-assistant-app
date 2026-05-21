@@ -678,6 +678,16 @@ select.field-input { height: 44px; }
   padding: 9px 10px;
   font-size: 13px;
 }
+.sconf-text-paste-box {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+.sconf-text-raw {
+  min-height: 112px;
+  resize: vertical;
+  line-height: 1.4;
+}
 .sconf-ocr-modes {
   display: flex;
   flex-wrap: wrap;

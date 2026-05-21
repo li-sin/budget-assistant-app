@@ -825,7 +825,6 @@ const Scan = (() => {
       document.body.appendChild(el);
     }
 
-    const queryDate = _formatQueryDate(date);
     const invoiceInfoRows = isQueryDetailMode ? `
           <label class="field-label">發票資訊</label>
           <div class="sconf-row"><span class="sconf-label">發票號碼</span><input type="text" id="sconf-inv-num" class="field-input" maxlength="11" style="flex:1;margin-left:8px" value="${_escapeHtml(invNum)}" placeholder="BL-12345678"></div>
@@ -976,7 +975,7 @@ const Scan = (() => {
             <div class="sconf-query-box">
               ${[
                 ['發票號碼', invNum],
-                ['發票日期', queryDate],
+                ['發票日期', _formatQueryDate(date)],
                 ['隨機碼', rand || ''],
                 ...(sellerId ? [['賣方統編', sellerId]] : []),
                 ...(total > 0 ? [['總金額', total]] : []),
@@ -1183,6 +1182,21 @@ const Scan = (() => {
     }
 
     renderItemsAndGuard();
+
+    if (isQueryDetailMode) {
+      const syncQueryInfoDraft = () => {
+        invNum = (document.getElementById('sconf-inv-num')?.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        date = document.getElementById('sconf-date')?.value || '';
+        rand = (document.getElementById('sconf-rand')?.value || '').replace(/\D/g, '').slice(0, 4);
+        sellerId = (document.getElementById('sconf-seller')?.value || '').replace(/\D/g, '').slice(0, 8);
+        const inputTotal = Math.round(parseFloat(document.getElementById('sconf-total')?.value || '0'));
+        total = inputTotal > 0 ? inputTotal : 0;
+        renderItemsAndGuard();
+      };
+      ['sconf-inv-num', 'sconf-date', 'sconf-rand', 'sconf-seller', 'sconf-total'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', syncQueryInfoDraft);
+      });
+    }
 
     // 類別 chips
     el.querySelectorAll('.cat-chip').forEach(btn => {

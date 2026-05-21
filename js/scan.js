@@ -259,10 +259,10 @@ const Scan = (() => {
     });
   }
 
-  async function _preprocessOcrImage(file, mode = 'soft') {
+  async function _preprocessOcrImage(file, mode = 'legacy') {
     const img = await _loadImageForOcr(file);
     const maxSide = 2600;
-    const baseScale = mode === 'binary' ? 2 : 2.4;
+    const baseScale = mode === 'soft' ? 2.4 : 2;
     const naturalW = img.naturalWidth || img.width;
     const naturalH = img.naturalHeight || img.height;
     const scale = Math.min(baseScale, maxSide / Math.max(naturalW, naturalH));
@@ -282,8 +282,9 @@ const Scan = (() => {
     const data = imageData.data;
     for (let i = 0; i < data.length; i += 4) {
       const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-      const contrasted = Math.max(0, Math.min(255, (gray - 128) * 1.35 + 128));
-      const value = mode === 'binary' ? (contrasted > 176 ? 255 : 0) : contrasted;
+      const contrast = mode === 'legacy' ? 1.45 : 1.35;
+      const contrasted = Math.max(0, Math.min(255, (gray - 128) * contrast + 128));
+      const value = mode === 'soft' ? contrasted : (contrasted > 176 ? 255 : 0);
       data[i] = value;
       data[i + 1] = value;
       data[i + 2] = value;
@@ -302,6 +303,15 @@ const Scan = (() => {
       if (imageType) return item.getType(imageType);
     }
     throw new Error('剪貼簿沒有圖片，請先複製截圖或改用上傳截圖');
+  }
+
+  async function _readClipboardText() {
+    if (!navigator.clipboard?.readText) {
+      throw new Error('此瀏覽器不支援直接貼上文字，請手動改用上傳截圖');
+    }
+    const text = await navigator.clipboard.readText();
+    if (!String(text || '').trim()) throw new Error('剪貼簿沒有文字，請先複製明細文字');
+    return text;
   }
 
   function _scoreOcrCandidate(candidate, total) {
@@ -334,6 +344,7 @@ const Scan = (() => {
     });
     const text = res?.data?.text || '';
     return {
+      label: label.trim() || '原圖',
       text,
       confidence: res?.data?.confidence,
       parsed: _parseOcrItems(text, total),
@@ -347,10 +358,11 @@ const Scan = (() => {
     onStatus?.('OCR 圖片前處理中…');
     const sources = [];
     try {
-      sources.push({ label: '強化 1/2 ', source: await _preprocessOcrImage(file, 'soft') });
-      sources.push({ label: '黑白 2/2 ', source: await _preprocessOcrImage(file, 'binary') });
+      sources.push({ label: '上一版 ', source: await _preprocessOcrImage(file, 'legacy') });
+      sources.push({ label: '強化灰階 ', source: await _preprocessOcrImage(file, 'soft') });
+      sources.push({ label: '黑白新版 ', source: await _preprocessOcrImage(file, 'binary') });
     } catch {
-      sources.push({ label: '', source: file });
+      sources.push({ label: '原圖 ', source: file });
     }
 
     onStatus?.('OCR 載入中…');
@@ -358,10 +370,14 @@ const Scan = (() => {
     for (const item of sources) {
       candidates.push(await _recognizeOcrSource(item.source, item.label, total, onStatus));
     }
-    const best = candidates
-      .map(candidate => ({ ...candidate, score: _scoreOcrCandidate(candidate, total) }))
-      .sort((a, b) => b.score - a.score)[0];
-    return { text: best.text, ...best.parsed };
+    const variants = candidates.map(candidate => ({
+      label: candidate.label,
+      text: candidate.text,
+      confidence: candidate.confidence,
+      score: _scoreOcrCandidate(candidate, total),
+      ...candidate.parsed,
+    }));
+    return { variants, text: variants[0]?.text || '', ...(variants[0] || { items: [] }) };
   }
 
   // ── 鏡頭掃描 UI ──────────────────────────────────────────────
@@ -508,6 +524,8 @@ const Scan = (() => {
     let ocrStatus = '';
     let ocrExpectedCount = null;
     let ocrFoundTable = false;
+    let ocrVariants = [];
+    let ocrVariantIndex = 0;
 
     let el = document.getElementById('scan-confirm-modal');
     if (!el) {
@@ -574,6 +592,20 @@ const Scan = (() => {
       return '未讀到截圖的「共 x 筆」，請確認候選品項數量。';
     }
 
+    function applyOcrVariant(variant, statusPrefix = '已切換') {
+      ocrRawText = variant?.text || '';
+      ocrItems = (variant?.items || []).filter(it => (it.name || '').trim() && Number.isFinite(Number(it.amount)) && Number(it.amount) !== 0);
+      ocrExpectedCount = Number.isInteger(variant?.expectedCount) ? variant.expectedCount : null;
+      ocrFoundTable = !!variant?.foundTable;
+      const label = variant?.label ? `「${variant.label}」` : '';
+      ocrStatus = ocrItems.length ? `${statusPrefix}${label}，已解析 ${ocrItems.length} 筆候選品項` : `${statusPrefix}${label}，但未解析出品項`;
+    }
+
+    function buildTextVariant(text, label = '貼上文字') {
+      const parsed = _parseOcrItems(text, total);
+      return { label, text, confidence: null, score: null, ...parsed };
+    }
+
     async function handleOcrSource(source) {
       const buttons = Array.from(document.querySelectorAll('.sconf-ocr-action'));
       buttons.forEach(btn => { btn.disabled = true; });
@@ -583,11 +615,9 @@ const Scan = (() => {
           const statusEl = document.querySelector('.sconf-ocr-status');
           if (statusEl) statusEl.textContent = status;
         });
-        ocrRawText = res.text;
-        ocrItems = (res.items || []).filter(it => (it.name || '').trim() && Number.isFinite(Number(it.amount)) && Number(it.amount) !== 0);
-        ocrExpectedCount = Number.isInteger(res.expectedCount) ? res.expectedCount : null;
-        ocrFoundTable = !!res.foundTable;
-        ocrStatus = ocrItems.length ? `已解析 ${ocrItems.length} 筆候選品項` : 'OCR 完成，但未解析出品項';
+        ocrVariants = res.variants?.length ? res.variants : [res];
+        ocrVariantIndex = 0;
+        applyOcrVariant(ocrVariants[ocrVariantIndex], 'OCR 完成');
         renderItemsAndGuard();
       } catch (err) {
         ocrStatus = `OCR 失敗：${err.message}`;
@@ -595,6 +625,13 @@ const Scan = (() => {
       } finally {
         document.querySelectorAll('.sconf-ocr-action').forEach(btn => { btn.disabled = false; });
       }
+    }
+
+    function handlePastedText(text) {
+      ocrVariants = [buildTextVariant(text)];
+      ocrVariantIndex = 0;
+      applyOcrVariant(ocrVariants[0], '文字解析完成');
+      renderItemsAndGuard();
     }
 
     function renderItemsAndGuard() {
@@ -658,10 +695,21 @@ const Scan = (() => {
               <div class="sconf-ocr-actions">
                 <button class="btn-secondary sconf-ocr-action" id="sconf-ocr-paste">貼上截圖</button>
                 <button class="btn-secondary sconf-ocr-action" id="sconf-ocr-pick">上傳截圖</button>
+                <button class="btn-secondary sconf-ocr-action" id="sconf-text-paste">貼上文字</button>
               </div>
               <span class="sconf-ocr-status">${_escapeHtml(ocrStatus)}</span>
               <div id="sconf-ocr-wrap">
                 ${ocrItems.length ? `
+                  ${ocrVariants.length > 1 ? `
+                    <div class="sconf-ocr-modes">
+                      ${ocrVariants.map((variant, idx) => `
+                        <button class="chip sconf-ocr-mode ${idx === ocrVariantIndex ? 'active' : ''}" data-ocr-mode="${idx}">
+                          ${_escapeHtml(variant.label || `模式 ${idx + 1}`)}
+                          <span>${(variant.items || []).length}筆</span>
+                        </button>
+                      `).join('')}
+                    </div>
+                  ` : ''}
                   <div class="sconf-ocr-title">OCR 候選品項</div>
                   ${ocrItems.map((it, idx) => `
                     <div class="sconf-ocr-row" data-ocr-idx="${idx}">
@@ -736,6 +784,26 @@ const Scan = (() => {
         e.target.value = '';
       });
 
+      document.getElementById('sconf-text-paste')?.addEventListener('click', async () => {
+        try {
+          const text = await _readClipboardText();
+          handlePastedText(text);
+        } catch (err) {
+          ocrStatus = err.message;
+          renderItemsAndGuard();
+        }
+      });
+
+      el.querySelectorAll('.sconf-ocr-mode').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.ocrMode, 10);
+          if (!ocrVariants[idx]) return;
+          ocrVariantIndex = idx;
+          applyOcrVariant(ocrVariants[idx]);
+          renderItemsAndGuard();
+        });
+      });
+
       el.querySelectorAll('.sconf-ocr-row').forEach(row => {
         const idx = parseInt(row.dataset.ocrIdx, 10);
         row.querySelector('.sconf-ocr-name')?.addEventListener('input', e => {
@@ -773,6 +841,8 @@ const Scan = (() => {
         ocrStatus = '已使用 OCR 明細取代 QR 品項';
         ocrExpectedCount = null;
         ocrFoundTable = false;
+        ocrVariants = [];
+        ocrVariantIndex = 0;
         renderItemsAndGuard();
       });
 

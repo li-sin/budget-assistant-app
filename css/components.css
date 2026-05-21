@@ -670,13 +670,27 @@ select.field-input { height: 44px; }
 }
 .sconf-ocr-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 .sconf-ocr-actions .btn-secondary {
   width: 100%;
   padding: 9px 10px;
   font-size: 13px;
+}
+.sconf-ocr-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.sconf-ocr-mode {
+  font-size: 12px;
+  padding: 6px 8px;
+}
+.sconf-ocr-mode span {
+  margin-left: 4px;
+  color: var(--text-sub);
 }
 .sconf-ocr-status,
 .sconf-ocr-empty,
@@ -720,6 +734,9 @@ select.field-input { height: 44px; }
 }
 @media (max-width: 380px) {
   .sconf-manual-add {
+    grid-template-columns: 1fr;
+  }
+  .sconf-ocr-actions {
     grid-template-columns: 1fr;
   }
 }

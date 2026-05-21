@@ -252,6 +252,46 @@ const Scan = (() => {
     return { items: result, expectedCount, foundTable };
   }
 
+  function _cleanQueryMetaShop(value) {
+    return String(value || '')
+      .replace(/^(營業人名稱|賣方營業人名稱|賣方名稱|店家名稱|商店名稱|商家|店名|賣方)\s*[:：]?\s*/i, '')
+      .replace(/\s*(統一編號|統編|地址|電話|發票號碼|營業地址).*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function _parseQueryDetailMeta(text) {
+    const lines = _normalizeOcrText(text).split(/\r?\n/)
+      .map(line => line.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+
+    let shopName = '';
+    for (const line of lines) {
+      if (!/(營業人名稱|賣方營業人名稱|賣方名稱|店家名稱|商店名稱|商家|店名)/i.test(line)) continue;
+      if (/統一編號|統編|地址|電話/.test(line) && !/名稱/.test(line)) continue;
+      const match = line.match(/(?:營業人名稱|賣方營業人名稱|賣方名稱|店家名稱|商店名稱|商家|店名)\s*[:：]?\s*(.+)$/i);
+      const candidate = _cleanQueryMetaShop(match?.[1] || line);
+      if (candidate && /[\p{L}\p{N}]/u.test(candidate) && !/^\d+$/.test(candidate)) {
+        shopName = candidate;
+        break;
+      }
+    }
+
+    let total = 0;
+    for (const line of lines) {
+      if (!/(發票金額|總金額|总金额|總計|总计|合計|合计|應付金額|实付金额|實付金額|含稅總額|含税总额)/i.test(line)) continue;
+      const nums = [...line.matchAll(/-?\d{1,3}(?:,\d{3})*(?:\.\d+)?|-?\d+(?:\.\d+)?/g)]
+        .map(m => Math.round(parseFloat(m[0].replace(/,/g, ''))))
+        .filter(n => Number.isFinite(n) && Math.abs(n) > 0);
+      if (nums.length) {
+        total = nums[nums.length - 1];
+        break;
+      }
+    }
+
+    return { shopName, total };
+  }
+
   function _loadImageForOcr(file) {
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file);
@@ -909,8 +949,24 @@ const Scan = (() => {
       ocrItems = (variant?.items || []).filter(it => (it.name || '').trim() && Number.isFinite(Number(it.amount)) && Number(it.amount) !== 0);
       ocrExpectedCount = Number.isInteger(variant?.expectedCount) ? variant.expectedCount : null;
       ocrFoundTable = !!variant?.foundTable;
+      applyQueryDetailMeta(ocrRawText);
       const label = variant?.label ? `「${variant.label}」` : '';
       ocrStatus = ocrItems.length ? `${statusPrefix}${label}，已解析 ${ocrItems.length} 筆候選品項` : `${statusPrefix}${label}，但未解析出品項`;
+    }
+
+    function applyQueryDetailMeta(text) {
+      if (!isQueryDetailMode || !text) return;
+      const meta = _parseQueryDetailMeta(text);
+      const shopEl = document.getElementById('sconf-shop');
+      const totalEl = document.getElementById('sconf-total');
+
+      if (meta.shopName && shopEl && !shopEl.value.trim()) {
+        shopEl.value = meta.shopName;
+      }
+      if (meta.total > 0 && !(total > 0) && totalEl && !Number(totalEl.value || 0)) {
+        total = meta.total;
+        totalEl.value = String(meta.total);
+      }
     }
 
     function buildTextVariant(text, label = '貼上文字') {

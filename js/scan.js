@@ -936,7 +936,9 @@ const Scan = (() => {
           // 備註加入第一筆重複記錄的 HYPERLINK
           const dup = dups[0];
           const invGid = CONFIG.INVOICE_SHEET_ID;
-          const link = `HYPERLINK("#gid=${invGid}&range=C${dup.rowIndex}","重複:${invNum}")`;
+          const invNumFormula = invNum.replace(/"/g, '""');
+          const invSheet = CONFIG.TABS.INVOICE.replace(/'/g, "''");
+          const link = `HYPERLINK("#gid=${invGid}&range=C"&MATCH("${invNumFormula}",'${invSheet}'!$C:$C,0),"重複:${invNumFormula}")`;
           noteToWrite = note ? `="${note.replace(/"/g, '""')}"&"｜"&${link}` : `=${link}`;
         }
 

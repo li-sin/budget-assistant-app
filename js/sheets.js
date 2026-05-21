@@ -72,6 +72,31 @@ const Sheets = (() => {
     };
   }
 
+  function _formulaText(value) {
+    return String(value ?? '').replace(/"/g, '""');
+  }
+
+  function _sheetRef(name) {
+    return `'${String(name).replace(/'/g, "''")}'`;
+  }
+
+  function _dynamicInvoiceLink(invNum, display = invNum, targetCol = 'C') {
+    const q = _formulaText(invNum);
+    return `=HYPERLINK("#gid=${CONFIG.INVOICE_SHEET_ID}&range=${targetCol}"&MATCH("${q}",${_sheetRef(CONFIG.TABS.INVOICE)}!$C:$C,0),"${_formulaText(display)}")`;
+  }
+
+  function _dynamicItemsLink(invNum, date, shop, display = invNum) {
+    const key = _formulaText(`${date}|${shop}`);
+    return `=HYPERLINK("#gid=${CONFIG.ITEMS_SHEET_ID}&range=G"&MATCH("${key}",ARRAYFORMULA(${_sheetRef(CONFIG.TABS.ITEMS)}!$B:$B&"|"&${_sheetRef(CONFIG.TABS.ITEMS)}!$D:$D),0),"${_formulaText(display)}")`;
+  }
+
+  function _dynamicCCLink(ccGid, date, shop, amount, display = '→') {
+    const normalizedAmount = Number(String(amount ?? '').replace(/,/g, ''));
+    const key = _formulaText(`${date}|${shop}|${Math.round(normalizedAmount || 0)}`);
+    const cc = _sheetRef(CONFIG.TABS.CC);
+    return `=HYPERLINK("#gid=${ccGid}&range=A"&MATCH("${key}",ARRAYFORMULA(IFERROR(TEXT(${cc}!$B:$B,"yyyy-mm-dd"),SUBSTITUTE(${cc}!$B:$B,"/","-"))&"|"&${cc}!$D:$D&"|"&IFERROR(ROUND(VALUE(${cc}!$E:$E),0),${cc}!$E:$E)),0),"${_formulaText(display)}")`;
+  }
+
   const CACHE_TTL = 5 * 60 * 1000;  // 5 分鐘
 
   async function getMonthlyData(year, month) {
@@ -248,8 +273,7 @@ const Sheets = (() => {
     const data      = await _get(`${CONFIG.TABS.INVOICE}!A:A`);
     const lastRow   = (data.values || []).length;
     const newRow    = lastRow + 1;
-    const itemsGid  = CONFIG.ITEMS_SHEET_ID;
-    const invLink   = `=HYPERLINK("#gid=${itemsGid}","${invNum}")`;
+    const invLink   = _dynamicItemsLink(invNum, date, shop);
     const row = [carrier, date, invLink, shop, amount, status, category, shared, note, false];
     await _update(`${CONFIG.TABS.INVOICE}!A${newRow}`, [row]);
     return newRow;
@@ -262,10 +286,9 @@ const Sheets = (() => {
     const { carrier, date, invNum, shop } = invoiceInfo;
     const data    = await _get(`${CONFIG.TABS.ITEMS}!A:A`);
     const lastRow = (data.values || []).length;
-    const invGid  = CONFIG.INVOICE_SHEET_ID;
     const rows    = items.map(({ name, amount }, idx) => {
       const r       = lastRow + 1 + idx;
-      const invLink = `=HYPERLINK("#gid=${invGid}","${invNum}")`;
+      const invLink = _dynamicInvoiceLink(invNum, invNum, 'H');
       const bearFormula = `=IF(I${r}<>"",I${r},IF(G${r}="🌟 Sin",0,IF(G${r}="🐨 Bear",F${r},IF(G${r}="共用",ROUND(F${r}/2,0),0))))`;
       return [carrier, date, invLink, shop, name, amount, '', bearFormula, '', ''];
     });
@@ -278,8 +301,7 @@ const Sheets = (() => {
     const { carrier, date, invNum, shop } = invoiceInfo;
     const data    = await _get(`${CONFIG.TABS.ITEMS}!A:A`);
     const r       = (data.values || []).length + 1;
-    const invGid  = CONFIG.INVOICE_SHEET_ID;
-    const invLink = `=HYPERLINK("#gid=${invGid}","${invNum}")`;
+    const invLink = _dynamicInvoiceLink(invNum, invNum, 'H');
     const bearFormula = `=IF(I${r}<>"",I${r},IF(G${r}="🌟 Sin",0,IF(G${r}="🐨 Bear",F${r},IF(G${r}="共用",ROUND(F${r}/2,0),0))))`;
     const row = [carrier, date, invLink, shop, itemName, itemAmount, attribution, bearFormula, customAmount, note];
     await _update(`${CONFIG.TABS.ITEMS}!A${r}`, [row]);
@@ -295,8 +317,7 @@ const Sheets = (() => {
   async function appendMonthlyFromInvoice({ date, shop, amount, shared, category, note = '', invNum, invRowIndex, source = '發票' }) {
     const now        = new Date();
     const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-    const invGid     = CONFIG.INVOICE_SHEET_ID;
-    const sourceLink = `=HYPERLINK("#gid=${invGid}&range=C${invRowIndex}","${invNum}")`;
+    const sourceLink = _dynamicInvoiceLink(invNum);
 
     // 讀 A 欄定位最後列
     const data   = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
@@ -402,10 +423,7 @@ const Sheets = (() => {
 
   // ── 將信用卡明細連結至掃描發票（H='x', I=發票號碼連結）──────────────
   async function linkCCToInvoice(ccRowIndex, invNum, invRowIndex) {
-    const invGid = CONFIG.INVOICE_SHEET_ID;
-    const cellVal = invRowIndex
-      ? `=HYPERLINK("#gid=${invGid}&range=C${invRowIndex}","${invNum}")`
-      : invNum;
+    const cellVal = invNum ? _dynamicInvoiceLink(invNum) : invNum;
     await _batchUpdate([
       { range: `${CONFIG.TABS.CC}!H${ccRowIndex}`, values: [['x']] },
       { range: `${CONFIG.TABS.CC}!I${ccRowIndex}`, values: [[cellVal]] },
@@ -436,8 +454,7 @@ const Sheets = (() => {
   async function linkPlatformToCC({ inv, cc, sinShare, bearShare }) {
     const now = new Date();
     const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-    const invGid     = CONFIG.INVOICE_SHEET_ID;
-    const sourceLink = `=HYPERLINK("#gid=${invGid}&range=C${inv.rowIndex}","${inv.invNum}")`;
+    const sourceLink = _dynamicInvoiceLink(inv.invNum);
 
     const row = [
       inv.date, inv.shop, cc.amount,
@@ -521,7 +538,7 @@ const Sheets = (() => {
     for (const { rowIndex, r } of toImportInv) {
       const date = r[1].replace(/^'/, '');
       const [sin, bear] = _calcShares(r[4], r[7], r[10]);
-      const link = `=HYPERLINK("https://docs.google.com/spreadsheets/d/${sid}/edit#gid=${invGid}&range=C${rowIndex}","${r[2] || '→'}")`;
+      const link = _dynamicInvoiceLink(r[2] || '→');
       invMonthlyRows.push([date, r[3]||'', r[4]||'0', '🌟 Star', r[7], r[6]||'', sin, bear, r[8]||'', '發票', link, importedAt]);
       invMarkRanges.push({ range: `${CONFIG.TABS.INVOICE}!J${rowIndex}`, values: [[true]] });
       importedInvList.push({ date, amount: parseFloat(String(r[4]).replace(',','')) || 0 });
@@ -584,7 +601,7 @@ const Sheets = (() => {
       const [sin, bear] = bearOverride !== null
         ? _calcShares(r[4], '部分', String(bearOverride))
         : _calcShares(r[4], r[7]);
-      const link = `=HYPERLINK("https://docs.google.com/spreadsheets/d/${sid}/edit#gid=${ccGid}&range=A${rowIndex}","→")`;
+      const link = _dynamicCCLink(ccGid, date, r[3] || '', r[4] || 0);
       ccMonthlyRows.push([date, r[3]||'', r[4]||'0', '🌟 Star', r[7], r[6]||'', sin, bear, r[9]||'', '信用卡', link, importedAt]);
       ccMarkRanges.push({ range: `${CONFIG.TABS.CC}!K${rowIndex}`, values: [[true]] });
     }

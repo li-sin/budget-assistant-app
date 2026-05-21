@@ -242,6 +242,51 @@ const Scan = (() => {
     return Number.isFinite(value) ? value : null;
   }
 
+  function _isOcrHeaderFragment(line) {
+    return /^(品名|數量|数量|單價|单價|單价|金額|金额)$/i.test(String(line || '').replace(/\s+/g, ''));
+  }
+
+  function _parseOcrColumnRows(lines, total, expectedCount) {
+    const cleanLines = lines
+      .map(line => line.replace(/\s+/g, ' ').trim())
+      .filter(line => line && !_isOcrHeaderFragment(line) && !/^共\s*\d{1,3}\s*(?:筆|笔)?$/.test(line));
+    const names = [];
+    const nums = [];
+
+    cleanLines.forEach(line => {
+      const n = _parseOcrNumberLine(line);
+      if (Number.isFinite(n)) {
+        nums.push(n);
+        return;
+      }
+      const name = _compactOcrName(line);
+      if (name && !/\d/.test(name)) names.push(name);
+    });
+
+    const count = Number.isInteger(expectedCount) && expectedCount > 0
+      ? expectedCount
+      : Math.min(names.length, Math.floor(nums.length / 3));
+    if (!(count > 0) || names.length < count || nums.length < count * 3) return [];
+
+    const qtys = nums.slice(0, count);
+    const prices = nums.slice(count, count * 2);
+    const amounts = nums.slice(count * 2, count * 3);
+
+    return names.slice(0, count).map((name, idx) => {
+      const qty = qtys[idx];
+      const price = prices[idx];
+      const amount = amounts[idx];
+      if (
+        !Number.isFinite(qty) || !Number.isFinite(price) || !Number.isFinite(amount) ||
+        qty === 0 || price === 0 || amount === 0 ||
+        Math.abs(qty) > 999 ||
+        Math.abs(price) > Math.max(Math.abs(total) * 2, 99999) ||
+        Math.abs(amount) > Math.max(Math.abs(total) * 2, 99999)
+      ) return null;
+      return { name, qty, price, amount, manual: true, ocr: true };
+    }).filter(Boolean);
+  }
+
   function _parseOcrItems(text, total) {
     const { expectedCount, lines, foundTable } = _extractOcrDetailLines(text);
     const seen = new Set();
@@ -279,6 +324,16 @@ const Scan = (() => {
       }
     }
 
+    if (!result.length || (Number.isInteger(expectedCount) && result.length < expectedCount)) {
+      _parseOcrColumnRows(lines, total, expectedCount).forEach(item => {
+        const key = `${item.name}|${item.qty}|${item.price}|${item.amount}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          result.push(item);
+        }
+      });
+    }
+
     return { items: result, expectedCount, foundTable };
   }
 
@@ -294,16 +349,18 @@ const Scan = (() => {
     const lines = _normalizeOcrText(text).split(/\r?\n/)
       .map(line => line.replace(/\s+/g, ' ').trim())
       .filter(Boolean);
+    const detailIdx = lines.findIndex(_isOcrDetailTitle);
+    const metaLines = detailIdx >= 0 ? lines.slice(0, detailIdx) : lines;
 
     let shopName = '';
     const shopLabelRe = /(營業人名稱|賣方營業人名稱|賣方名稱|店家名稱|商店名稱|商家|店名)/i;
-    for (let idx = 0; idx < lines.length; idx++) {
-      const line = lines[idx];
+    for (let idx = 0; idx < metaLines.length; idx++) {
+      const line = metaLines[idx];
       if (!/(營業人名稱|賣方營業人名稱|賣方名稱|店家名稱|商店名稱|商家|店名)/i.test(line)) continue;
       if (/統一編號|統編|地址|電話/.test(line) && !/名稱/.test(line)) continue;
       const match = line.match(/(?:營業人名稱|賣方營業人名稱|賣方名稱|店家名稱|商店名稱|商家|店名)\s*[:：]?\s*(.+)$/i);
       const sameLineValue = _cleanQueryMetaShop(match?.[1] || line);
-      const candidate = sameLineValue || (shopLabelRe.test(line) ? _cleanQueryMetaShop(lines[idx + 1] || '') : '');
+      const candidate = sameLineValue || (shopLabelRe.test(line) ? _cleanQueryMetaShop(metaLines[idx + 1] || '') : '');
       if (candidate && /[\p{L}\p{N}]/u.test(candidate) && !/^\d+$/.test(candidate)) {
         shopName = candidate;
         break;
@@ -312,8 +369,8 @@ const Scan = (() => {
 
     let total = 0;
     const totalLabelRe = /(發票金額|總金額|总金额|總計|总计|合計|合计|金額|金额|應付金額|实付金额|實付金額|含稅總額|含税总额)/i;
-    for (let idx = 0; idx < lines.length; idx++) {
-      const line = lines[idx];
+    for (let idx = 0; idx < metaLines.length; idx++) {
+      const line = metaLines[idx];
       if (!totalLabelRe.test(line)) continue;
       const nums = [...line.matchAll(/-?\d{1,3}(?:,\d{3})*(?:\.\d+)?|-?\d+(?:\.\d+)?/g)]
         .map(m => Math.round(parseFloat(m[0].replace(/,/g, ''))))
@@ -322,7 +379,7 @@ const Scan = (() => {
         total = nums[nums.length - 1];
         break;
       }
-      const nextValue = _parseOcrNumberLine(lines[idx + 1]);
+      const nextValue = _parseOcrNumberLine(metaLines[idx + 1]);
       if (nextValue > 0) {
         total = nextValue;
         break;
@@ -1380,6 +1437,13 @@ const Scan = (() => {
         }
 
         const effectiveTotal = total > 0 ? total : _sumItems(items);
+        if (isQueryDetailMode && !date) {
+          errEl.textContent = '請確認日期';
+          errEl.classList.remove('hidden');
+          btn.disabled = false;
+          btn.textContent = '寫入發票明細';
+          return;
+        }
         if (isQueryDetailMode && !shopValue) {
           errEl.textContent = '請確認商店名稱';
           errEl.classList.remove('hidden');

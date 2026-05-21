@@ -399,12 +399,15 @@ const Scan = (() => {
     const compact = normalized.replace(/\s+/g, '');
     const lines = normalized.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 
-    const invMatch = compact.match(/[A-Z]{2}\d{8}/);
-    const invNum = invMatch ? invMatch[0] : '';
+    const invMatch = normalized.match(/[A-Z]{2}\s*[-－]?\s*\d{8}/);
+    const invNum = invMatch ? invMatch[0].replace(/[^A-Z0-9]/g, '') : '';
 
     let dateForSheet = '';
     let dateMatch = normalized.match(/(\d{3,4})\s*[年\/.-]\s*(\d{1,2})\s*[月\/.-]\s*(\d{1,2})/);
-    if (!dateMatch) dateMatch = compact.match(/(\d{3,4})(\d{2})(\d{2})/);
+    if (!dateMatch) {
+      const dateLine = lines.find(line => /日期|DATE/i.test(line));
+      dateMatch = dateLine?.replace(/\s+/g, '').match(/(\d{3,4})(\d{2})(\d{2})/);
+    }
     if (dateMatch) dateForSheet = _formatInvoiceDate(dateMatch[1], dateMatch[2], dateMatch[3]);
 
     const randScope = lines.find(line => /隨機碼|随机码|RAND/i.test(line)) || '';
@@ -671,9 +674,9 @@ const Scan = (() => {
           <button class="modal-close" id="sqinfo-close">✕</button>
         </div>
         <div class="modal-body">
-          <p class="sconf-warning-text">請確認發票資訊。下一步會開啟與 F22 相同的查詢明細流程，可貼上文字或截圖解析品項。</p>
+          <p class="sconf-warning-text">請確認發票號碼、日期與隨機碼。下一步會開啟與 F22 相同的查詢明細流程，可貼上文字或截圖解析品項。</p>
           <label class="field-label">發票號碼</label>
-          <input type="text" id="sqinfo-inv-num" class="field-input" maxlength="10" value="${_escapeHtml(info.invNum || '')}" placeholder="AB12345678">
+          <input type="text" id="sqinfo-inv-num" class="field-input" maxlength="11" value="${_escapeHtml(info.invNum || '')}" placeholder="BL-12345678">
 
           <label class="field-label">發票日期</label>
           <input type="date" id="sqinfo-date" class="field-input" value="${_escapeHtml(info.dateForSheet || '')}">
@@ -681,11 +684,11 @@ const Scan = (() => {
           <label class="field-label">隨機碼</label>
           <input type="text" id="sqinfo-rand" class="field-input" maxlength="4" inputmode="numeric" value="${_escapeHtml(info.rand || '')}" placeholder="1234">
 
-          <label class="field-label">賣方統編</label>
-          <input type="text" id="sqinfo-seller" class="field-input" maxlength="8" inputmode="numeric" value="${_escapeHtml(info.sellerId || '')}" placeholder="12345678">
+          <label class="field-label">賣方統編（選填）</label>
+          <input type="text" id="sqinfo-seller" class="field-input" maxlength="8" inputmode="numeric" value="${_escapeHtml(info.sellerId || '')}" placeholder="可留空">
 
-          <label class="field-label">總金額</label>
-          <input type="number" id="sqinfo-total" class="field-input" min="1" step="1" inputmode="decimal" value="${info.total ? Number(info.total) : ''}" placeholder="發票總金額">
+          <label class="field-label">總金額（選填）</label>
+          <input type="number" id="sqinfo-total" class="field-input" min="1" step="1" inputmode="decimal" value="${info.total ? Number(info.total) : ''}" placeholder="可由查詢明細合計">
 
           <div class="sconf-warning-actions sqinfo-actions">
             ${_queryLaunchLinks().map(link => `
@@ -731,7 +734,7 @@ const Scan = (() => {
     });
 
     document.getElementById('sqinfo-next')?.addEventListener('click', async () => {
-      const invNum = (document.getElementById('sqinfo-inv-num')?.value || '').toUpperCase().replace(/\s+/g, '');
+      const invNum = (document.getElementById('sqinfo-inv-num')?.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
       const dateForSheet = document.getElementById('sqinfo-date')?.value || '';
       const rand = (document.getElementById('sqinfo-rand')?.value || '').replace(/\D/g, '').slice(0, 4);
       const sellerId = (document.getElementById('sqinfo-seller')?.value || '').replace(/\D/g, '').slice(0, 8);
@@ -739,9 +742,9 @@ const Scan = (() => {
       const errEl = document.getElementById('sqinfo-error');
       errEl?.classList.add('hidden');
 
-      if (!/^[A-Z]{2}\d{8}$/.test(invNum) || !dateForSheet || rand.length !== 4 || sellerId.length !== 8 || !(total > 0)) {
+      if (!/^[A-Z]{2}\d{8}$/.test(invNum) || !dateForSheet || rand.length !== 4) {
         if (errEl) {
-          errEl.textContent = '請確認發票號碼、日期、隨機碼、賣方統編與總金額都正確';
+          errEl.textContent = '請確認發票號碼、日期與隨機碼都正確';
           errEl.classList.remove('hidden');
         }
         return;
@@ -766,7 +769,7 @@ const Scan = (() => {
     const invNum   = _left?.invNum       || '—';
     const date     = _left?.dateForSheet || '';   // YYYY-MM-DD
     const sellerId  = _left?.sellerId   || '';
-    const total     = _left?.total      || 0;
+    let total       = _left?.total      || 0;
     const orderNote = _left?.orderNote  || '';
     // 用賣方統編查經濟部公司名稱；失敗則留空讓使用者手動填
     const shop = await _fetchSellerName(sellerId) || '';
@@ -897,7 +900,8 @@ const Scan = (() => {
       const itemsWrap = document.getElementById('sconf-items-wrap');
       const missingWrap = document.getElementById('sconf-missing-wrap');
       const itemTotal = _sumItems(items);
-      const missing = _missingAmount(total, items);
+      const totalForUi = total > 0 ? total : itemTotal;
+      const missing = total > 0 ? _missingAmount(total, items) : 0;
       const ocrCountNote = getOcrCountNote();
 
       if (itemsWrap) {
@@ -918,9 +922,9 @@ const Scan = (() => {
           <div class="sconf-warning">
             <div class="sconf-warning-title">${isQueryDetailMode ? '貼上查詢明細建立品項' : 'QR Code 明細可能不完整'}</div>
             <div class="sconf-warning-grid">
-              <span>發票總額</span><strong>$${total.toLocaleString('zh-TW')}</strong>
+              <span>發票總額</span><strong>${totalForUi > 0 ? `$${totalForUi.toLocaleString('zh-TW')}` : '待明細合計'}</strong>
               <span>${isQueryDetailMode ? '目前品項合計' : 'QR 品項合計'}</span><strong>$${itemTotal.toLocaleString('zh-TW')}</strong>
-              <span>差額</span><strong class="amount-expense">$${missing.toLocaleString('zh-TW')}</strong>
+              <span>差額</span><strong class="amount-expense">${total > 0 ? `$${missing.toLocaleString('zh-TW')}` : '—'}</strong>
             </div>
             <p class="sconf-warning-text">${isQueryDetailMode ? '請先開啟財政部查詢頁取得消費明細，再貼上文字或截圖解析品項。' : '若這張發票要做「部分」分帳，建議先查詢完整明細或補上差額品項，避免分帳金額錯誤。'}</p>
             <div class="sconf-query-box">
@@ -928,8 +932,8 @@ const Scan = (() => {
                 ['發票號碼', invNum],
                 ['發票日期', queryDate],
                 ['隨機碼', _left?.rand || ''],
-                ['賣方統編', sellerId],
-                ['總金額', total],
+                ...(sellerId ? [['賣方統編', sellerId]] : []),
+                ...(total > 0 ? [['總金額', total]] : []),
               ].map(([label, value]) => `
                 <div class="sconf-copy-row">
                   <span class="sconf-copy-label">${label}</span>
@@ -984,7 +988,7 @@ const Scan = (() => {
                     </div>
                   `).join('')}
                   ${ocrCountNote ? `<div class="sconf-ocr-empty">${_escapeHtml(ocrCountNote)}</div>` : ''}
-                  <div class="sconf-ocr-summary">OCR 合計 $${_sumItems(ocrItems).toLocaleString('zh-TW')} / 發票總額 $${total.toLocaleString('zh-TW')}</div>
+                  <div class="sconf-ocr-summary">OCR 合計 $${_sumItems(ocrItems).toLocaleString('zh-TW')} / 發票總額 ${totalForUi > 0 ? `$${totalForUi.toLocaleString('zh-TW')}` : '待明細合計'}</div>
                   <button class="btn-secondary sconf-ocr-use" id="sconf-ocr-use">使用 OCR 明細</button>
                 ` : ocrRawText ? `<p class="sconf-ocr-empty">${_escapeHtml(ocrCountNote || 'OCR 未解析出品項，請改用手動補品項或補差額。')}</p>` : ''}
               </div>
@@ -1112,6 +1116,7 @@ const Scan = (() => {
           return;
         }
         items = cleaned;
+        if (isQueryDetailMode && !(total > 0)) total = _sumItems(cleaned);
         ocrItems = [];
         ocrRawText = '';
         ocrStatus = isQueryDetailMode ? '已使用查詢明細建立品項' : '已使用 OCR 明細取代 QR 品項';
@@ -1168,6 +1173,14 @@ const Scan = (() => {
       errEl.classList.add('hidden');
 
       try {
+        const effectiveTotal = total > 0 ? total : _sumItems(items);
+        if (!(effectiveTotal > 0)) {
+          errEl.textContent = '請先貼上查詢明細或輸入總金額';
+          errEl.classList.remove('hidden');
+          btn.disabled = false;
+          btn.textContent = '寫入發票明細';
+          return;
+        }
         const missing = _missingAmount(total, items);
         if (missing > 1 && _shared === '部分') {
           errEl.textContent = isQueryDetailMode
@@ -1203,7 +1216,7 @@ const Scan = (() => {
 
         // 寫入發票明細，取得列號
         const invRowIndex = await Sheets.appendInvoiceRow(
-          '掃描發票', date, invNum, shopValue, total, '開立', category, _shared, noteToWrite
+          '掃描發票', date, invNum, shopValue, effectiveTotal, '開立', category, _shared, noteToWrite
         );
 
         // 寫入品項明細，取得第一筆列號
@@ -1215,7 +1228,7 @@ const Scan = (() => {
 
         // 關閉確認 Modal，進入歸屬填寫頁
         el.classList.add('hidden');
-        _showAttribution({ date, invNum, shop: shopValue, total, category, note, shared: _shared, items, invRowIndex, firstItemRow });
+        _showAttribution({ date, invNum, shop: shopValue, total: effectiveTotal, category, note, shared: _shared, items, invRowIndex, firstItemRow });
       } catch (e) {
         errEl.textContent = '寫入失敗：' + e.message;
         errEl.classList.remove('hidden');

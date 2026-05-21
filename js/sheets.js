@@ -322,7 +322,7 @@ const Sheets = (() => {
 
   // ── 發票來源匯入月度帳本 ────────────────────────────
   // 只寫 A:F 與 I:L，保留 G/H 既有公式自動計算分攤。
-  async function appendMonthlyFromInvoice({ date, shop, amount, shared, category, note = '', invNum, invRowIndex, source = '發票' }) {
+  async function appendMonthlyFromInvoice({ date, shop, amount, shared, category, note = '', invNum, invRowIndex, source = '發票', payer = '🌟 Star' }) {
     const now        = new Date();
     const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
     const sourceLink = _dynamicInvoiceLink(invNum);
@@ -334,7 +334,7 @@ const Sheets = (() => {
     const tab     = CONFIG.TABS.MONTHLY;
 
     await _batchUpdate([
-      { range: `${tab}!A${nextRow}:F${nextRow}`, values: [[date, shop, amount, '🌟 Star', shared, category]] },
+      { range: `${tab}!A${nextRow}:F${nextRow}`, values: [[date, shop, amount, payer || '🌟 Star', shared, category]] },
       { range: `${tab}!I${nextRow}:L${nextRow}`, values: [[note, source, sourceLink, importedAt]] },
     ]);
 

@@ -102,6 +102,12 @@ const Scan = (() => {
     return date ? date.replace(/-/g, '/') : '';
   }
 
+  function _defaultPayer() {
+    const email = (Auth.getEmail() || '').toLowerCase();
+    const bearEmail = (CONFIG.EMAIL_WHITELIST?.[1] || '').toLowerCase();
+    return email === bearEmail ? '🐨 Bear' : '🌟 Star';
+  }
+
   function _isAndroid() {
     return /Android/i.test(navigator.userAgent);
   }
@@ -403,10 +409,14 @@ const Scan = (() => {
     const invNum = invMatch ? invMatch[0].replace(/[^A-Z0-9]/g, '') : '';
 
     let dateForSheet = '';
-    let dateMatch = normalized.match(/(\d{3,4})\s*[年\/.-]\s*(\d{1,2})\s*[月\/.-]\s*(\d{1,2})/);
+    let dateMatch = normalized.match(/\b(20\d{2})\s*[\/.-]\s*(\d{1,2})\s*[\/.-]\s*(\d{1,2})\b/);
     if (!dateMatch) {
-      const dateLine = lines.find(line => /日期|DATE/i.test(line));
-      dateMatch = dateLine?.replace(/\s+/g, '').match(/(\d{3,4})(\d{2})(\d{2})/);
+      const dateLine = lines.find(line =>
+        /日期|DATE|開立|时间|時間/i.test(line) &&
+        !/\d{2,3}\s*年\s*\d{1,2}\s*-\s*\d{1,2}\s*月/.test(line)
+      );
+      dateMatch = dateLine?.match(/(\d{3,4})\s*[年\/.-]\s*(\d{1,2})\s*[月\/.-]\s*(\d{1,2})/);
+      if (!dateMatch) dateMatch = dateLine?.replace(/\s+/g, '').match(/(\d{3,4})(\d{2})(\d{2})/);
     }
     if (dateMatch) dateForSheet = _formatInvoiceDate(dateMatch[1], dateMatch[2], dateMatch[3]);
 
@@ -420,7 +430,7 @@ const Scan = (() => {
 
     let total = 0;
     const totalLine = lines.find(line => /總金額|总金额|總計|总计|合計|合计|金額|金额|TOTAL/i.test(line));
-    const totalMatch = totalLine?.match(/(?:總金額|总金额|總計|总计|合計|合计|金額|金额|TOTAL)?\D*(\d{1,6})(?!\d)/i);
+    const totalMatch = totalLine?.match(/(?:總金額|总金额|總計|总计|合計|合计|金額|金额|TOTAL)\s*[:：]?\s*(\d{1,6})(?!\d)/i);
     if (totalMatch) total = parseInt(totalMatch[1], 10) || 0;
 
     return { invNum, dateForSheet, rand, sellerId, total, rawText: text || '' };
@@ -562,7 +572,7 @@ const Scan = (() => {
         if (statusEl) statusEl.textContent = status;
       });
       _stopCamera();
-      await _showQueryInfoModal(info);
+      await _openQueryConfirmFromInfo(info);
     } catch (err) {
       if (statusEl) statusEl.textContent = `辨識失敗：${err.message}`;
     } finally {
@@ -656,6 +666,24 @@ const Scan = (() => {
     } catch {
       return null;
     }
+  }
+
+  async function _openQueryConfirmFromInfo(info = {}) {
+    const invNum = (info.invNum || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const dateForSheet = info.dateForSheet || '';
+    const rand = String(info.rand || '').replace(/\D/g, '').slice(0, 4);
+    const sellerId = String(info.sellerId || '').replace(/\D/g, '').slice(0, 8);
+    const total = Math.round(parseFloat(info.total || '0')) || 0;
+
+    _left = { invNum, dateForSheet, rand, sellerId, total, leftItems: [], orderNote: '[查詢明細記帳]' };
+    _right = { items: [] };
+
+    const overlay = document.getElementById('scan-overlay');
+    overlay?.classList.remove('hidden');
+    const statusEl = document.getElementById('scan-status');
+    if (statusEl) statusEl.textContent = '準備確認發票資訊…';
+    await _showConfirm();
+    overlay?.classList.add('hidden');
   }
 
   async function _showQueryInfoModal(info = {}) {
@@ -766,11 +794,13 @@ const Scan = (() => {
   async function _showConfirm() {
     _mode = 'confirm';
     const isQueryDetailMode = _scanIntent === 'query';
-    const invNum   = _left?.invNum       || '—';
-    const date     = _left?.dateForSheet || '';   // YYYY-MM-DD
-    const sellerId  = _left?.sellerId   || '';
+    let invNum     = _left?.invNum       || '';
+    let date       = _left?.dateForSheet || '';   // YYYY-MM-DD
+    let rand       = _left?.rand         || '';
+    let sellerId   = _left?.sellerId     || '';
     let total       = _left?.total      || 0;
     const orderNote = _left?.orderNote  || '';
+    let payer       = _defaultPayer();
     // 用賣方統編查經濟部公司名稱；失敗則留空讓使用者手動填
     const shop = await _fetchSellerName(sellerId) || '';
     // 合併左側品項（leftItems）與右側品項（_right.items），去除數量/單價均為 0 的標示列
@@ -796,6 +826,18 @@ const Scan = (() => {
     }
 
     const queryDate = _formatQueryDate(date);
+    const invoiceInfoRows = isQueryDetailMode ? `
+          <label class="field-label">發票資訊</label>
+          <div class="sconf-row"><span class="sconf-label">發票號碼</span><input type="text" id="sconf-inv-num" class="field-input" maxlength="11" style="flex:1;margin-left:8px" value="${_escapeHtml(invNum)}" placeholder="BL-12345678"></div>
+          <div class="sconf-row"><span class="sconf-label">日期</span><input type="date" id="sconf-date" class="field-input" style="flex:1;margin-left:8px" value="${_escapeHtml(date)}"></div>
+          <div class="sconf-row"><span class="sconf-label">隨機碼</span><input type="text" id="sconf-rand" class="field-input" maxlength="4" inputmode="numeric" style="flex:1;margin-left:8px" value="${_escapeHtml(rand)}" placeholder="6336"></div>
+          <div class="sconf-row"><span class="sconf-label">賣方統編</span><input type="text" id="sconf-seller" class="field-input" maxlength="8" inputmode="numeric" style="flex:1;margin-left:8px" value="${_escapeHtml(sellerId)}" placeholder="可留空"></div>
+          <div class="sconf-row"><span class="sconf-label">金額</span><input type="number" id="sconf-total" class="field-input" min="1" step="1" inputmode="decimal" style="flex:1;margin-left:8px" value="${total ? Number(total) : ''}" placeholder="可由查詢明細合計"></div>
+    ` : `
+          <div class="sconf-row"><span class="sconf-label">發票號碼</span><span class="sconf-val">${_escapeHtml(invNum || '—')}</span></div>
+          <div class="sconf-row"><span class="sconf-label">日期</span><span class="sconf-val">${_escapeHtml(date || '—')}</span></div>
+          <div class="sconf-row"><span class="sconf-label">金額</span><span class="sconf-val amount-expense">$${total.toLocaleString('zh-TW')}</span></div>
+    `;
     el.innerHTML = `
       <div class="modal-sheet">
         <div class="modal-header">
@@ -803,9 +845,7 @@ const Scan = (() => {
           <button class="modal-close" id="sconf-close">✕</button>
         </div>
         <div class="modal-body">
-          <div class="sconf-row"><span class="sconf-label">發票號碼</span><span class="sconf-val">${_escapeHtml(invNum)}</span></div>
-          <div class="sconf-row"><span class="sconf-label">日期</span><span class="sconf-val">${_escapeHtml(date || '—')}</span></div>
-          <div class="sconf-row"><span class="sconf-label">金額</span><span class="sconf-val amount-expense">$${total.toLocaleString('zh-TW')}</span></div>
+          ${invoiceInfoRows}
           <div class="sconf-row"><span class="sconf-label">商店</span><input type="text" id="sconf-shop" class="field-input" style="flex:1;margin-left:8px" value="${_escapeHtml(shop)}"></div>
 
           <div id="sconf-missing-wrap"></div>
@@ -817,6 +857,12 @@ const Scan = (() => {
             ${CATEGORIES.map(c => `<button class="chip cat-chip" data-cat="${c}">${c}</button>`).join('')}
           </div>
           <input type="hidden" id="sconf-cat" value="">
+
+          <label class="field-label">負責人</label>
+          <div class="chip-row cat-chip-row">
+            <button class="chip sconf-payer ${payer === '🌟 Star' ? 'active' : ''}" data-payer="🌟 Star">🌟 Sin</button>
+            <button class="chip sconf-payer ${payer === '🐨 Bear' ? 'active' : ''}" data-payer="🐨 Bear">🐨 Bear</button>
+          </div>
 
           <label class="field-label">是否共用</label>
           <div class="chip-row cat-chip-row">
@@ -931,7 +977,7 @@ const Scan = (() => {
               ${[
                 ['發票號碼', invNum],
                 ['發票日期', queryDate],
-                ['隨機碼', _left?.rand || ''],
+                ['隨機碼', rand || ''],
                 ...(sellerId ? [['賣方統編', sellerId]] : []),
                 ...(total > 0 ? [['總金額', total]] : []),
               ].map(([label, value]) => `
@@ -1157,6 +1203,14 @@ const Scan = (() => {
       });
     });
 
+    el.querySelectorAll('.sconf-payer').forEach(btn => {
+      btn.addEventListener('click', () => {
+        el.querySelectorAll('.sconf-payer').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        payer = btn.dataset.payer;
+      });
+    });
+
     document.getElementById('sconf-close').addEventListener('click',  _closeConfirm);
     document.getElementById('sconf-cancel').addEventListener('click', _closeConfirm);
     el.addEventListener('click', e => { if (e.target === el) _closeConfirm(); });
@@ -1173,6 +1227,23 @@ const Scan = (() => {
       errEl.classList.add('hidden');
 
       try {
+        if (isQueryDetailMode) {
+          invNum = (document.getElementById('sconf-inv-num')?.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+          date = document.getElementById('sconf-date')?.value || '';
+          rand = (document.getElementById('sconf-rand')?.value || '').replace(/\D/g, '').slice(0, 4);
+          sellerId = (document.getElementById('sconf-seller')?.value || '').replace(/\D/g, '').slice(0, 8);
+          const inputTotal = Math.round(parseFloat(document.getElementById('sconf-total')?.value || '0'));
+          total = inputTotal > 0 ? inputTotal : total;
+
+          if (!/^[A-Z]{2}\d{8}$/.test(invNum) || !date || rand.length !== 4) {
+            errEl.textContent = '請確認發票號碼、日期與隨機碼';
+            errEl.classList.remove('hidden');
+            btn.disabled = false;
+            btn.textContent = '寫入發票明細';
+            return;
+          }
+        }
+
         const effectiveTotal = total > 0 ? total : _sumItems(items);
         if (!(effectiveTotal > 0)) {
           errEl.textContent = '請先貼上查詢明細或輸入總金額';
@@ -1228,7 +1299,7 @@ const Scan = (() => {
 
         // 關閉確認 Modal，進入歸屬填寫頁
         el.classList.add('hidden');
-        _showAttribution({ date, invNum, shop: shopValue, total: effectiveTotal, category, note, shared: _shared, items, invRowIndex, firstItemRow });
+        _showAttribution({ date, invNum, shop: shopValue, total: effectiveTotal, category, note, shared: _shared, payer, items, invRowIndex, firstItemRow });
       } catch (e) {
         errEl.textContent = '寫入失敗：' + e.message;
         errEl.classList.remove('hidden');
@@ -1248,7 +1319,7 @@ const Scan = (() => {
 
   // ── 歸屬填寫頁 ───────────────────────────────────────────────
   // shared: 是/否/部分/-/x；items: [{name, amount}]
-  function _showAttribution({ date, invNum, shop, total, category, note, shared, items, invRowIndex, firstItemRow }) {
+  function _showAttribution({ date, invNum, shop, total, category, note, shared, payer, items, invRowIndex, firstItemRow }) {
     let el = document.getElementById('scan-attr-modal');
     if (!el) {
       el = document.createElement('div');
@@ -1299,6 +1370,7 @@ const Scan = (() => {
           <div class="sconf-row"><span class="sconf-label">發票</span><span class="sconf-val">${invNum}</span></div>
           <div class="sconf-row"><span class="sconf-label">商店</span><span class="sconf-val">${shop || '—'}</span></div>
           <div class="sconf-row"><span class="sconf-label">金額</span><span class="sconf-val amount-expense">$${total.toLocaleString('zh-TW')}</span></div>
+          <div class="sconf-row"><span class="sconf-label">負責人</span><span class="sconf-val">${payer || '🌟 Star'}</span></div>
           <div class="sconf-row"><span class="sconf-label">是否共用</span><span class="sconf-val">${shared}</span></div>
           ${needsAttribution ? `<div class="section-title" style="margin-top:12px">逐項歸屬</div>` : ''}
           <div id="attr-items-wrap">${itemRows}</div>
@@ -1416,7 +1488,7 @@ const Scan = (() => {
           }
         }
 
-        await Sheets.appendMonthlyFromScan({ date, shop, amount: total, shared, category, note, invNum, invRowIndex, sinShare, bearShare });
+        await Sheets.appendMonthlyFromScan({ date, shop, amount: total, shared, category, note, invNum, invRowIndex, payer, sinShare, bearShare });
 
         _closeAttribution();
         alert(`✓ 發票 ${invNum} 已匯入月度帳本`);

@@ -320,6 +320,10 @@ const Sheets = (() => {
     await _update(`${CONFIG.TABS.INVOICE}!J${rowIndex}`, [[true]]);
   }
 
+  async function setInvoiceImported(rowIndex, imported) {
+    await _update(`${CONFIG.TABS.INVOICE}!J${rowIndex}`, [[!!imported]]);
+  }
+
   // ── 發票來源匯入月度帳本 ────────────────────────────
   // 只寫 A:F 與 I:L，保留 G/H 既有公式自動計算分攤。
   async function appendMonthlyFromInvoice({ date, shop, amount, shared, category, note = '', invNum, invRowIndex, source = '發票', payer = '🌟 Star' }) {
@@ -830,7 +834,7 @@ const Sheets = (() => {
       country:      r[5]  || '',
       category:     r[6]  || '',
       shared:       r[7]  || '',
-      imported:     r[8]  || '',
+      matched:      r[8]  || '',
       note:         r[9]  || '',
       posted:       r[10] === 'TRUE' || r[10] === true,
       billingMonth: r[11] || '',
@@ -842,7 +846,7 @@ const Sheets = (() => {
     updateMonthlyRow, deleteMonthlyRow,
     getInvoiceData, getItemData, updateItemRow,
     checkDuplicateInvoice, appendInvoiceRow, appendItemRows, appendSyntheticItemRow,
-    markInvoiceImported, appendMonthlyFromInvoice, appendMonthlyFromScan,
+    markInvoiceImported, setInvoiceImported, appendMonthlyFromInvoice, appendMonthlyFromScan,
     upsertRepayment,
     getCCPendingData, updateCCShared, updateInvoiceShared,
     getCCAllData, linkCCToInvoice,

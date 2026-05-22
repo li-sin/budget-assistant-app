@@ -954,6 +954,84 @@ select.field-input { height: 44px; }
   margin-left: 3px;
   vertical-align: middle;
 }
+.badge-linked {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(242,201,76,0.18);
+  color: #F2C94C;
+  border: 0;
+  border-radius: 10px;
+  padding: 1px 5px;
+  margin-left: 3px;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.cc-badge-row {
+  display: flex;
+  gap: 3px;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.swipe-unlink-bg { background: #C89B22; }
+.cc-link-card {
+  margin: 0 0 8px 40px;
+  padding: 8px 10px;
+  background: rgba(242,201,76,0.08);
+  border-left: 2px solid #F2C94C;
+  border-radius: 0 6px 6px 0;
+}
+.cc-link-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.cc-link-card-sub {
+  font-size: 11px;
+  color: var(--text-sub);
+  white-space: normal;
+}
+.cc-link-grid {
+  display: grid;
+  grid-template-columns: 34px minmax(0,1fr) 32px;
+  gap: 6px 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+.cc-link-grid strong {
+  color: var(--text);
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-link-jump {
+  width: 32px;
+  height: 28px;
+  border: 1px solid rgba(242,201,76,0.5);
+  border-radius: 6px;
+  background: rgba(242,201,76,0.12);
+  color: #F2C94C;
+  font-size: 15px;
+  cursor: pointer;
+}
+.cc-unlink-confirm {
+  background: #C89B22 !important;
+  color: #fff !important;
+}
+.cc-unlink-info {
+  font-size: 13px;
+  color: var(--text-sub);
+  line-height: 1.6;
+}
+.cc-unlink-summary p {
+  margin-top: 8px;
+  color: var(--text);
+}
 
 /* ── F20 Invoice edit section (expand area) ─────── */
 .inv-edit-section {

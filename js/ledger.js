@@ -28,6 +28,9 @@ const Ledger = (() => {
   let _ccRows          = [];
   let _ccSharedFilter  = new Set();
   let _ccSearchQuery   = '';
+  let _invoiceScrollRow = null;
+  let _ccUnlinkRow      = null;
+  let _ccUnlinkContext  = null;
 
   function _collapseActiveSwipe() {
     if (!_swipeActiveWrap) return;
@@ -223,7 +226,7 @@ const Ledger = (() => {
       if (!row) return;
       _collapseActiveSwipe();
       const src = row.source || '';
-      if (src === '發票' || src === '掃描發票') _openDeleteModal(row);
+      if (src === '發票' || src === '掃描發票' || src === '手查發票') _openDeleteModal(row);
       else if (src === '信用卡') _openCCDeleteModal(row);
       else _openManualDeleteModal(row);
     });
@@ -287,6 +290,148 @@ const Ledger = (() => {
       }, { passive: true });
 
       // 桌面滑鼠支援：touchend 後 500ms 內的 mousedown 為 iOS 合成事件，略過
+      let mouseStartX = 0, mouseStartOffset = 0, mouseDragging = false;
+      const onMouseMove = e => {
+        const dx = e.clientX - mouseStartX;
+        if (!mouseDragging) {
+          if (Math.abs(dx) < 10) return;
+          mouseDragging = true;
+          inner.style.transition = '';
+          inner.style.cursor = 'grabbing';
+          _positionBg(wrap);
+        }
+        inner.style.transform = `translateX(${Math.min(0, Math.max(SNAP_OPEN, mouseStartOffset + dx))}px)`;
+      };
+      const onMouseUp = e => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        if (!mouseDragging) return;
+        mouseDragging = false;
+        inner.style.cursor = '';
+        const dx = e.clientX - mouseStartX;
+        if (mouseStartOffset + dx < THRESHOLD) {
+          if (mouseStartOffset === SNAP_OPEN && Math.abs(dx) < 30) {
+            _collapseActiveSwipe();
+          } else {
+            if (_swipeActiveWrap && _swipeActiveWrap !== wrap) _collapseActiveSwipe();
+            inner.style.transition = 'transform 0.2s';
+            inner.style.transform  = `translateX(${SNAP_OPEN}px)`;
+            inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
+            _positionBg(wrap);
+            sharedBg.classList.add('swipe-open');
+            _swipeActiveWrap = wrap;
+            wrap.classList.add('swipe-open');
+          }
+        } else {
+          inner.style.transition = 'transform 0.2s';
+          inner.style.transform  = '';
+          sharedBg.classList.remove('swipe-open');
+          sharedBg.style.display = 'none';
+          inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
+          if (_swipeActiveWrap === wrap) { _swipeActiveWrap = null; wrap.classList.remove('swipe-open'); }
+        }
+      };
+      inner.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        if (Date.now() - _lastTouchEnd < 500) return;
+        mouseStartX = e.clientX;
+        mouseStartOffset = _swipeActiveWrap === wrap ? SNAP_OPEN : 0;
+        mouseDragging = false;
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      });
+    });
+  }
+
+  function _setupCCUnlinkSwipe(containerEl) {
+    const SNAP_OPEN = -80;
+    const THRESHOLD = -40;
+    let _lastTouchEnd = 0;
+
+    containerEl.style.position = 'relative';
+    const sharedBg = document.createElement('div');
+    sharedBg.className = 'swipe-delete-bg swipe-unlink-bg';
+    sharedBg.innerHTML = '<button class="swipe-del-btn swipe-unlink-btn">解除</button>';
+    sharedBg.style.display = 'none';
+    containerEl.appendChild(sharedBg);
+    _sharedDeleteBg = sharedBg;
+
+    function _positionBg(wrap) {
+      const wr = wrap.getBoundingClientRect();
+      const cr = containerEl.getBoundingClientRect();
+      sharedBg.style.top    = (wr.top - cr.top + containerEl.scrollTop) + 'px';
+      sharedBg.style.height = wr.height + 'px';
+      sharedBg.style.display = '';
+      sharedBg.classList.remove('swipe-open');
+    }
+
+    sharedBg.querySelector('.swipe-unlink-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      const wrap = _swipeActiveWrap;
+      if (!wrap) return;
+      const rowIndex = parseInt(wrap.querySelector('.list-item').dataset.row, 10);
+      const row = _ccRows.find(r => r.rowIndex === rowIndex);
+      if (!row || !row.matched) return;
+      _collapseActiveSwipe();
+      _openCCUnlinkModal(row);
+    });
+
+    containerEl.querySelectorAll('.cc-link-wrap').forEach(wrap => {
+      const inner = wrap.querySelector('.list-item');
+      if (!inner) return;
+      let startX = 0, startY = 0, dragging = false, isHoriz = null, startOffset = 0;
+
+      inner.addEventListener('touchstart', e => {
+        if (e.touches.length !== 1) return;
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        startOffset = _swipeActiveWrap === wrap ? SNAP_OPEN : 0;
+        dragging = true;
+        isHoriz  = null;
+        inner.style.transition = '';
+      }, { passive: true });
+
+      inner.addEventListener('touchmove', e => {
+        if (!dragging || e.touches.length !== 1) return;
+        const dx = e.touches[0].clientX - startX;
+        const dy = e.touches[0].clientY - startY;
+        if (isHoriz === null) {
+          if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+          isHoriz = Math.abs(dx) > Math.abs(dy) * 2;
+          if (isHoriz) _positionBg(wrap);
+        }
+        if (!isHoriz) { dragging = false; return; }
+        inner.style.transform = `translateX(${Math.min(0, Math.max(SNAP_OPEN, startOffset + dx))}px)`;
+      }, { passive: true });
+
+      inner.addEventListener('touchend', e => {
+        _lastTouchEnd = Date.now();
+        if (!dragging || !isHoriz) { dragging = false; return; }
+        dragging = false;
+        const dx = e.changedTouches[0].clientX - startX;
+        if (startOffset + dx < THRESHOLD) {
+          if (startOffset === SNAP_OPEN && Math.abs(dx) < 20) {
+            _collapseActiveSwipe();
+          } else {
+            if (_swipeActiveWrap && _swipeActiveWrap !== wrap) _collapseActiveSwipe();
+            inner.style.transition = 'transform 0.2s';
+            inner.style.transform  = `translateX(${SNAP_OPEN}px)`;
+            inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
+            _positionBg(wrap);
+            sharedBg.classList.add('swipe-open');
+            _swipeActiveWrap = wrap;
+            wrap.classList.add('swipe-open');
+          }
+        } else {
+          inner.style.transition = 'transform 0.2s';
+          inner.style.transform  = '';
+          sharedBg.classList.remove('swipe-open');
+          sharedBg.style.display = 'none';
+          inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
+          if (_swipeActiveWrap === wrap) { _swipeActiveWrap = null; wrap.classList.remove('swipe-open'); }
+        }
+      }, { passive: true });
+
       let mouseStartX = 0, mouseStartOffset = 0, mouseDragging = false;
       const onMouseMove = e => {
         const dx = e.clientX - mouseStartX;
@@ -503,6 +648,77 @@ const Ledger = (() => {
       const sel = document.getElementById('ledger-cat');
       if (sel) sel.value = _catFilter;
     }
+  }
+
+  function _hasPlatformKeyword(text = '') {
+    const s = String(text || '').toLowerCase();
+    return CONFIG.CC_PAY_KEYWORDS.some(kw => s.includes(String(kw).toLowerCase()));
+  }
+
+  async function _getCCLinkContext(row) {
+    const invNum = row?.matched || '';
+    if (!invNum) return { invNum: '', invoice: null, monthlyRows: [], platformRows: [], mode: 'none' };
+    const [allInvoices, monthlyRows] = await Promise.all([
+      Sheets.getInvoiceData(),
+      Sheets.getMonthlyData(_year, _month),
+    ]);
+    _allRows = monthlyRows;
+    const invoice = allInvoices.find(inv => inv.invNum === invNum) || null;
+    const linkedMonthly = monthlyRows.filter(r => r.sourceLink === invNum);
+    const appMonthly = linkedMonthly.filter(r => r.source === '掃描發票' || r.source === '手查發票');
+    const invoiceAmount = invoice?.amount || 0;
+    const platformRows = appMonthly.filter(r =>
+      Math.abs((r.amount || 0) - (row.amount || 0)) <= 1 &&
+      (_hasPlatformKeyword(invoice?.note) || _hasPlatformKeyword(r.note)) &&
+      (!(r.note || '').trim() || Math.abs(invoiceAmount - (row.amount || 0)) > 1)
+    );
+    return {
+      invNum,
+      invoice,
+      monthlyRows: linkedMonthly,
+      platformRows,
+      mode: platformRows.length ? 'platform' : 'duplicate',
+    };
+  }
+
+  function _highlightTarget(target) {
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const overlay = document.createElement('div');
+    overlay.className = 'highlight-overlay';
+    target.appendChild(overlay);
+    overlay.addEventListener('animationend', () => { overlay.remove(); });
+  }
+
+  function _setSubTab(tab) {
+    _activeSubTab = tab;
+    document.querySelectorAll('.sub-tab-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.subtab === tab));
+    document.getElementById('monthly-section')?.classList.toggle('hidden', tab !== 'monthly');
+    document.getElementById('inv-section')?.classList.toggle('hidden', tab !== 'invoice');
+    document.getElementById('cc-section')?.classList.toggle('hidden', tab !== 'cc');
+  }
+
+  async function _jumpToInvoice(invRowIndex) {
+    if (!invRowIndex) return;
+    _invoiceScrollRow = invRowIndex;
+    _setSubTab('invoice');
+    _invSearchQuery = '';
+    _invSharedFilter = new Set();
+    const search = document.getElementById('inv-search');
+    if (search) search.value = '';
+    document.getElementById('inv-search-clear')?.classList.add('hidden');
+    document.querySelectorAll('#inv-shared-chips .chip')
+      .forEach(b => b.classList.toggle('active', b.dataset.invShared === 'all'));
+    await _loadInvoiceTab();
+  }
+
+  function _jumpToMonthly(rowIndex) {
+    if (!rowIndex) return;
+    _setSubTab('monthly');
+    _resetFilters();
+    _pendingScrollRow = rowIndex;
+    _renderList();
   }
 
   // ── CC 配對 G/H 計算（cc-gh-logic.md）───────────────────────
@@ -1739,6 +1955,161 @@ const Ledger = (() => {
     _ccSubEditRow = null;
   }
 
+  async function _toggleCCLinkCard(row, triggerEl) {
+    const existing = document.getElementById(`cc-link-card-${row.rowIndex}`);
+    if (existing) {
+      existing.remove();
+      return;
+    }
+
+    document.querySelectorAll('.cc-link-card').forEach(el => el.remove());
+    const host = triggerEl.closest('.swipe-container') || triggerEl.closest('.list-item');
+    if (!host) return;
+    const card = document.createElement('div');
+    card.id = `cc-link-card-${row.rowIndex}`;
+    card.className = 'cc-link-card';
+    card.innerHTML = '<div class="spinner"></div>';
+    host.insertAdjacentElement('afterend', card);
+
+    try {
+      const ctx = await _getCCLinkContext(row);
+      const inv = ctx.invoice;
+      const monthly = ctx.monthlyRows[0] || null;
+      const modeLabel = ctx.mode === 'platform' ? '平台配對' : '重複防護';
+      const modeText = ctx.mode === 'platform'
+        ? '解除後會刪除配對產生的月度帳本，並讓發票回待處理。'
+        : '解除後只恢復 CC，不刪除月度帳本。';
+      card.innerHTML = `
+        <div class="cc-link-card-head">
+          <span class="badge-linked">${modeLabel}</span>
+          <span class="cc-link-card-sub">${modeText}</span>
+        </div>
+        <div class="cc-link-grid">
+          <span>發票</span>
+          <strong>${inv ? `${inv.invNum} · ${inv.shop || '（未知）'} · $${inv.amount.toLocaleString('zh-TW')}` : '找不到發票'}</strong>
+          ${inv ? '<button class="cc-link-jump" data-jump="invoice" title="看發票">🧾</button>' : '<span></span>'}
+          <span>月度</span>
+          <strong>${monthly ? `${monthly.date} · ${monthly.item || monthly.source} · $${monthly.amount.toLocaleString('zh-TW')}` : '找不到月度帳本'}</strong>
+          ${monthly ? '<button class="cc-link-jump" data-jump="monthly" title="看月度帳本">📒</button>' : '<span></span>'}
+        </div>
+      `;
+      card.querySelector('[data-jump="invoice"]')?.addEventListener('click', e => {
+        e.stopPropagation();
+        _jumpToInvoice(inv.rowIndex);
+      });
+      card.querySelector('[data-jump="monthly"]')?.addEventListener('click', e => {
+        e.stopPropagation();
+        _jumpToMonthly(monthly.rowIndex);
+      });
+    } catch (e) {
+      card.innerHTML = `<p class="add-error">連結資料讀取失敗：${e.message}</p>`;
+    }
+  }
+
+  function _buildCCUnlinkModal() {
+    if (document.getElementById('cc-unlink-modal')) return;
+    const el = document.createElement('div');
+    el.id = 'cc-unlink-modal';
+    el.className = 'modal-overlay hidden';
+    el.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <span class="modal-title" id="cc-unlink-title">解除 CC 配對</span>
+          <button class="modal-close" id="cc-unlink-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div id="cc-unlink-info" class="cc-unlink-info"></div>
+          <p id="cc-unlink-error" class="add-error hidden" style="margin-top:12px;"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="cc-unlink-cancel">取消</button>
+          <button class="btn-primary cc-unlink-confirm" id="cc-unlink-confirm">確認解除</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    document.getElementById('cc-unlink-close').addEventListener('click', _closeCCUnlinkModal);
+    document.getElementById('cc-unlink-cancel').addEventListener('click', _closeCCUnlinkModal);
+    el.addEventListener('click', e => { if (e.target === el) _closeCCUnlinkModal(); });
+    document.getElementById('cc-unlink-confirm').addEventListener('click', _confirmCCUnlink);
+  }
+
+  async function _openCCUnlinkModal(row) {
+    _buildCCUnlinkModal();
+    _ccUnlinkRow = row;
+    _ccUnlinkContext = null;
+    const info = document.getElementById('cc-unlink-info');
+    const errEl = document.getElementById('cc-unlink-error');
+    const btn = document.getElementById('cc-unlink-confirm');
+    errEl.classList.add('hidden');
+    btn.disabled = true;
+    btn.textContent = '載入中...';
+    info.innerHTML = '<div class="spinner"></div>';
+    document.getElementById('cc-unlink-modal').classList.remove('hidden');
+    try {
+      const ctx = await _getCCLinkContext(row);
+      _ccUnlinkContext = ctx;
+      const inv = ctx.invoice;
+      const modeLabel = ctx.mode === 'platform' ? '平台配對' : '重複防護';
+      const impact = ctx.mode === 'platform'
+        ? `將清除 CC 連結、刪除 ${ctx.platformRows.length} 筆配對產生的月度帳本，並把發票改回未匯入。`
+        : '將清除 CC 連結，不刪除月度帳本，發票已匯入狀態維持不變。';
+      info.innerHTML = `
+        <div class="cc-unlink-summary">
+          <div><span class="badge-linked">${modeLabel}</span></div>
+          <div>${row.bank}　${row.txDate}　$${row.amount.toLocaleString('zh-TW')}</div>
+          <div>${inv ? `${inv.invNum}　${inv.shop || '（未知）'}` : row.matched}</div>
+          <p>${impact}</p>
+        </div>
+      `;
+      btn.disabled = false;
+      btn.textContent = '確認解除';
+    } catch (e) {
+      info.innerHTML = '';
+      errEl.textContent = '載入失敗：' + e.message;
+      errEl.classList.remove('hidden');
+      btn.textContent = '確認解除';
+    }
+  }
+
+  function _closeCCUnlinkModal() {
+    document.getElementById('cc-unlink-modal')?.classList.add('hidden');
+    _ccUnlinkRow = null;
+    _ccUnlinkContext = null;
+  }
+
+  async function _confirmCCUnlink() {
+    const row = _ccUnlinkRow;
+    const ctx = _ccUnlinkContext;
+    if (!row || !ctx) return;
+    const errEl = document.getElementById('cc-unlink-error');
+    const btn = document.getElementById('cc-unlink-confirm');
+    errEl.classList.add('hidden');
+    btn.disabled = true;
+    btn.textContent = '解除中...';
+    try {
+      await Sheets.unlinkCC(row.rowIndex);
+      if (ctx.mode === 'platform') {
+        const rows = [...ctx.platformRows].sort((a, b) => b.rowIndex - a.rowIndex);
+        for (const mr of rows) {
+          await Sheets.deleteMonthlyRow(mr.rowIndex, mr.date.slice(0, 7));
+        }
+        if (ctx.invoice) await Sheets.setInvoiceImported(ctx.invoice.rowIndex, false);
+      }
+      _closeCCUnlinkModal();
+      _allRows = await Sheets.getMonthlyData(_year, _month);
+      _ccRows = [];
+      await _loadCCTab();
+      window.Home?.reload();
+      window.Pending?.reload?.();
+      window.Stats?.reload?.();
+    } catch (e) {
+      errEl.textContent = '解除失敗：' + e.message;
+      errEl.classList.remove('hidden');
+      btn.disabled = false;
+      btn.textContent = '確認解除';
+    }
+  }
+
   // ── Sub-tab 輔助 ──────────────────────────────────────────────
 
   function _reloadActiveTab() {
@@ -1802,6 +2173,11 @@ const Ledger = (() => {
         });
       });
     }
+    if (_invoiceScrollRow !== null) {
+      const rowIndex = _invoiceScrollRow;
+      _invoiceScrollRow = null;
+      requestAnimationFrame(() => _highlightTarget(el.querySelector(`.list-item[data-row="${rowIndex}"]`)));
+    }
   }
 
   async function _loadCCTab() {
@@ -1818,6 +2194,8 @@ const Ledger = (() => {
   }
 
   function _renderCCList() {
+    _swipeActiveWrap = null;
+    _sharedDeleteBg  = null;
     const el = document.getElementById('cc-list');
     if (!el) return;
     const q = _ccSearchQuery.toLowerCase();
@@ -1836,7 +2214,8 @@ const Ledger = (() => {
       const mmdd = r.txDate.slice(5).replace('-', '/');
       const sharedLabel   = r.shared ? `<span class="tag-shared">${r.shared}</span>` : '';
       const importedBadge = r.posted ? '<span class="badge-imported">已匯入</span>' : '';
-      return `
+      const linkedBadge   = r.matched ? `<button type="button" class="badge-linked cc-link-toggle" data-row="${r.rowIndex}" title="顯示連結">已連結</button>` : '';
+      const rowHtml = `
         <div class="list-item${isSin ? ' list-item-editable' : ''}" data-row="${r.rowIndex}">
           <span class="list-item-icon">${r.category || '💳'}</span>
           <div class="list-item-body">
@@ -1845,9 +2224,10 @@ const Ledger = (() => {
           </div>
           <div class="list-item-right">
             <div class="amount-expense">$${r.amount.toLocaleString('zh-TW')}</div>
-            ${importedBadge}
+            <div class="cc-badge-row">${importedBadge}${linkedBadge}</div>
           </div>
         </div>`;
+      return r.matched ? `<div class="swipe-container cc-link-wrap" data-row="${r.rowIndex}">${rowHtml}</div>` : rowHtml;
     }).join('');
     if (isSin) {
       el.querySelectorAll('.list-item[data-row]').forEach(item => {
@@ -1856,7 +2236,15 @@ const Ledger = (() => {
           if (row) _openCCSubModal(row);
         });
       });
+      _setupCCUnlinkSwipe(el);
     }
+    el.querySelectorAll('.cc-link-toggle').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const row = _ccRows.find(r => r.rowIndex === parseInt(btn.dataset.row, 10));
+        if (row) _toggleCCLinkCard(row, btn);
+      });
+    });
   }
 
   // ── Shell ─────────────────────────────────────────────────────
@@ -1998,12 +2386,7 @@ const Ledger = (() => {
     // Sub-tab 切換
     document.querySelectorAll('.sub-tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        _activeSubTab = btn.dataset.subtab;
-        document.getElementById('monthly-section').classList.toggle('hidden', _activeSubTab !== 'monthly');
-        document.getElementById('inv-section').classList.toggle('hidden', _activeSubTab !== 'invoice');
-        document.getElementById('cc-section').classList.toggle('hidden', _activeSubTab !== 'cc');
+        _setSubTab(btn.dataset.subtab);
         if (_activeSubTab === 'invoice') _loadInvoiceTab();
         else if (_activeSubTab === 'cc') _loadCCTab();
       });

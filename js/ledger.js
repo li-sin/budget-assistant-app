@@ -17,6 +17,8 @@ const Ledger = (() => {
   let _pendingScrollRow = null;
   let _itemsCache    = null;
   let _itemsCacheTs  = 0;
+  let _invoiceCache  = null;
+  let _invoiceCacheTs = 0;
   const ITEMS_CACHE_TTL = 5 * 60 * 1000;
   let _expandCCRow   = null; // 展開中發票的 CC 配對列（有配對才非 null）
   let _swipeActiveWrap  = null;
@@ -41,6 +43,27 @@ const Ledger = (() => {
     inner.style.transform  = '';
     inner.addEventListener('transitionend', () => { inner.style.transition = ''; }, { once: true });
     _swipeActiveWrap = null;
+  }
+
+  async function _getItemCache() {
+    if (!_itemsCache || Date.now() - _itemsCacheTs >= ITEMS_CACHE_TTL) {
+      _itemsCache   = await Sheets.getItemData();
+      _itemsCacheTs = Date.now();
+    }
+    return _itemsCache;
+  }
+
+  async function _getInvoiceCache() {
+    if (!_invoiceCache || Date.now() - _invoiceCacheTs >= ITEMS_CACHE_TTL) {
+      _invoiceCache   = await Sheets.getInvoiceData();
+      _invoiceCacheTs = Date.now();
+    }
+    return _invoiceCache;
+  }
+
+  function _clearInvoiceCache() {
+    _invoiceCache = null;
+    _invoiceCacheTs = 0;
   }
 
   let _editPayer  = '🌟 Star';
@@ -659,7 +682,7 @@ const Ledger = (() => {
     const invNum = row?.matched || '';
     if (!invNum) return { invNum: '', invoice: null, monthlyRows: [], platformRows: [], mode: 'none' };
     const [allInvoices, monthlyRows] = await Promise.all([
-      Sheets.getInvoiceData(),
+      _getInvoiceCache(),
       Sheets.getMonthlyData(_year, _month),
     ]);
     _allRows = monthlyRows;
@@ -753,19 +776,15 @@ const Ledger = (() => {
 
     btnEl.textContent = '…';
     try {
-      // 載入品項快取
-      if (!_itemsCache || Date.now() - _itemsCacheTs >= ITEMS_CACHE_TTL) {
-        _itemsCache   = await Sheets.getItemData();
-        _itemsCacheTs = Date.now();
-      }
-      // 載入發票資料（取得 invoice rowIndex 和原始欄位值）
-      const allInvoices = await Sheets.getInvoiceData();
       const invNum  = row.sourceLink;
+      // 品項、發票與 CC 連結互不相依，平行抓可避免展開時累加 Sheets 延遲。
+      const [allItems, allInvoices, ccRows] = await Promise.all([
+        _getItemCache(),
+        _getInvoiceCache(),
+        Sheets.getCCForInvoice(invNum),
+      ]);
       const invRow  = allInvoices.find(inv => inv.invNum === invNum);
-      const invItems = _itemsCache.filter(it => it.invNum === invNum);
-
-      // 查 CC 配對（一次，快取到 _expandCCRow 供所有儲存操作共用）
-      const ccRows = await Sheets.getCCForInvoice(invNum);
+      const invItems = allItems.filter(it => it.invNum === invNum);
       _expandCCRow = ccRows.length ? ccRows[0] : null;
 
       const detail = document.createElement('div');
@@ -1076,6 +1095,7 @@ const Ledger = (() => {
         await Sheets.deleteMonthlyRow(monthlyRow.rowIndex, ym);
         // 更新發票 H/G/I
         await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: newShared, note: newNote });
+        _clearInvoiceCache();
         // 重建 UI（月度列已消失）
         _itemsCache = null;
         await _load();
@@ -1113,6 +1133,7 @@ const Ledger = (() => {
               note: '新增此欄用以修改自訂Bear負擔金額' }
           );
           await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: newShared, note: newNote });
+          _clearInvoiceCache();
           // 月度帳本 E/F 更新；G/H 由公式自動重算，不直接寫入
           await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: '部分', category: newCat }, ym);
           // CC 連結：靜態 G/H 需手動重算
@@ -1142,6 +1163,7 @@ const Ledger = (() => {
           _itemsCache = null;
         }
         await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: newShared, note: newNote });
+        _clearInvoiceCache();
         await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: newShared, category: newCat }, ym);
         // CC 連結：靜態 G/H 需手動重算（品項歸屬已清除，items 傳 []）
         if (ccRow) {
@@ -1151,6 +1173,7 @@ const Ledger = (() => {
       } else {
         // 一般情況
         await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: newShared, note: newNote });
+        _clearInvoiceCache();
         await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: newShared, category: newCat }, ym);
         // CC 連結：靜態 G/H 需手動重算
         if (ccRow) {
@@ -1310,6 +1333,7 @@ const Ledger = (() => {
         }
         // 更新發票 H
         await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: '部分', note: newNote });
+        _clearInvoiceCache();
         const ym = monthlyRow.date.slice(0, 7);
         await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: '部分', category: newCat }, ym);
         // CC 連結：靜態 G/H 需手動重算（從 modal DOM 讀取剛設定的歸屬）
@@ -1596,6 +1620,7 @@ const Ledger = (() => {
 
       // 6. 刪除發票明細
       if (invRow) await Sheets.deleteInvoiceRow(invRow.rowIndex);
+      _clearInvoiceCache();
 
       // 7. 清快取並重整
       _itemsCache = null;
@@ -1837,6 +1862,7 @@ const Ledger = (() => {
       btn.disabled = true; btn.textContent = '儲存中…';
       try {
         await Sheets.updateInvoiceFields(row.rowIndex, { category: cat, shared: _invSubEditShared, note });
+        _clearInvoiceCache();
         _closeInvSubModal();
         _invRows = [];
         await _loadInvoiceTab();
@@ -2093,7 +2119,10 @@ const Ledger = (() => {
         for (const mr of rows) {
           await Sheets.deleteMonthlyRow(mr.rowIndex, mr.date.slice(0, 7));
         }
-        if (ctx.invoice) await Sheets.setInvoiceImported(ctx.invoice.rowIndex, false);
+        if (ctx.invoice) {
+          await Sheets.setInvoiceImported(ctx.invoice.rowIndex, false);
+          _clearInvoiceCache();
+        }
       }
       _closeCCUnlinkModal();
       _allRows = await Sheets.getMonthlyData(_year, _month);
@@ -2224,7 +2253,7 @@ const Ledger = (() => {
           </div>
           <div class="list-item-right">
             <div class="amount-expense">$${r.amount.toLocaleString('zh-TW')}</div>
-            <div class="cc-badge-row">${importedBadge}${linkedBadge}</div>
+            <div class="cc-badge-row">${linkedBadge}${importedBadge}</div>
           </div>
         </div>`;
       return r.matched ? `<div class="swipe-container cc-link-wrap" data-row="${r.rowIndex}">${rowHtml}</div>` : rowHtml;

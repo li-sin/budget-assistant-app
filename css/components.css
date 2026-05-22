@@ -953,6 +953,9 @@ select.field-input { height: 44px; }
   padding: 1px 5px;
   margin-left: 3px;
   vertical-align: middle;
+  flex: 0 0 auto;
+  order: 2;
+  white-space: nowrap;
 }
 .badge-linked {
   display: inline-block;
@@ -966,13 +969,16 @@ select.field-input { height: 44px; }
   margin-left: 3px;
   vertical-align: middle;
   cursor: pointer;
+  flex: 0 0 auto;
+  order: 1;
+  white-space: nowrap;
 }
 .cc-badge-row {
   display: flex;
   gap: 3px;
   justify-content: flex-end;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 .swipe-unlink-bg { background: #C89B22; }
 .cc-link-card {

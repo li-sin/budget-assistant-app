@@ -463,12 +463,13 @@ const Sheets = (() => {
     const now = new Date();
     const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
     const sourceLink = _dynamicInvoiceLink(inv.invNum);
+    const source = inv.carrier === '手查發票' ? '手查發票' : '掃描發票';
 
     const row = [
       inv.date, inv.shop, cc.amount,
       '🌟 Star', inv.shared, inv.category || '',
       sinShare, bearShare, '',
-      '掃描發票', sourceLink, importedAt,
+      source, sourceLink, importedAt,
     ];
     await appendMonthlyRow(row);
     await markInvoiceImported(inv.rowIndex);

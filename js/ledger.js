@@ -121,7 +121,8 @@ const Ledger = (() => {
       return;
     }
 
-    const srcIcon = s => s === '發票' ? '🧾' : s === '信用卡' ? '💳' : s === '掃描發票' ? '📷' : '✏️';
+    const srcIcon = s => s === '發票' ? '🧾' : s === '信用卡' ? '💳' : (s === '掃描發票' || s === '手查發票') ? '📷' : '✏️';
+    const isInvoiceSource = s => s === '發票' || s === '掃描發票' || s === '手查發票';
     const isSin   = _isSin();
 
     el.innerHTML = rows.map(r => {
@@ -134,7 +135,7 @@ const Ledger = (() => {
         ? '<span class="badge badge-bear">Bear付</span>' : '';
       const sharedLabel = r.shared ? `<span class="tag-shared">${r.shared}</span>` : '';
       const noteText    = r.note   ? `<span class="ledger-note"> ${r.note}</span>` : '';
-      const isInvoice   = (r.source === '發票' || r.source === '掃描發票') && r.sourceLink;
+      const isInvoice   = isInvoiceSource(r.source) && r.sourceLink;
       const sharesRow   = shares.length
         ? `<div class="ledger-shares">${shares.join('　')}</div>` : '';
       return `
@@ -162,7 +163,7 @@ const Ledger = (() => {
         const rowIndex = parseInt(btn.dataset.row, 10);
         const row = _allRows.find(r => r.rowIndex === rowIndex);
         if (!row) return;
-        const isInv = (row.source === '發票' || row.source === '掃描發票') && row.sourceLink;
+        const isInv = isInvoiceSource(row.source) && row.sourceLink;
         if (isInv) _toggleItemDetail(row, btn);
         else _toggleNonInvoiceDetail(row, btn);
       });
@@ -1902,6 +1903,7 @@ const Ledger = (() => {
               <option value="信用卡">💳 信用卡</option>
               <option value="發票">🧾 發票</option>
               <option value="掃描發票">📷 掃描</option>
+              <option value="手查發票">📷 手查</option>
               <option value="手動記帳">✏️ 手動</option>
             </select>
             <select id="ledger-cat" class="cat-select">

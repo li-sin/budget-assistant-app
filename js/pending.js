@@ -3,6 +3,11 @@ const Pending = (() => {
   let _bankFilter = '';  // '' = 全部；有值時只顯示 cc_pending 且 cc.bank === _bankFilter
   let _jumpBank   = null; // jumpTo 暫存，等 activate/init 時套用
 
+  const APP_INVOICE_CARRIERS = new Set(['掃描發票', '手查發票']);
+  const _isAppInvoiceCarrier = carrier => APP_INVOICE_CARRIERS.has(carrier);
+  const _sourceFromCarrier = carrier => _isAppInvoiceCarrier(carrier) ? carrier : '發票';
+  const _carrierLabel = carrier => carrier === '手查發票' ? '手查發票' : carrier === '掃描發票' ? '掃描發票' : '發票';
+
   function _fmt(n) {
     return '$' + Math.abs(n).toLocaleString('zh-TW');
   }
@@ -102,10 +107,10 @@ const Pending = (() => {
         });
       });
 
-    // 🟤 平台待配對：備註含平台關鍵字 + 尚未匯入月度帳本（等待 CC 配對）
+    // 🟤 平台待配對：App 發票備註含平台關鍵字 + 尚未匯入月度帳本（等待 CC 配對）
     invoices
       .filter(inv =>
-        inv.carrier === '掃描發票' &&
+        _isAppInvoiceCarrier(inv.carrier) &&
         inv.imported !== 'TRUE' &&
         inv.shared !== 'x' && inv.shared !== '' &&
         CONFIG.CC_PAY_KEYWORDS.some(kw => inv.note.toLowerCase().includes(kw.toLowerCase()))
@@ -140,13 +145,13 @@ const Pending = (() => {
         });
       });
 
-    // 🔗 掃描/CC配對：掃描發票備註含 CC_PAY_KEYWORDS + 已匯入月度帳本 + 找到尚未連結的 CC 交易
+    // 🔗 App 發票/CC配對：備註含 CC_PAY_KEYWORDS + 已匯入月度帳本 + 找到尚未連結的 CC 交易
     invoices
       .filter(inv =>
-        inv.carrier === '掃描發票' &&
+        _isAppInvoiceCarrier(inv.carrier) &&
         inv.imported === 'TRUE' &&
         inv.shared !== 'x' && inv.shared !== '' &&
-        CONFIG.CC_PAY_KEYWORDS.some(kw => inv.note.toLowerCase().includes(kw))
+        CONFIG.CC_PAY_KEYWORDS.some(kw => inv.note.toLowerCase().includes(kw.toLowerCase()))
       )
       .forEach(inv => {
         const invDate = new Date(inv.date);
@@ -429,7 +434,7 @@ const Pending = (() => {
           note: item.note || '',
           invNum: item.invNum,
           invRowIndex: item.invRowIndex,
-          source: item.carrier === '掃描發票' ? '掃描發票' : '發票',
+          source: _sourceFromCarrier(item.carrier),
         });
         Sheets.invalidateMonth(item.date.slice(0, 7));
         _closeDetail();
@@ -772,7 +777,7 @@ const Pending = (() => {
             note: inv.note || '',
             invNum: inv.invNum,
             invRowIndex: inv.rowIndex,
-            source: inv.carrier === '掃描發票' ? '掃描發票' : '發票',
+            source: _sourceFromCarrier(inv.carrier),
           });
           Sheets.invalidateMonth(inv.date.slice(0, 7));
           _closeDetail();
@@ -908,15 +913,16 @@ const Pending = (() => {
 
   function _renderScanCCDup(item) {
     const { inv, cc } = item;
+    const carrierLabel = _carrierLabel(inv.carrier);
     document.getElementById('pending-modal-title').textContent = `🔗 ${inv.shop || inv.invNum}`;
 
     document.getElementById('pending-modal-body').innerHTML = `
       <p class="list-item-sub" style="margin-bottom:12px">
-        掃描發票已記入月度帳本，偵測到可能重複的信用卡交易
+        ${carrierLabel}已記入月度帳本，偵測到可能重複的信用卡交易
       </p>
       <div class="card" style="margin-bottom:8px">
         <div class="settings-row">
-          <span class="settings-label">📷 掃描發票</span>
+          <span class="settings-label">📷 ${carrierLabel}</span>
         </div>
         <div class="list-item-title">${inv.shop || inv.invNum}</div>
         <div class="list-item-sub">${inv.date}　${_fmt(inv.amount)}　備註：${inv.note}</div>

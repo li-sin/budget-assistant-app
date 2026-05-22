@@ -557,8 +557,12 @@ const Scan = (() => {
     }
     if (dateMatch) dateForSheet = _formatInvoiceDate(dateMatch[1], dateMatch[2], dateMatch[3]);
 
-    const randScope = lines.find(line => /隨機碼|随机码|RAND/i.test(line)) || '';
-    const randMatch = randScope.match(/(?:隨機碼|随机码|RAND)?\D*(\d{4})(?!\d)/i);
+    const randScope = lines.find(line => /隨機碼|随机码|隨機|随机|RAND/i.test(line)) || '';
+    let randMatch = randScope.match(/(?:隨機碼|随机码|隨機|随机|RAND)?\D*(\d{4})(?!\d)/i);
+    if (!randMatch) {
+      const totalishLine = lines.find(line => /總計|总计|TOTAL/i.test(line) && /\b\d{4}\b/.test(line)) || '';
+      randMatch = totalishLine.match(/\b(\d{4})\b(?=.*(?:總計|总计|TOTAL))/i);
+    }
     const rand = randMatch ? randMatch[1] : '';
 
     const sellerScope = lines.find(line => /賣方|卖方|統編|统一编号|統一編號|店家統編/.test(line)) || '';
@@ -952,7 +956,7 @@ const Scan = (() => {
     let payer       = _defaultPayer();
     const sourceName = isQueryDetailMode ? '手查發票' : '掃描發票';
     // 用 OCR 店名優先；沒有時再用賣方統編查名稱；失敗則留空讓使用者手動填
-    const shop = (_left?.shopName || '') || await _fetchSellerName(sellerId) || '';
+    const shop = isQueryDetailMode ? '' : ((_left?.shopName || '') || await _fetchSellerName(sellerId) || '');
     // 合併左側品項（leftItems）與右側品項（_right.items），去除數量/單價均為 0 的標示列
     const leftItems  = (_left?.leftItems  || []).filter(it => !(it.qty === 0 && it.price === 0));
     const rightItems = _right?.items || [];

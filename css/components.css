@@ -630,7 +630,7 @@ select.field-input { height: 44px; }
 }
 .sconf-copy-row {
   display: grid;
-  grid-template-columns: 70px minmax(0, 1fr) auto;
+  grid-template-columns: 64px minmax(0, 1fr) 52px;
   align-items: center;
   gap: 8px;
   padding: 5px 0;
@@ -646,11 +646,19 @@ select.field-input { height: 44px; }
 }
 .sconf-copy-input {
   min-width: 0;
+  width: 100%;
+  max-width: 100%;
   height: 34px;
+  box-sizing: border-box;
   padding: 6px 8px;
   font-size: 13px;
 }
+.sconf-copy-input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+}
 .sconf-copy-btn {
+  width: 52px;
   padding: 6px 10px;
   font-size: 12px;
   white-space: nowrap;

@@ -1,5 +1,5 @@
 const Scan = (() => {
-  const CATEGORIES = ['🍴', '🛒', '⛽', '📦', '🎬', '👗', '🏠', '💊', '🧋'];
+  const CATEGORIES = ['🍴', '🛒', '🧋', '⛽', '📦', '🎬', '👗', '🏠', '💊', '📚'];
   const INVOICE_QUERY_URL = 'https://www.einvoice.nat.gov.tw/portal/btc/audit/btc601w/search';
   const IOS_SAFARI_QUERY_URL = `x-safari-${INVOICE_QUERY_URL}`;
   const ANDROID_CHROME_QUERY_URL = `intent://${INVOICE_QUERY_URL.replace(/^https?:\/\//, '')}#Intent;scheme=https;package=com.android.chrome;end`;

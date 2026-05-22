@@ -1,5 +1,5 @@
 const Ledger = (() => {
-  const CATEGORIES = ['🍴', '🛒', '⛽', '📦', '🎬', '👗', '🏠', '💊', '🧋'];
+  const CATEGORIES = ['🍴', '🛒', '🧋', '⛽', '📦', '🎬', '👗', '🏠', '💊', '📚'];
   const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
   const ITEM_ATTR_OPTS = ['🌟 Sin', '🐨 Bear', '共用', '部分'];
 
@@ -27,6 +27,7 @@ const Ledger = (() => {
   let _invRows         = [];
   let _invSharedFilter = new Set();
   let _invSearchQuery  = '';
+  let _invItemCounts   = new Map();
   let _ccRows          = [];
   let _ccSharedFilter  = new Set();
   let _ccSearchQuery   = '';
@@ -826,6 +827,49 @@ const Ledger = (() => {
       detail.querySelectorAll('input[data-notechips]').forEach(inp => {
         if (inp.id) NoteChips?.render(inp.id);
       });
+      btnEl.textContent = '▲';
+    } catch (e) {
+      btnEl.textContent = '▼';
+    }
+  }
+
+  async function _toggleInvoiceItemDetail(row, btnEl) {
+    const detailId = `inv-item-detail-${row.rowIndex}`;
+    const listItem = btnEl.closest('.list-item');
+    const existing = document.getElementById(detailId);
+    if (existing) {
+      existing.remove();
+      btnEl.textContent = '▼';
+      return;
+    }
+
+    btnEl.textContent = '…';
+    try {
+      const items = (await _getItemCache()).filter(it => it.invNum === row.invNum);
+      const detail = document.createElement('div');
+      detail.id = detailId;
+      detail.className = 'item-detail-list';
+
+      if (!items.length) {
+        const empty = document.createElement('div');
+        empty.className = 'item-detail-empty';
+        empty.textContent = '無品項明細';
+        detail.appendChild(empty);
+      } else {
+        items.forEach(it => {
+          const line = document.createElement('div');
+          line.className = 'item-detail-row';
+          const custom = it.custom ? ` / ${it.custom}` : '';
+          const note = it.note ? `　${it.note}` : '';
+          line.innerHTML = `
+            <span class="item-detail-name">${it.itemName || '（未命名）'}${note}</span>
+            <span class="item-detail-attr">${it.attribution || '—'}${custom}</span>
+            <span class="item-detail-amt">$${it.itemAmount.toLocaleString('zh-TW')}</span>`;
+          detail.appendChild(line);
+        });
+      }
+
+      listItem.insertAdjacentElement('afterend', detail);
       btnEl.textContent = '▲';
     } catch (e) {
       btnEl.textContent = '▼';
@@ -2153,7 +2197,15 @@ const Ledger = (() => {
     el.innerHTML = '<div class="spinner"></div>';
     document.getElementById('inv-count').textContent = '';
     try {
-      _invRows = await Sheets.getInvoiceSheetData(_year, _month);
+      const [rows, items] = await Promise.all([
+        Sheets.getInvoiceSheetData(_year, _month),
+        _getItemCache(),
+      ]);
+      _invRows = rows;
+      _invItemCounts = items.reduce((map, it) => {
+        map.set(it.invNum, (map.get(it.invNum) || 0) + 1);
+        return map;
+      }, new Map());
       _renderInvoiceList();
     } catch (e) {
       el.innerHTML = `<div class="empty-state"><span>⚠️</span><p>${e.message}</p></div>`;
@@ -2181,6 +2233,7 @@ const Ledger = (() => {
       const voidStyle      = r.status === '作廢' ? 'style="color:var(--salmon)"' : '';
       const voidBadge      = r.status === '作廢' ? '<span class="raw-badge">作廢</span>' : '';
       const importedBadge  = r.imported ? '<span class="badge-imported">已匯入</span>' : '';
+      const hasItems       = (_invItemCounts.get(r.invNum) || 0) > 0;
       return `
         <div class="list-item${isSin ? ' list-item-editable' : ''}" data-row="${r.rowIndex}">
           <span class="list-item-icon">${r.category || '🧾'}</span>
@@ -2191,9 +2244,17 @@ const Ledger = (() => {
           <div class="list-item-right">
             <div class="amount-expense">$${r.amount.toLocaleString('zh-TW')}</div>
             ${importedBadge}${voidBadge}
+            ${hasItems ? `<button class="expand-btn inv-item-expand-btn" data-row="${r.rowIndex}" title="展開品項">▼</button>` : ''}
           </div>
         </div>`;
     }).join('');
+    el.querySelectorAll('.inv-item-expand-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const row = _invRows.find(r => r.rowIndex === parseInt(btn.dataset.row, 10));
+        if (row) _toggleInvoiceItemDetail(row, btn);
+      });
+    });
     if (isSin) {
       el.querySelectorAll('.list-item[data-row]').forEach(item => {
         item.addEventListener('click', () => {

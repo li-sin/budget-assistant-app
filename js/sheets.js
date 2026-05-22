@@ -80,6 +80,12 @@ const Sheets = (() => {
     return `'${String(name).replace(/'/g, "''")}'`;
   }
 
+  function _asInvoiceNumber(value) {
+    const compact = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const m = compact.match(/[A-Z]{2}\d{8}/);
+    return m ? m[0] : '';
+  }
+
   function _dynamicInvoiceLink(invNum, display = invNum, targetCol = 'C') {
     const q = _formulaText(invNum);
     return `=HYPERLINK("#gid=${CONFIG.INVOICE_SHEET_ID}&range=${targetCol}"&MATCH("${q}",${_sheetRef(CONFIG.TABS.INVOICE)}!$C:$C,0),"${_formulaText(display)}")`;
@@ -427,7 +433,7 @@ const Sheets = (() => {
         shop:    r[3] || '',
         amount:  parseFloat(r[4]) || 0,
         shared:  r[7] || '',
-        matched: r[8] || '',  // I欄：已記帳（有值=已連結發票）
+        matched: _asInvoiceNumber(r[8]),  // I欄：只接受發票號碼，避免誤填備註被當連結
         note:    r[9] || '',
       }))
       .filter(r => r.amount > 0 && r.txDate);
@@ -588,7 +594,7 @@ const Sheets = (() => {
       const date = r[1].replace(/^'/, '').replace(/\//g, '-');
       if (!['是','否','-','部分'].includes(r[7])) continue;
       if (r[10]==='TRUE' || r[10]==='True') continue;
-      if ((r[8]||'').trim()) continue;
+      if (_asInvoiceNumber(r[8])) continue;
       if (!date.startsWith(ym)) continue;
       if (r[7] === '部分') {
         const bearAmt = parseFloat((r[9]||'').replace(',',''));
@@ -759,8 +765,8 @@ const Sheets = (() => {
     const iData = await _get(`${CONFIG.TABS.CC}!I:I`);
     const iRows = (iData.values || []).slice(1);
     const matches = iRows
-      .map((r, i) => ({ rowIndex: i + 2, matched: r[0] || '' }))
-      .filter(r => r.matched === invNum);
+      .map((r, i) => ({ rowIndex: i + 2, matched: _asInvoiceNumber(r[0]) }))
+      .filter(r => r.matched === _asInvoiceNumber(invNum));
     if (!matches.length) return [];
     return await Promise.all(matches.map(async m => {
       const d = await _get(`${CONFIG.TABS.CC}!A${m.rowIndex}:E${m.rowIndex}`);
@@ -834,7 +840,7 @@ const Sheets = (() => {
       country:      r[5]  || '',
       category:     r[6]  || '',
       shared:       r[7]  || '',
-      matched:      r[8]  || '',
+      matched:      _asInvoiceNumber(r[8]),
       note:         r[9]  || '',
       posted:       r[10] === 'TRUE' || r[10] === true,
       billingMonth: r[11] || '',

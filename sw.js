@@ -1,4 +1,4 @@
-const CACHE = 'ba-v144';
+const CACHE = 'ba-v145';
 const SHELL = [
   './index.html',
   './css/main.css',

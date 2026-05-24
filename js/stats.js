@@ -64,7 +64,7 @@ const Stats = (() => {
       <svg viewBox="0 0 240 240" width="220" height="220" class="donut-chart">
         ${paths}
         <g class="donut-total-jump" role="button" tabindex="0" aria-label="查看總支出明細">
-          <circle cx="120" cy="120" r="58" fill="transparent"/>
+          <circle class="donut-total-hit" cx="120" cy="120" r="60"/>
           <text x="120" y="112" text-anchor="middle" class="chart-sub">總支出</text>
           <text x="120" y="136" text-anchor="middle" class="chart-main">${_fmt(total)}</text>
         </g>

@@ -334,10 +334,26 @@ select.field-input { height: 44px; }
 .donut-chart { display: block; overflow: visible; margin: 0 auto; }
 .donut-slice { cursor: pointer; }
 .donut-slice:hover { opacity: 0.85; }
-.donut-total-jump { cursor: pointer; outline: none; }
+.donut-total-jump {
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.donut-total-jump:focus,
+.donut-total-jump:focus-visible { outline: none; }
+.donut-total-hit {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 2;
+}
+.donut-total-jump:hover .donut-total-hit,
+.donut-total-jump:focus-visible .donut-total-hit {
+  fill: rgba(0,201,167,0.08);
+  stroke: var(--teal);
+}
+.donut-total-jump:active .donut-total-hit { fill: rgba(0,201,167,0.14); }
 .donut-total-jump:hover .chart-main,
 .donut-total-jump:focus .chart-main { fill: var(--teal); }
-.donut-total-jump:focus-visible circle { stroke: var(--teal); stroke-width: 2; }
 .chart-sub  { fill: var(--text-sub); font-size: 13px; font-family: var(--font); }
 .chart-main { fill: var(--text); font-size: 20px; font-weight: 700; font-family: var(--font); }
 

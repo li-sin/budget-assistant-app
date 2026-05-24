@@ -63,8 +63,11 @@ const Stats = (() => {
     return `
       <svg viewBox="0 0 240 240" width="220" height="220" class="donut-chart">
         ${paths}
-        <text x="120" y="112" text-anchor="middle" class="chart-sub">總支出</text>
-        <text x="120" y="136" text-anchor="middle" class="chart-main">${_fmt(total)}</text>
+        <g class="donut-total-jump" role="button" tabindex="0" aria-label="查看總支出明細">
+          <circle cx="120" cy="120" r="58" fill="transparent"/>
+          <text x="120" y="112" text-anchor="middle" class="chart-sub">總支出</text>
+          <text x="120" y="136" text-anchor="middle" class="chart-main">${_fmt(total)}</text>
+        </g>
       </svg>`;
   }
 
@@ -133,8 +136,17 @@ const Stats = (() => {
 
   function _bindCatClicks() {
     const jump = cat => window.Ledger?.jumpTo({ category: cat, shared: _sharedFilter });
+    const jumpTotal = () => window.Ledger?.jumpTo({ shared: _sharedFilter });
     document.querySelectorAll('#stats-chart .donut-slice').forEach(el => {
       el.addEventListener('click', () => jump(el.dataset.cat));
+    });
+    document.querySelectorAll('#stats-chart .donut-total-jump').forEach(el => {
+      el.addEventListener('click', jumpTotal);
+      el.addEventListener('keydown', e => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        jumpTotal();
+      });
     });
     document.querySelectorAll('#stats-chart .bar-row-clickable').forEach(el => {
       el.addEventListener('click', () => jump(el.dataset.cat));

@@ -849,11 +849,16 @@ const Sheets = (() => {
 
   // ── Gmail 載具抓取：檢查與批次寫入 ──────────────────────────
 
-  async function countRawInvoicesForMonth(year, month) {
+  // carrierKeyword: 若提供，只計算 A 欄（載具）含該關鍵字的列
+  async function countRawInvoicesForMonth(year, month, carrierKeyword = null) {
     const ym   = `${year}-${String(month).padStart(2, '0')}`;
-    const data = await _get(`${CONFIG.TABS.INVOICE}!B:B`);
+    const data = await _get(`${CONFIG.TABS.INVOICE}!A:B`);
     return (data.values || []).slice(1)
-      .filter(r => (r[0] || '').replace(/^'/, '').replace(/\//g, '-').startsWith(ym))
+      .filter(r => {
+        const date    = (r[1] || '').replace(/^'/, '').replace(/\//g, '-');
+        const carrier = r[0] || '';
+        return date.startsWith(ym) && (!carrierKeyword || carrier.includes(carrierKeyword));
+      })
       .length;
   }
 

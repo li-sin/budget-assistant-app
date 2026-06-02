@@ -248,26 +248,31 @@ const Settings = (() => {
         try {
           // ── Step 0a: 檢查發票明細，若無資料則自動從 Gmail 抓取 ──
           logMsg(`[Step 0] 檢查 ${ym} 發票明細…`);
-          logMsg('[Step 0] 從 Gmail 抓取載具明細…');
-          try {
-            const { invoices, items } = await Gmail.fetchInvoicesForMonth(
-              _importYear, _importMonth, msg => logMsg(`  ${msg}`)
-            );
-            if (invoices.length) {
-              const written = await Sheets.writeInvoicesFromGmail(
-                invoices, items, msg => logMsg(`  ${msg}`)
+          const mobileCount = await Sheets.countRawInvoicesForMonth(_importYear, _importMonth, '手機條碼');
+          if (mobileCount > 0) {
+            logMsg(`[Step 0] ✅ 已有 ${mobileCount} 筆手機條碼發票，略過 Gmail 抓取`);
+          } else {
+            logMsg('[Step 0] 發票明細無手機條碼資料，從 Gmail 抓取…');
+            try {
+              const { invoices, items } = await Gmail.fetchInvoicesForMonth(
+                _importYear, _importMonth, msg => logMsg(`  ${msg}`)
               );
-              logMsg(`[Step 0] ✅ 新寫入 ${written.invoices} 筆發票、${written.items} 筆品項`);
-            } else {
-              logMsg('[Step 0] ⚠ Gmail 無有效發票，繼續匯入');
-            }
-          } catch (e) {
-            if (e.message === 'gmail_scope_missing') {
-              logMsg('[Step 0] ⚠ Gmail 授權失敗，請重試或登出後重新登入');
-            } else if (e.message === 'auth_cancelled') {
-              logMsg('[Step 0] ⚠ 授權已取消，如需抓取載具請重試');
-            } else {
-              logMsg(`[Step 0] ⚠ Gmail 抓取失敗：${e.message}`);
+              if (invoices.length) {
+                const written = await Sheets.writeInvoicesFromGmail(
+                  invoices, items, msg => logMsg(`  ${msg}`)
+                );
+                logMsg(`[Step 0] ✅ 新寫入 ${written.invoices} 筆發票、${written.items} 筆品項`);
+              } else {
+                logMsg('[Step 0] ⚠ Gmail 無有效發票，繼續匯入');
+              }
+            } catch (e) {
+              if (e.message === 'gmail_scope_missing') {
+                logMsg('[Step 0] ⚠ Gmail 授權失敗，請重試或登出後重新登入');
+              } else if (e.message === 'auth_cancelled') {
+                logMsg('[Step 0] ⚠ 授權已取消，如需抓取載具請重試');
+              } else {
+                logMsg(`[Step 0] ⚠ Gmail 抓取失敗：${e.message}`);
+              }
             }
           }
 

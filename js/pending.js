@@ -1,7 +1,9 @@
 const Pending = (() => {
-  let _items     = [];  // { type, label, color, row/invoice/... }
-  let _bankFilter = '';  // '' = 全部；有值時只顯示 cc_pending 且 cc.bank === _bankFilter
-  let _jumpBank   = null; // jumpTo 暫存，等 activate/init 時套用
+  let _items      = [];  // { type, label, color, row/invoice/... }
+  let _bankFilter  = '';  // '' = 全部；有值時只顯示 cc_pending 且 cc.bank === _bankFilter
+  let _jumpBank    = null; // jumpTo 暫存，等 activate/init 時套用
+  let _currentItem = null; // 目前 modal 中的 item（用於 auto-advance）
+  let _advanceIdx  = -1;   // reload 後自動開啟的清單索引（-1 = 不自動開啟）
 
   const APP_INVOICE_CARRIERS = new Set(['掃描發票', '手查發票']);
   const _isAppInvoiceCarrier = carrier => APP_INVOICE_CARRIERS.has(carrier);
@@ -311,10 +313,23 @@ const Pending = (() => {
   }
 
   function _closeDetail() {
+    _currentItem = null;
     document.getElementById('pending-modal')?.classList.add('hidden');
   }
 
+  // 存入後關閉：捕捉當前 index，reload 後自動開下一筆
+  function _saveClose() {
+    if (_currentItem) {
+      const list = _bankFilter
+        ? _items.filter(it => it.type === 'cc_pending' && it.cc.bank === _bankFilter)
+        : _items;
+      _advanceIdx = list.findIndex(it => it === _currentItem);
+    }
+    _closeDetail();
+  }
+
   function _openDetail(item) {
+    _currentItem = item;
     _buildDetailModal();
     document.getElementById('pending-modal').classList.remove('hidden');
 
@@ -437,7 +452,7 @@ const Pending = (() => {
           source: _sourceFromCarrier(item.carrier),
         });
         Sheets.invalidateMonth(item.date.slice(0, 7));
-        _closeDetail();
+        _saveClose();
         await _reload();
         window.Home?.reload();
         window.Ledger?.reload();
@@ -497,7 +512,7 @@ const Pending = (() => {
         ];
         await Sheets.updateMonthlyRow(r.rowIndex, row);
         Sheets.invalidateMonth(r.date.slice(0, 7));
-        _closeDetail();
+        _saveClose();
         await _reload();
         window.Home?.reload();
         window.Ledger?.reload();
@@ -548,7 +563,7 @@ const Pending = (() => {
       btn.textContent = '刪除中…';
       try {
         await Sheets.deleteMonthlyRow(r.rowIndex, r.date.slice(0, 7));
-        _closeDetail();
+        _saveClose();
         await _reload();
         window.Home?.reload();
         window.Ledger?.reload();
@@ -608,7 +623,7 @@ const Pending = (() => {
       try {
         const note = document.getElementById('cc-note').value;
         await Sheets.updateCCShared(cc.rowIndex, selectedShared, note);
-        _closeDetail();
+        _saveClose();
         await _reload();
       } catch (e) {
         errEl.textContent = '儲存失敗：' + e.message;
@@ -676,7 +691,7 @@ const Pending = (() => {
         btn.textContent = '儲存中…';
         try {
           await Sheets.updateInvoiceShared(inv.rowIndex, selectedShared);
-          _closeDetail();
+          _saveClose();
           await _reload();
         } catch (e) {
           errEl.textContent = '儲存失敗：' + e.message;
@@ -790,7 +805,7 @@ const Pending = (() => {
             source: _sourceFromCarrier(inv.carrier),
           });
           Sheets.invalidateMonth(inv.date.slice(0, 7));
-          _closeDetail();
+          _saveClose();
           await _reload();
           window.Home?.reload();
           window.Ledger?.reload();
@@ -906,7 +921,7 @@ const Pending = (() => {
         const { sinShare, bearShare } = _calcPlatformSplit(invItems, inv.shared, selectedCC.amount);
         await Sheets.linkPlatformToCC({ inv, cc: selectedCC, sinShare, bearShare });
         Sheets.invalidateMonth(inv.date.slice(0, 7));
-        _closeDetail();
+        _saveClose();
         await _reload();
         window.Home?.reload();
         window.Ledger?.reload();
@@ -962,7 +977,7 @@ const Pending = (() => {
       btn.textContent = '儲存中…';
       try {
         await Sheets.linkCCToInvoice(cc.rowIndex, inv.invNum, inv.rowIndex);
-        _closeDetail();
+        _saveClose();
         await _reload();
       } catch (e) {
         document.getElementById('scd-error').textContent = '儲存失敗：' + e.message;
@@ -976,12 +991,20 @@ const Pending = (() => {
   // ── 載入 ─────────────────────────────────────────────────────
 
   async function _reload() {
+    const savedAdvanceIdx = _advanceIdx;
+    _advanceIdx = -1;
     const el = document.getElementById('pending-list');
     if (el) el.innerHTML = '<div class="spinner"></div>';
     document.getElementById('pending-count').textContent = '';
     try {
       await _collect();
       _renderList();
+      if (savedAdvanceIdx >= 0) {
+        const next = _bankFilter
+          ? _items.filter(it => it.type === 'cc_pending' && it.cc.bank === _bankFilter)
+          : _items;
+        if (next.length > 0) _openDetail(next[Math.min(savedAdvanceIdx, next.length - 1)]);
+      }
     } catch (e) {
       if (e.message !== 'auth_expired' && el) {
         el.innerHTML = `<div class="empty-state"><span>⚠️</span><p>${e.message}</p></div>`;

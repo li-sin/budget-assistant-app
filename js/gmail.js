@@ -8,7 +8,14 @@ const Gmail = (() => {
   async function _get(path) {
     const res = await fetch(`${BASE}${path}`, { headers: _authHeader() });
     if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
-    if (res.status === 403) throw new Error('gmail_scope_missing');
+    if (res.status === 403) {
+      // Token 缺少 gmail.readonly scope，自動彈出授權視窗（不需登出）
+      await Auth.updateAuth();
+      const retry = await fetch(`${BASE}${path}`, { headers: _authHeader() });
+      if (retry.status === 403) throw new Error('gmail_scope_missing');
+      if (!retry.ok) throw new Error(`Gmail API ${retry.status}`);
+      return retry.json();
+    }
     if (!res.ok) throw new Error(`Gmail API ${res.status}`);
     return res.json();
   }

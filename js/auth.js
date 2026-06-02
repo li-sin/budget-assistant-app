@@ -93,5 +93,22 @@ const Auth = (() => {
     if (el) { el.textContent = msg; el.hidden = false; }
   }
 
-  return { init, getToken, getEmail, logout, clearCache };
+  // 在不登出的情況下重新授權（取得含新 scope 的 token）
+  function updateAuth() {
+    if (!_tokenClient) return Promise.reject(new Error('auth_not_ready'));
+    return new Promise((resolve, reject) => {
+      _tokenClient.requestAccessToken({
+        prompt: '',
+        callback: (resp) => {
+          if (resp.error) { reject(new Error('auth_cancelled')); return; }
+          _token = resp.access_token;
+          sessionStorage.setItem('ba_token', resp.access_token);
+          resolve();
+        },
+        error_callback: () => reject(new Error('auth_cancelled')),
+      });
+    });
+  }
+
+  return { init, getToken, getEmail, logout, clearCache, updateAuth };
 })();

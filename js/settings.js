@@ -248,7 +248,9 @@ const Settings = (() => {
               }
             } catch (e) {
               if (e.message === 'gmail_scope_missing') {
-                logMsg('[Step 0] ⚠ Gmail 授權不足，請登出後重新登入以授予讀取郵件的權限');
+                logMsg('[Step 0] ⚠ Gmail 授權失敗，請重試或登出後重新登入');
+              } else if (e.message === 'auth_cancelled') {
+                logMsg('[Step 0] ⚠ 授權已取消，如需抓取載具請重試');
               } else {
                 logMsg(`[Step 0] ⚠ Gmail 抓取失敗：${e.message}`);
               }

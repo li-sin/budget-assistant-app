@@ -57,6 +57,56 @@ const Sheets = (() => {
     return res.json();
   }
 
+  // ── Sheet 行數自動擴充 ────────────────────────────────────────
+  // tabName → numeric sheet gid（供 insertDimension 用）
+  const _tabGids = {
+    [CONFIG.TABS.INVOICE]: CONFIG.INVOICE_SHEET_ID,
+    [CONFIG.TABS.ITEMS]:   CONFIG.ITEMS_SHEET_ID,
+    [CONFIG.TABS.MONTHLY]: CONFIG.MONTHLY_SHEET_ID,
+  };
+  const _rowCapCache = {};  // { tabName: { maxRow, ts } }
+
+  async function _ensureRowCapacity(tabName, neededRow) {
+    const gid = _tabGids[tabName];
+    if (!gid) return;
+    const CACHE_MS = 2 * 60 * 1000;
+    const cached = _rowCapCache[tabName];
+    let maxRow = cached && (Date.now() - cached.ts < CACHE_MS) ? cached.maxRow : 0;
+
+    if (!maxRow) {
+      // 查詢目前 sheet 行數上限
+      const metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SHEET_ID}`
+        + '?fields=sheets(properties(sheetId,gridProperties(rowCount)))';
+      const r = await fetch(metaUrl, { headers: _authHeader() });
+      if (!r.ok) return;
+      const meta = await r.json();
+      const sp = (meta.sheets || []).find(s => s.properties.sheetId === gid);
+      maxRow = sp?.properties?.gridProperties?.rowCount ?? 0;
+      _rowCapCache[tabName] = { maxRow, ts: Date.now() };
+    }
+
+    if (neededRow <= maxRow) return;
+
+    // 不夠用 → insertDimension 補 1000 行
+    const addRows = neededRow - maxRow + 1000;
+    const extUrl = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SHEET_ID}:batchUpdate`;
+    const r2 = await fetch(extUrl, {
+      method: 'POST',
+      headers: { ..._authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: [{
+          insertDimension: {
+            range: { sheetId: gid, dimension: 'ROWS', startIndex: maxRow, endIndex: maxRow + addRows },
+            inheritFromBefore: true,
+          },
+        }],
+      }),
+    });
+    if (r2.ok) {
+      _rowCapCache[tabName] = { maxRow: maxRow + addRows, ts: Date.now() };
+    }
+  }
+
   // ── 月度帳本 ──────────────────────────────────────────────────
 
   function _parseRow(r, rowIndex) {
@@ -167,6 +217,7 @@ const Sheets = (() => {
     // 讀 A 欄找最後一筆有值的列，避免 ARRAYFORMULA 延伸造成 append 位置錯誤
     const data = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
     const lastRow = (data.values || []).length;  // 含 header，下一列 = lastRow + 1
+    await _ensureRowCapacity(CONFIG.TABS.MONTHLY, lastRow + 1);
     const range = `${CONFIG.TABS.MONTHLY}!A${lastRow + 1}`;
     await _update(range, [row]);
     const ym = (row[0] || '').slice(0, 7);
@@ -286,6 +337,7 @@ const Sheets = (() => {
     const newRow    = lastRow + 1;
     const invLink   = _dynamicItemsLink(invNum);
     const row = [carrier, date, invLink, shop, amount, status, category, shared, note, false];
+    await _ensureRowCapacity(CONFIG.TABS.INVOICE, newRow);
     await _update(`${CONFIG.TABS.INVOICE}!A${newRow}`, [row]);
     return newRow;
   }
@@ -305,6 +357,7 @@ const Sheets = (() => {
     });
     const startRow = lastRow + 1;
     const endRow = lastRow + rows.length;
+    await _ensureRowCapacity(CONFIG.TABS.ITEMS, endRow);
     await _batchUpdate([
       { range: `${CONFIG.TABS.ITEMS}!A${startRow}:J${endRow}`, values: rows },
       { range: `${CONFIG.TABS.ITEMS}!L${startRow}:L${endRow}`, values: rows.map(() => [invNum]) },
@@ -930,6 +983,7 @@ const Sheets = (() => {
     let writtenItems = 0;
     if (itemRows.length) {
       const itemStart = itemLastRow - itemRows.length + 1;
+      await _ensureRowCapacity(CONFIG.TABS.ITEMS, itemLastRow);
       await _batchUpdate([
         { range: `${CONFIG.TABS.ITEMS}!A${itemStart}:J${itemLastRow}`, values: itemRows },
         { range: `${CONFIG.TABS.ITEMS}!L${itemStart}:L${itemLastRow}`, values: helperRows },

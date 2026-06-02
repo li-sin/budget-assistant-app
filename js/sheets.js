@@ -847,6 +847,102 @@ const Sheets = (() => {
     })).filter(r => r.txDate.startsWith(ym));
   }
 
+  // ── Gmail 載具抓取：檢查與批次寫入 ──────────────────────────
+
+  async function countRawInvoicesForMonth(year, month) {
+    const ym   = `${year}-${String(month).padStart(2, '0')}`;
+    const data = await _get(`${CONFIG.TABS.INVOICE}!B:B`);
+    return (data.values || []).slice(1)
+      .filter(r => (r[0] || '').replace(/^'/, '').replace(/\//g, '-').startsWith(ym))
+      .length;
+  }
+
+  async function writeInvoicesFromGmail(invoices, items, onProgress) {
+    const log = m => onProgress?.(m);
+
+    // 1. 讀取既有發票號碼（C 欄 FORMATTED_VALUE = 顯示文字 = invNum）
+    log('檢查既有發票號碼…');
+    const existingData = await _get(`${CONFIG.TABS.INVOICE}!C:C`);
+    const existingNums = new Set(
+      (existingData.values || []).slice(1).map(r => (r[0] || '').trim()).filter(Boolean)
+    );
+
+    const newInvoices = invoices.filter(inv => !existingNums.has(inv.invNum));
+    if (!newInvoices.length) {
+      log('所有發票已存在，略過寫入');
+      return { invoices: 0, items: 0 };
+    }
+
+    // 2. 讀取既有品項 invNum（L 欄 = 純發票號碼 helper）
+    const existingItemData = await _get(`${CONFIG.TABS.ITEMS}!L:L`);
+    const existingItemNums = new Set(
+      (existingItemData.values || []).slice(1).map(r => (r[0] || '').trim()).filter(Boolean)
+    );
+    const itemsByInv = {};
+    for (const it of items) {
+      if (!existingItemNums.has(it.invNum)) {
+        (itemsByInv[it.invNum] = itemsByInv[it.invNum] || []).push(it);
+      }
+    }
+
+    // 3. 批次寫入發票明細（C 欄先寫純文字，等品項寫完後再更新 HYPERLINK）
+    const invColA   = await _get(`${CONFIG.TABS.INVOICE}!A:A`);
+    let invLastRow  = (invColA.values || []).length;
+    const invRows   = [], invRowMap = {};
+    for (const inv of newInvoices) {
+      invLastRow++;
+      invRowMap[inv.invNum] = invLastRow;
+      invRows.push([
+        inv.carrier, "'" + inv.date, inv.invNum,
+        inv.seller, inv.amount, inv.status,
+        '', inv.shared, '', false,
+      ]);
+    }
+    const invStart = invLastRow - invRows.length + 1;
+    await _update(`${CONFIG.TABS.INVOICE}!A${invStart}:J${invLastRow}`, invRows);
+    log(`  → 發票明細：寫入 ${invRows.length} 筆`);
+
+    // 4. 批次寫入品項明細
+    const itemColA   = await _get(`${CONFIG.TABS.ITEMS}!A:A`);
+    let itemLastRow  = (itemColA.values || []).length;
+    const itemRows   = [], helperRows = [];
+    const firstItemRowByInv = {};
+    for (const inv of newInvoices) {
+      for (const it of itemsByInv[inv.invNum] || []) {
+        itemLastRow++;
+        if (!(inv.invNum in firstItemRowByInv)) firstItemRowByInv[inv.invNum] = itemLastRow;
+        const invLink     = _dynamicInvoiceLink(inv.invNum, inv.invNum, 'H');
+        const bearFormula = `=IF(I${itemLastRow}<>"",I${itemLastRow},IF(G${itemLastRow}="🌟 Sin",0,IF(G${itemLastRow}="🐨 Bear",F${itemLastRow},IF(G${itemLastRow}="共用",ROUND(F${itemLastRow}/2,0),0))))`;
+        itemRows.push([inv.carrier, "'" + inv.date, invLink, inv.seller, it.name, it.amount, '', bearFormula, '', '']);
+        helperRows.push([inv.invNum]);
+      }
+    }
+    let writtenItems = 0;
+    if (itemRows.length) {
+      const itemStart = itemLastRow - itemRows.length + 1;
+      await _batchUpdate([
+        { range: `${CONFIG.TABS.ITEMS}!A${itemStart}:J${itemLastRow}`, values: itemRows },
+        { range: `${CONFIG.TABS.ITEMS}!L${itemStart}:L${itemLastRow}`, values: helperRows },
+      ]);
+      writtenItems = itemRows.length;
+      log(`  → 品項明細：寫入 ${writtenItems} 筆`);
+
+      // 5. 更新發票明細 C 欄為 HYPERLINK → 品項明細（有品項的發票才更新）
+      const cUpdates = Object.entries(firstItemRowByInv)
+        .filter(([invNum]) => invRowMap[invNum])
+        .map(([invNum]) => ({
+          range: `${CONFIG.TABS.INVOICE}!C${invRowMap[invNum]}`,
+          values: [[_dynamicItemsLink(invNum)]],
+        }));
+      if (cUpdates.length) {
+        await _batchUpdate(cUpdates);
+        log(`  → 發票明細 C 欄連結：更新 ${cUpdates.length} 筆`);
+      }
+    }
+
+    return { invoices: invRows.length, items: writtenItems };
+  }
+
   return {
     getMonthlyData, getCreditCardImportStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
@@ -858,6 +954,7 @@ const Sheets = (() => {
     getCCAllData, linkCCToInvoice,
     getRulesData, linkPlatformToCC,
     importToMonthly,
+    countRawInvoicesForMonth, writeInvoicesFromGmail,
     deleteInvoiceRow, deleteItemRows,
     updateInvoiceFields, updateItemFields, updateMonthlyFields,
     getCCForInvoice, updateMonthlyGH, unlinkCC,

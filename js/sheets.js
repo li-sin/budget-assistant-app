@@ -5,11 +5,19 @@ const Sheets = (() => {
     return { Authorization: `Bearer ${Auth.getToken()}` };
   }
 
+  async function _apiError(res, label) {
+    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
+    if (!res.ok) {
+      let detail = '';
+      try { detail = ': ' + ((await res.json()).error?.message || ''); } catch {}
+      throw new Error(`Sheets API ${res.status}${detail}`);
+    }
+  }
+
   async function _get(range) {
     const url = `${BASE}/values/${encodeURIComponent(range)}`;
     const res = await fetch(url, { headers: _authHeader() });
-    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
-    if (!res.ok) throw new Error(`Sheets API ${res.status}`);
+    await _apiError(res);
     return res.json();
   }
 
@@ -21,8 +29,7 @@ const Sheets = (() => {
       headers: { ..._authHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ values }),
     });
-    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
-    if (!res.ok) throw new Error(`Sheets API ${res.status}`);
+    await _apiError(res);
     return res.json();
   }
 
@@ -34,8 +41,7 @@ const Sheets = (() => {
       headers: { ..._authHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ range, values }),
     });
-    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
-    if (!res.ok) throw new Error(`Sheets API ${res.status}`);
+    await _apiError(res);
     return res.json();
   }
 
@@ -47,8 +53,7 @@ const Sheets = (() => {
       headers: { ..._authHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: dataArr }),
     });
-    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
-    if (!res.ok) throw new Error(`Sheets API ${res.status}`);
+    await _apiError(res);
     return res.json();
   }
 

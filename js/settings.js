@@ -133,6 +133,10 @@ const Settings = (() => {
               <button class="month-btn" id="import-next-m">▶</button>
             </div>
           </div>
+          <div class="settings-row">
+            <span class="settings-label">Gmail 手機條碼</span>
+            <span id="settings-gmail-inv" class="settings-val">…</span>
+          </div>
           <div id="import-log" class="import-log"></div>
           <button class="btn-primary" id="import-run" style="width:100%;margin-top:8px">匯入月度帳本</button>
         </div>
@@ -204,18 +208,32 @@ const Settings = (() => {
       const _updateImportLbl = () => {
         importMonthLbl.textContent = `${_importYear}-${String(_importMonth).padStart(2,'0')}`;
       };
+      const _loadGmailInvStatus = async () => {
+        const el = document.getElementById('settings-gmail-inv');
+        if (!el) return;
+        el.textContent = '…';
+        try {
+          const s = await Gmail.checkForMonth(_importYear, _importMonth);
+          el.textContent = s.found ? `${s.invoiceCount} 張` : '找不到彙整信';
+        } catch (_) {
+          el.textContent = '—';
+        }
+      };
       _updateImportLbl();
+      _loadGmailInvStatus();
       document.getElementById('import-prev-m').addEventListener('click', () => {
         _importMonth--;
         if (_importMonth < 1) { _importMonth = 12; _importYear--; }
         _updateImportLbl();
         document.getElementById('import-log').textContent = '';
+        _loadGmailInvStatus();
       });
       document.getElementById('import-next-m').addEventListener('click', () => {
         _importMonth++;
         if (_importMonth > 12) { _importMonth = 1; _importYear++; }
         _updateImportLbl();
         document.getElementById('import-log').textContent = '';
+        _loadGmailInvStatus();
       });
       document.getElementById('import-run').addEventListener('click', async () => {
         const btn = document.getElementById('import-run');

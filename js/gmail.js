@@ -5,10 +5,12 @@ const Gmail = (() => {
     return { Authorization: `Bearer ${Auth.getToken()}` };
   }
 
-  async function _get(path) {
+  // quiet=true：403 直接拋出，不彈授權視窗（供狀態查詢用）
+  async function _get(path, quiet = false) {
     const res = await fetch(`${BASE}${path}`, { headers: _authHeader() });
     if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
     if (res.status === 403) {
+      if (quiet) throw new Error('gmail_scope_missing');
       // Token 缺少 gmail.readonly scope，自動彈出授權視窗（不需登出）
       await Auth.updateAuth();
       const retry = await fetch(`${BASE}${path}`, { headers: _authHeader() });
@@ -31,12 +33,34 @@ const Gmail = (() => {
     };
   }
 
-  async function _searchEmails(year, month) {
+  async function _searchEmails(year, month, quiet = false) {
     const { after, before } = _searchRange(year, month);
     const senders = '(from:einvoice@einvoice.nat.gov.tw OR from:m10515005@mail.ntust.edu.tw)';
     const q = `${senders} subject:消費發票彙整通知 after:${after} before:${before}`;
-    const data = await _get(`/messages?q=${encodeURIComponent(q)}&maxResults=10`);
+    const data = await _get(`/messages?q=${encodeURIComponent(q)}&maxResults=10`, quiet);
     return (data.messages || []).map(m => m.id);
+  }
+
+  // 靜默查詢：計算 Gmail 中該月份的手機條碼發票筆數，不寫入 Sheet，auth 失敗不彈視窗
+  async function checkForMonth(year, month) {
+    const msgIds = await _searchEmails(year, month, true);
+    if (!msgIds.length) return { found: false, invoiceCount: 0 };
+
+    let invoiceCount = 0;
+    const seen = new Set();
+    for (const msgId of msgIds) {
+      const csv = await _downloadCsv(msgId, true);
+      if (!csv) continue;
+      const pq = _pqFromFilename(csv.filename);
+      const { invoices } = _parseCsv(csv.text, pq);
+      for (const inv of invoices) {
+        if (inv.status === '開立' && !seen.has(inv.invNum)) {
+          invoiceCount++;
+          seen.add(inv.invNum);
+        }
+      }
+    }
+    return { found: true, invoiceCount };
   }
 
   function _findCsvPart(parts) {
@@ -50,11 +74,11 @@ const Gmail = (() => {
     return null;
   }
 
-  async function _downloadCsv(msgId) {
-    const msg  = await _get(`/messages/${msgId}`);
+  async function _downloadCsv(msgId, quiet = false) {
+    const msg  = await _get(`/messages/${msgId}`, quiet);
     const info = _findCsvPart(msg.payload?.parts || []);
     if (!info) return null;
-    const att   = await _get(`/messages/${msgId}/attachments/${info.attachmentId}`);
+    const att   = await _get(`/messages/${msgId}/attachments/${info.attachmentId}`, quiet);
     const bytes = Uint8Array.from(atob(att.data.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
     const text  = new TextDecoder('utf-8').decode(bytes).replace(/^﻿/, '');
     return { text, filename: info.filename };
@@ -149,7 +173,7 @@ const Gmail = (() => {
     return { invoices: allInvoices, items: allItems };
   }
 
-  return { fetchInvoicesForMonth };
+  return { fetchInvoicesForMonth, checkForMonth };
 })();
 
 window.Gmail = Gmail;

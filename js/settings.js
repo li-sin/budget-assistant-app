@@ -123,7 +123,7 @@ const Settings = (() => {
         </div>
 
         ${issin ? `
-        <div class="section-title">匯入月度帳本</div>
+        <div class="section-title">資料匯入</div>
         <div class="card">
           <div class="settings-row">
             <span class="settings-label">月份</span>
@@ -133,12 +133,11 @@ const Settings = (() => {
               <button class="month-btn" id="import-next-m">▶</button>
             </div>
           </div>
-          <div class="settings-row">
-            <span class="settings-label">Gmail 手機條碼</span>
-            <span id="settings-gmail-inv" class="settings-val">…</span>
-          </div>
           <div id="import-log" class="import-log"></div>
-          <button class="btn-primary" id="import-run" style="width:100%;margin-top:8px">匯入月度帳本</button>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn-primary" id="download-invoices" style="flex:1">下載發票</button>
+            <button class="btn-primary" id="import-run" style="flex:1">匯入月度帳本</button>
+          </div>
         </div>
         <div class="section-title">備註快速選項</div>
         <div class="card" id="note-chips-card">
@@ -202,89 +201,74 @@ const Settings = (() => {
       _rebindDeletes();
     }
 
-    // 匯入月度帳本（Sin Only）
+    // 資料匯入（Sin Only）
     const importMonthLbl = document.getElementById('import-month-lbl');
     if (importMonthLbl) {
       const _updateImportLbl = () => {
         importMonthLbl.textContent = `${_importYear}-${String(_importMonth).padStart(2,'0')}`;
       };
-      const _loadGmailInvStatus = async () => {
-        const el = document.getElementById('settings-gmail-inv');
-        if (!el) return;
-        el.textContent = '…';
-        try {
-          const s = await Gmail.checkForMonth(_importYear, _importMonth);
-          el.textContent = s.found ? `${s.invoiceCount} 張` : '找不到彙整信';
-        } catch (_) {
-          el.textContent = '—';
-        }
-      };
       _updateImportLbl();
-      _loadGmailInvStatus();
+
       document.getElementById('import-prev-m').addEventListener('click', () => {
         _importMonth--;
         if (_importMonth < 1) { _importMonth = 12; _importYear--; }
         _updateImportLbl();
         document.getElementById('import-log').textContent = '';
-        _loadGmailInvStatus();
       });
       document.getElementById('import-next-m').addEventListener('click', () => {
         _importMonth++;
         if (_importMonth > 12) { _importMonth = 1; _importYear++; }
         _updateImportLbl();
         document.getElementById('import-log').textContent = '';
-        _loadGmailInvStatus();
       });
+
+      // ── 下載發票：從 Gmail 抓取手機條碼 CSV → 寫入發票明細 ──
+      document.getElementById('download-invoices').addEventListener('click', async () => {
+        const btn = document.getElementById('download-invoices');
+        const log = document.getElementById('import-log');
+        btn.disabled = true;
+        btn.textContent = '下載中…';
+        log.textContent = '';
+        const lines = [];
+        const logMsg = msg => { lines.push(msg); log.textContent = lines.join('\n'); };
+
+        try {
+          const { invoices, items } = await Gmail.fetchInvoicesForMonth(
+            _importYear, _importMonth, msg => logMsg(msg)
+          );
+          if (invoices.length) {
+            const written = await Sheets.writeInvoicesFromGmail(
+              invoices, items, msg => logMsg(msg)
+            );
+            logMsg(`\n✅ 新寫入 ${written.invoices} 筆發票、${written.items} 筆品項`);
+          } else {
+            logMsg('⚠ 無有效發票');
+          }
+        } catch (e) {
+          if (e.message === 'gmail_scope_missing') {
+            logMsg('⚠ Gmail 授權失敗，請重試或登出後重新登入');
+          } else if (e.message === 'auth_cancelled') {
+            logMsg('⚠ 授權已取消');
+          } else {
+            logMsg(`❌ 失敗：${e.message}`);
+          }
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '下載發票';
+        }
+      });
+
+      // ── 匯入月度帳本：將發票明細 + CC 明細寫入月度帳本 ──
       document.getElementById('import-run').addEventListener('click', async () => {
         const btn = document.getElementById('import-run');
         const log = document.getElementById('import-log');
         btn.disabled = true;
-        btn.textContent = '處理中…';
+        btn.textContent = '匯入中…';
         log.textContent = '';
         const lines = [];
-        const ym = `${_importYear}-${String(_importMonth).padStart(2,'0')}`;
         const logMsg = msg => { lines.push(msg); log.textContent = lines.join('\n'); };
 
         try {
-          // ── Step 0a: 檢查發票明細，若無資料則自動從 Gmail 抓取 ──
-          logMsg(`[Step 0] 檢查 ${ym} 發票明細…`);
-          const mobileCount = await Sheets.countRawInvoicesForMonth(_importYear, _importMonth, '手機條碼');
-          if (mobileCount > 0) {
-            logMsg(`[Step 0] ✅ 已有 ${mobileCount} 筆手機條碼發票，略過 Gmail 抓取`);
-          } else {
-            logMsg('[Step 0] 發票明細無手機條碼資料，從 Gmail 抓取…');
-            try {
-              const { invoices, items } = await Gmail.fetchInvoicesForMonth(
-                _importYear, _importMonth, msg => logMsg(`  ${msg}`)
-              );
-              if (invoices.length) {
-                const written = await Sheets.writeInvoicesFromGmail(
-                  invoices, items, msg => logMsg(`  ${msg}`)
-                );
-                logMsg(`[Step 0] ✅ 新寫入 ${written.invoices} 筆發票、${written.items} 筆品項`);
-              } else {
-                logMsg('[Step 0] ⚠ Gmail 無有效發票，繼續匯入');
-              }
-            } catch (e) {
-              if (e.message === 'gmail_scope_missing') {
-                logMsg('[Step 0] ⚠ Gmail 授權失敗，請重試或登出後重新登入');
-              } else if (e.message === 'auth_cancelled') {
-                logMsg('[Step 0] ⚠ 授權已取消，如需抓取載具請重試');
-              } else {
-                logMsg(`[Step 0] ⚠ Gmail 抓取失敗：${e.message}`);
-              }
-            }
-          }
-
-          // ── Step 0b: 檢查 CC 明細狀態（只提示，不自動抓取 PDF）──
-          const ccStatus = await Sheets.getCreditCardImportStatus(_importYear, _importMonth);
-          const missingBanks = ccStatus.filter(b => b.count === 0).map(b => b.bank);
-          if (missingBanks.length) {
-            logMsg(`[Step 0] ⚠ CC 帳單未匯入（${missingBanks.join('、')}），可先執行 download_bills.py`);
-          }
-
-          // ── Step 1 & 2: 發票 + CC → 月度帳本 ──────────────────
-          btn.textContent = '匯入中…';
           const result = await Sheets.importToMonthly(_importYear, _importMonth, msg => logMsg(msg));
           logMsg(`\n✅ 完成：發票 ${result.invoices} 筆，CC ${result.cc} 筆（CC 略過 ${result.skippedCC} 筆）`);
           window.Home?.reload();

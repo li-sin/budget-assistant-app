@@ -42,9 +42,22 @@ const Gmail = (() => {
   }
 
   // 靜默查詢：計算 Gmail 中該月份的手機條碼發票筆數，不寫入 Sheet，auth 失敗不彈視窗
+  // 結果快取於 sessionStorage（TTL 30 分鐘），避免每次開設定都重新下載 CSV
   async function checkForMonth(year, month) {
+    const ym      = `${year}-${String(month).padStart(2, '0')}`;
+    const cacheKey = `ba_gmail_check_${ym}`;
+    const hit      = sessionStorage.getItem(cacheKey);
+    if (hit) {
+      const { ts, result } = JSON.parse(hit);
+      if (Date.now() - ts < 30 * 60 * 1000) return result;
+    }
+
     const msgIds = await _searchEmails(year, month, true);
-    if (!msgIds.length) return { found: false, invoiceCount: 0 };
+    if (!msgIds.length) {
+      const result = { found: false, invoiceCount: 0 };
+      sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), result }));
+      return result;
+    }
 
     let invoiceCount = 0;
     const seen = new Set();
@@ -60,7 +73,9 @@ const Gmail = (() => {
         }
       }
     }
-    return { found: true, invoiceCount };
+    const result = { found: true, invoiceCount };
+    sessionStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), result }));
+    return result;
   }
 
   function _findCsvPart(parts) {

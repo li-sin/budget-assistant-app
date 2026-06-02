@@ -628,8 +628,18 @@ const Pending = (() => {
     document.getElementById('pending-modal-title').textContent = `🟣 ${inv.shop}`;
 
     function _showStep1() {
+      const itemsHtml = item.invItems.length ? `
+        <div style="margin:0 0 12px;border:1px solid var(--divider);border-radius:6px;overflow:hidden;font-size:12px">
+          ${item.invItems.map(it => `
+            <div style="display:flex;justify-content:space-between;padding:4px 10px;border-bottom:1px solid var(--divider)">
+              <span style="color:var(--text-main)">${it.itemName}</span>
+              <span style="color:var(--text-sub);white-space:nowrap;margin-left:8px">${_fmt(parseFloat(it.itemAmount)||0)}</span>
+            </div>`).join('')}
+        </div>` : '';
       document.getElementById('pending-modal-body').innerHTML = `
-        <p class="list-item-sub" style="margin-bottom:12px">${inv.date}　${_fmt(inv.amount)}</p>
+        <p class="list-item-sub" style="margin-bottom:4px">${inv.date}　${_fmt(inv.amount)}</p>
+        <p class="list-item-sub" style="margin-bottom:10px;font-size:11px;opacity:.7">${inv.carrier}　${inv.invNum}</p>
+        ${itemsHtml}
         <label class="field-label">是否共用</label>
         <div class="chip-row" id="inv-shared-chips" style="margin-bottom:12px">
           ${SHARED_OPTS.map(opt => `<button class="chip${selectedShared === opt ? ' active' : ''}" data-opt="${opt}">${opt}</button>`).join('')}

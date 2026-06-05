@@ -1007,6 +1007,46 @@ const Sheets = (() => {
     return { invoices: invRows.length, items: writtenItems };
   }
 
+  // ── CC 明細：從 Gmail.fetchCCForMonth() 回傳的交易寫入 Sheets ──
+
+  async function writeCCFromGmail(transactions, onProgress) {
+    const log = m => onProgress?.(m);
+    if (!transactions.length) return { written: 0, skipped: 0 };
+
+    // 1. 讀既有 CC 明細 A:E，建去重 key set
+    log('檢查既有 CC 明細…');
+    const existing     = await _get(`${CONFIG.TABS.CC}!A:E`);
+    const existingKeys = new Set(
+      (existing.values || []).slice(1).map(r => {
+        const date = (r[1] || '').replace(/^'/, '').replace(/\//g, '-');
+        return `${r[0] || ''}|${date}|${r[3] || ''}|${parseFloat(r[4]) || 0}`;
+      })
+    );
+
+    // 2. 過濾已存在的交易
+    const newTxns = transactions.filter(t => {
+      const date = t.txDate.replace(/\//g, '-');
+      return !existingKeys.has(`${t.bank}|${date}|${t.shop}|${t.amount}`);
+    });
+    const skipped = transactions.length - newTxns.length;
+    if (!newTxns.length) {
+      log(`所有 CC 明細已存在，略過寫入（共 ${skipped} 筆）`);
+      return { written: 0, skipped };
+    }
+
+    // 3. 取最後一列後 append
+    const colA    = await _get(`${CONFIG.TABS.CC}!A:A`);
+    const lastRow = (colA.values || []).length;
+    const rows    = newTxns.map(t => [
+      t.bank, "'" + t.txDate, "'" + t.entryDate,
+      t.shop, t.amount, '', '', '', '', '', false, t.billingMonth || '',
+    ]);
+    const startRow = lastRow + 1;
+    await _update(`${CONFIG.TABS.CC}!A${startRow}:L${startRow + rows.length - 1}`, rows);
+    log(`→ CC 明細：新寫入 ${rows.length} 筆，略過 ${skipped} 筆`);
+    return { written: rows.length, skipped };
+  }
+
   return {
     getMonthlyData, getCreditCardImportStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
@@ -1025,5 +1065,6 @@ const Sheets = (() => {
     findCCRowByDateAmount, resetCCImported,
     getInvoiceSheetData, getCCSheetData,
     updateCCFields,
+    writeCCFromGmail,
   };
 })();

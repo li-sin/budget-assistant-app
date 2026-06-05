@@ -12,6 +12,15 @@ const Settings = (() => {
     ).join('');
   }
 
+  function _loadCCPasswords() {
+    try { return JSON.parse(localStorage.getItem('ba_cc_passwords') || '{}'); }
+    catch { return {}; }
+  }
+
+  function _saveCCPasswords(obj) {
+    localStorage.setItem('ba_cc_passwords', JSON.stringify(obj));
+  }
+
   function _fmt(n) {
     const abs = '$' + Math.abs(n).toLocaleString('zh-TW');
     if (n > 0)  return `Bear 欠 Sin ${abs}`;
@@ -135,9 +144,19 @@ const Settings = (() => {
           </div>
           <div id="import-log" class="import-log"></div>
           <div style="display:flex;gap:8px;margin-top:8px">
-            <button class="btn-primary" id="download-invoices" style="flex:1">下載發票</button>
+            <button class="btn-primary" id="download-invoices" style="flex:1">下載發票 + CC</button>
             <button class="btn-primary" id="import-run" style="flex:1">匯入月度帳本</button>
           </div>
+        </div>
+        <div class="section-title">CC 帳單密碼</div>
+        <div class="card">
+          <p class="settings-label-sub" style="margin-bottom:8px">儲存於本機，不會上傳。各家銀行 PDF 解密密碼。</p>
+          ${[['台新','taishin'],['星展','dbs'],['永豐','sinopac'],['富邦','fubon']].map(([name,key]) =>
+            `<div class="settings-row">
+              <span class="settings-label">${name}</span>
+              <input type="password" id="cc-pwd-${key}" class="field-input" style="flex:1;max-width:200px" autocomplete="off" placeholder="輸入密碼">
+            </div>`
+          ).join('')}
         </div>
         <div class="section-title">備註快速選項</div>
         <div class="card" id="note-chips-card">
@@ -222,7 +241,7 @@ const Settings = (() => {
         document.getElementById('import-log').textContent = '';
       });
 
-      // ── 下載發票：從 Gmail 抓取手機條碼 CSV → 寫入發票明細 ──
+      // ── 下載發票 + CC：發票 CSV + 四家 CC 帳單 PDF → Sheets ──
       document.getElementById('download-invoices').addEventListener('click', async () => {
         const btn = document.getElementById('download-invoices');
         const log = document.getElementById('import-log');
@@ -233,28 +252,44 @@ const Settings = (() => {
         const logMsg = msg => { lines.push(msg); log.textContent = lines.join('\n'); };
 
         try {
-          const { invoices, items } = await Gmail.fetchInvoicesForMonth(
-            _importYear, _importMonth, msg => logMsg(msg)
-          );
-          if (invoices.length) {
-            const written = await Sheets.writeInvoicesFromGmail(
-              invoices, items, msg => logMsg(msg)
+          // ── 發票 ──
+          logMsg('── 發票 ──');
+          try {
+            const { invoices, items } = await Gmail.fetchInvoicesForMonth(
+              _importYear, _importMonth, msg => logMsg(msg)
             );
-            logMsg(`\n✅ 新寫入 ${written.invoices} 筆發票、${written.items} 筆品項`);
-          } else {
-            logMsg('⚠ 無有效發票');
+            if (invoices.length) {
+              const written = await Sheets.writeInvoicesFromGmail(
+                invoices, items, msg => logMsg(msg)
+              );
+              logMsg(`✅ 新寫入 ${written.invoices} 筆發票、${written.items} 筆品項`);
+            } else {
+              logMsg('⚠ 無有效發票');
+            }
+          } catch (e) {
+            if (e.message === 'gmail_scope_missing') logMsg('⚠ 發票：Gmail 授權失敗，請重試或登出後重新登入');
+            else if (e.message === 'auth_cancelled')  logMsg('⚠ 發票：授權已取消');
+            else logMsg(`❌ 發票：${e.message}`);
           }
-        } catch (e) {
-          if (e.message === 'gmail_scope_missing') {
-            logMsg('⚠ Gmail 授權失敗，請重試或登出後重新登入');
-          } else if (e.message === 'auth_cancelled') {
-            logMsg('⚠ 授權已取消');
-          } else {
-            logMsg(`❌ 失敗：${e.message}`);
+
+          // ── CC 明細 ──
+          logMsg('\n── CC 明細 ──');
+          try {
+            const txns = await Gmail.fetchCCForMonth(
+              _importYear, _importMonth, _loadCCPasswords(), msg => logMsg(msg)
+            );
+            if (txns.length) {
+              const result = await Sheets.writeCCFromGmail(txns, msg => logMsg(msg));
+              logMsg(`✅ CC：新寫入 ${result.written} 筆，略過 ${result.skipped} 筆`);
+            } else {
+              logMsg('⚠ 無有效 CC 交易');
+            }
+          } catch (e) {
+            logMsg(`❌ CC：${e.message}`);
           }
         } finally {
           btn.disabled = false;
-          btn.textContent = '下載發票';
+          btn.textContent = '下載發票 + CC';
         }
       });
 
@@ -280,6 +315,19 @@ const Settings = (() => {
         }
       });
     }
+
+    // CC 帳單密碼（Sin Only）
+    const ccPwds = _loadCCPasswords();
+    ['taishin', 'dbs', 'sinopac', 'fubon'].forEach(key => {
+      const inp = document.getElementById(`cc-pwd-${key}`);
+      if (!inp) return;
+      inp.value = ccPwds[key] || '';
+      inp.addEventListener('change', () => {
+        const p = _loadCCPasswords();
+        p[key] = inp.value;
+        _saveCCPasswords(p);
+      });
+    });
 
     _loadSettlement();
     _loadCardStatus();

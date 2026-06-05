@@ -923,6 +923,20 @@ const Sheets = (() => {
   async function writeInvoicesFromGmail(invoices, items, onProgress) {
     const log = m => onProgress?.(m);
 
+    // 0. 讀商店分類規則（對齊 Python fetch_invoices.py lookup_category）
+    let invRulesRows = [];
+    try {
+      const rd = await _get(`${CONFIG.TABS.RULES}!A:B`);
+      invRulesRows = (rd.values || []).slice(1)
+        .map(r => [(r[0] || '').trim().toUpperCase(), (r[1] || '').trim()])
+        .filter(([k]) => k);
+    } catch { /* 取不到規則仍繼續 */ }
+    function _invLookupCategory(seller) {
+      const su = (seller || '').toUpperCase();
+      for (const [kw, cat] of invRulesRows) { if (su.includes(kw)) return cat; }
+      return '';
+    }
+
     // 1. 讀取既有發票號碼（C 欄 FORMATTED_VALUE = 顯示文字 = invNum）
     log('檢查既有發票號碼…');
     const existingData = await _get(`${CONFIG.TABS.INVOICE}!C:C`);
@@ -958,7 +972,7 @@ const Sheets = (() => {
       invRows.push([
         inv.carrier, "'" + inv.date, inv.invNum,
         inv.seller, inv.amount, inv.status,
-        '', inv.shared, '', false,
+        _invLookupCategory(inv.seller), inv.shared, '', false,
       ]);
     }
     const invStart = invLastRow - invRows.length + 1;
@@ -1063,7 +1077,7 @@ const Sheets = (() => {
       const shared   = _autoShared(t.shop, t.amount, category);
       return [
         t.bank, "'" + t.txDate, "'" + t.entryDate,
-        t.shop, t.amount, '', category, shared, '', '', false, t.billingMonth || '',
+        t.shop, t.amount, t.currency || '', category, shared, '', '', false, t.billingMonth || '',
       ];
     });
     const startRow = lastRow + 1;

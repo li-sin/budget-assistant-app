@@ -288,7 +288,7 @@ const Gmail = (() => {
     const pTwd     = /^(\d{3}\/\d{2}\/\d{2})\s+(\d{3}\/\d{2}\/\d{2})\s+(.+)\s+(-?\d{1,3}(?:,\d{3})*)$/;
     const txns = [];
     for (const line of lines) {
-      if (line.includes('自動轉帳扣繳')) continue;
+      if (line.replace(/\s+/g, '').includes('自動轉帳扣繳')) continue;
       const m = line.match(pForeign) || line.match(pTwd);
       if (!m) continue;
       const roc = m[1], yr = parseInt(roc.split('/')[0]) + 1911;

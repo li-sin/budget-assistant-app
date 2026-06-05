@@ -258,8 +258,19 @@ const Gmail = (() => {
       }
       for (const g of groups) {
         g.items.sort((a, b) => a.transform[4] - b.transform[4]);
-        const line = g.items.map(i => i.str).join('').trim();
-        if (line) pageLines.push(line);
+        // 根據相鄰 item 座標間距決定是否補空格，還原 PDF 視覺排版
+        let line = '';
+        for (let i = 0; i < g.items.length; i++) {
+          const cur = g.items[i];
+          if (i > 0) {
+            const prev    = g.items[i - 1];
+            const prevEnd = prev.transform[4] + (prev.width || 0);
+            if (cur.transform[4] - prevEnd > 1) line += ' ';
+          }
+          line += cur.str;
+        }
+        const trimmed = line.trim();
+        if (trimmed) pageLines.push(trimmed);
       }
     }
     return pageLines.join('\n');

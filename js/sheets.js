@@ -1013,6 +1013,27 @@ const Sheets = (() => {
     const log = m => onProgress?.(m);
     if (!transactions.length) return { written: 0, skipped: 0 };
 
+    // 0. 讀商店分類規則（A=關鍵字, B=類別），用於自動填 G/H 欄
+    //    規則同 Python write_to_sheets.py：負數→x、悠遊→x、類別'-'→'-'
+    let rulesRows = [];
+    try {
+      const rd = await _get(`${CONFIG.TABS.RULES}!A:B`);
+      rulesRows = (rd.values || []).slice(1)
+        .map(r => [(r[0] || '').trim().toUpperCase(), (r[1] || '').trim()])
+        .filter(([k]) => k);
+    } catch { /* 取不到規則仍繼續，類別留空 */ }
+
+    function _lookupCategory(shop) {
+      const su = shop.toUpperCase();
+      for (const [kw, cat] of rulesRows) { if (su.includes(kw)) return cat; }
+      return '';
+    }
+    function _autoShared(shop, amount, category) {
+      if (amount < 0 || shop.includes('悠遊')) return 'x';
+      if (category === '-') return '-';
+      return '';
+    }
+
     // 1. 讀既有 CC 明細 A:E，建去重 key set
     log('檢查既有 CC 明細…');
     const existing     = await _get(`${CONFIG.TABS.CC}!A:E`);
@@ -1034,13 +1055,17 @@ const Sheets = (() => {
       return { written: 0, skipped };
     }
 
-    // 3. 取最後一列後 append
+    // 3. 取最後一列後 append（G=類別、H=是否共用自動填入）
     const colA    = await _get(`${CONFIG.TABS.CC}!A:A`);
     const lastRow = (colA.values || []).length;
-    const rows    = newTxns.map(t => [
-      t.bank, "'" + t.txDate, "'" + t.entryDate,
-      t.shop, t.amount, '', '', '', '', '', false, t.billingMonth || '',
-    ]);
+    const rows    = newTxns.map(t => {
+      const category = _lookupCategory(t.shop);
+      const shared   = _autoShared(t.shop, t.amount, category);
+      return [
+        t.bank, "'" + t.txDate, "'" + t.entryDate,
+        t.shop, t.amount, '', category, shared, '', '', false, t.billingMonth || '',
+      ];
+    });
     const startRow = lastRow + 1;
     await _update(`${CONFIG.TABS.CC}!A${startRow}:L${startRow + rows.length - 1}`, rows);
     log(`→ CC 明細：新寫入 ${rows.length} 筆，略過 ${skipped} 筆`);

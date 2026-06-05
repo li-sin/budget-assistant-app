@@ -930,7 +930,7 @@ const Sheets = (() => {
       invRulesRows = (rd.values || []).slice(1)
         .map(r => [(r[0] || '').trim().toUpperCase(), (r[1] || '').trim()])
         .filter(([k]) => k);
-    } catch { /* 取不到規則仍繼續 */ }
+    } catch (e) { log(`⚠ 讀取商店分類規則失敗：${e.message}，類別留空`); }
     function _invLookupCategory(seller) {
       const su = (seller || '').toUpperCase();
       for (const [kw, cat] of invRulesRows) { if (su.includes(kw)) return cat; }
@@ -1035,7 +1035,7 @@ const Sheets = (() => {
       rulesRows = (rd.values || []).slice(1)
         .map(r => [(r[0] || '').trim().toUpperCase(), (r[1] || '').trim()])
         .filter(([k]) => k);
-    } catch { /* 取不到規則仍繼續，類別留空 */ }
+    } catch (e) { log(`⚠ 讀取商店分類規則失敗：${e.message}，類別留空`); }
 
     function _lookupCategory(shop) {
       const su = shop.toUpperCase();

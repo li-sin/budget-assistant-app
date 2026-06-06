@@ -1436,7 +1436,7 @@ const Scan = (() => {
           total = inputTotal > 0 ? inputTotal : 0;
         }
 
-        if (isQueryDetailMode && !items.length && ocrItems.length) {
+        if (ocrItems.length) {
           useOcrItemsIfReady();
         }
 

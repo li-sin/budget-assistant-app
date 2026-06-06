@@ -529,7 +529,7 @@ const Sheets = (() => {
 
   // ── 平台訂單配對 CC 後寫入月度帳本 ───────────────────────────
   // sinShare/bearShare 由呼叫端根據品項歸屬 + CC 差額計算
-  async function linkPlatformToCC({ inv, cc, sinShare, bearShare }) {
+  async function linkPlatformToCC({ inv, cc, sinShare, bearShare, payer = '🌟 Star' }) {
     const now = new Date();
     const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
     const sourceLink = _dynamicInvoiceLink(inv.invNum);
@@ -537,7 +537,7 @@ const Sheets = (() => {
 
     const row = [
       inv.date, inv.shop, cc.amount,
-      '🌟 Star', inv.shared, inv.category || '',
+      payer || '🌟 Star', inv.shared, inv.category || '',
       sinShare, bearShare, '',
       source, sourceLink, importedAt,
     ];
@@ -810,8 +810,9 @@ const Sheets = (() => {
   }
 
   // ── F20 編輯：同步更新月度帳本指定列的 E（共用）或 F（類別）──
-  async function updateMonthlyFields(rowIndex, { shared, category } = {}, ym) {
+  async function updateMonthlyFields(rowIndex, { shared, category, payer } = {}, ym) {
     const updates = [];
+    if (payer    !== undefined) updates.push({ range: `${CONFIG.TABS.MONTHLY}!D${rowIndex}`, values: [[payer]] });
     if (shared   !== undefined) updates.push({ range: `${CONFIG.TABS.MONTHLY}!E${rowIndex}`, values: [[shared]] });
     if (category !== undefined) updates.push({ range: `${CONFIG.TABS.MONTHLY}!F${rowIndex}`, values: [[category]] });
     if (updates.length) {

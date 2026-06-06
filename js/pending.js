@@ -20,6 +20,12 @@ const Pending = (() => {
     return value || '';
   }
 
+  function _defaultPayer() {
+    const email = (Auth.getEmail() || '').toLowerCase();
+    const bearEmail = (CONFIG.EMAIL_WHITELIST?.[1] || '').toLowerCase();
+    return email === bearEmail ? '🐨 Bear' : '🌟 Star';
+  }
+
   // ── 資料收集 ──────────────────────────────────────────────────
 
   async function _collect() {
@@ -851,6 +857,14 @@ const Pending = (() => {
     document.getElementById('pending-modal-title').textContent = `📦 ${inv.shop || inv.invNum}`;
 
     let selectedCC = null;
+    let selectedPayer = _defaultPayer();
+
+    const payerHtml = `
+      <div class="section-title" style="margin-top:12px">負責人</div>
+      <div class="chip-row" id="platform-payer-chips" style="margin-bottom:4px">
+        <button class="chip${selectedPayer === '🌟 Star' ? ' active' : ''}" data-payer="🌟 Star">🌟 Sin</button>
+        <button class="chip${selectedPayer === '🐨 Bear' ? ' active' : ''}" data-payer="🐨 Bear">🐨 Bear</button>
+      </div>`;
 
     const itemsHtml = invItems.length && inv.shared === '部分'
       ? `<div class="section-title" style="margin-top:12px">品項歸屬</div>
@@ -889,6 +903,7 @@ const Pending = (() => {
         ${inv.date}　[${platformKey}]　發票 ${_fmt(inv.amount)}
       </p>
       ${itemsHtml}
+      ${payerHtml}
       ${ccHtml}
       <p id="platform-error" class="add-error hidden"></p>
     `;
@@ -897,6 +912,14 @@ const Pending = (() => {
       <button class="btn-secondary" id="platform-cancel">取消</button>
       <button class="btn-primary" id="platform-confirm"${candidates.length ? '' : ' disabled'}>確認配對</button>
     `;
+
+    document.querySelectorAll('#platform-payer-chips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedPayer = btn.dataset.payer;
+        document.querySelectorAll('#platform-payer-chips .chip')
+          .forEach(b => b.classList.toggle('active', b.dataset.payer === selectedPayer));
+      });
+    });
 
     document.querySelectorAll('.platform-cc-item').forEach(row => {
       row.addEventListener('click', () => {
@@ -919,7 +942,7 @@ const Pending = (() => {
       btn.textContent = '處理中…';
       try {
         const { sinShare, bearShare } = _calcPlatformSplit(invItems, inv.shared, selectedCC.amount);
-        await Sheets.linkPlatformToCC({ inv, cc: selectedCC, sinShare, bearShare });
+        await Sheets.linkPlatformToCC({ inv, cc: selectedCC, sinShare, bearShare, payer: selectedPayer });
         Sheets.invalidateMonth(inv.date.slice(0, 7));
         _saveClose();
         await _reload();

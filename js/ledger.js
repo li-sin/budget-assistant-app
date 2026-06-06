@@ -1048,6 +1048,11 @@ const Ledger = (() => {
       `<button class="chip inv-shared-chip${invRow.shared === v ? ' active' : ''}" data-val="${v}">${v}</button>`
     ).join('');
 
+    const rowPayer  = monthlyRow.payer || _defaultPayer();
+    const payerChips = [['🌟 Star', '🌟 Sin'], ['🐨 Bear', '🐨 Bear']].map(([val, label]) =>
+      `<button class="chip inv-payer-chip${rowPayer === val ? ' active' : ''}" data-payer="${val}">${label}</button>`
+    ).join('');
+
     wrap.innerHTML = `
       <div class="inv-edit-header">發票欄位</div>
       <div class="inv-edit-row">
@@ -1055,6 +1060,10 @@ const Ledger = (() => {
         <select class="inv-cat-select field-input" style="height:36px;font-size:13px;padding:4px 8px;">
           ${catOpts}
         </select>
+      </div>
+      <div class="inv-edit-row">
+        <span class="inv-edit-label">負責人</span>
+        <div class="chip-row inv-payer-chips" style="margin-bottom:0;">${payerChips}</div>
       </div>
       <div class="inv-edit-row inv-shared-row">
         <span class="inv-edit-label">共用</span>
@@ -1070,8 +1079,9 @@ const Ledger = (() => {
       </div>
       <p class="inv-edit-error hidden" style="font-size:12px;color:var(--salmon);"></p>`;
 
-    // 追蹤目前 shared 選擇
+    // 追蹤目前 shared / payer 選擇
     let currentShared = invRow.shared || '';
+    let currentPayer  = rowPayer;
 
     wrap.querySelectorAll('.inv-shared-chip').forEach(chip => {
       chip.addEventListener('click', () => {
@@ -1081,11 +1091,19 @@ const Ledger = (() => {
       });
     });
 
+    wrap.querySelectorAll('.inv-payer-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        wrap.querySelectorAll('.inv-payer-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        currentPayer = chip.dataset.payer;
+      });
+    });
+
     wrap.querySelector('.btn-inv-save').addEventListener('click', async () => {
       const newCat    = wrap.querySelector('.inv-cat-select').value;
       const newShared = currentShared;
       const newNote   = wrap.querySelector('.inv-note-input').value.trim();
-      await _saveInvoiceFields(invRow, monthlyRow, newCat, newShared, newNote, wrap, ccRow);
+      await _saveInvoiceFields(invRow, monthlyRow, newCat, newShared, newNote, wrap, ccRow, currentPayer);
     });
 
     return wrap;
@@ -1115,7 +1133,7 @@ const Ledger = (() => {
 
   // ── 儲存發票層欄位（含月度帳本同步與特殊情境）──────────────
 
-  async function _saveInvoiceFields(invRow, monthlyRow, newCat, newShared, newNote, wrapEl, ccRow) {
+  async function _saveInvoiceFields(invRow, monthlyRow, newCat, newShared, newNote, wrapEl, ccRow, newPayer) {
     const errEl = wrapEl.querySelector('.inv-edit-error');
     const msgEl = wrapEl.querySelector('.inv-save-msg');
     const btn   = wrapEl.querySelector('.btn-inv-save');
@@ -1124,9 +1142,15 @@ const Ledger = (() => {
     btn.textContent = '儲存中…';
 
     const oldShared = invRow.shared || '';
+    const oldPayer  = monthlyRow.payer || '';
     const ym        = monthlyRow.date.slice(0, 7);
 
     try {
+      // 負責人變更：寫月度帳本 D 欄（x 會刪整列，故不在此寫）
+      if (newPayer && newPayer !== oldPayer && newShared !== 'x') {
+        await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { payer: newPayer }, ym);
+      }
+
       // ── H 欄特殊情境 ──────────────────────────────────────────
       if (newShared === 'x' && oldShared !== 'x') {
         // 改成 x：警告並刪月度帳本

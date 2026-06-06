@@ -5,8 +5,10 @@ const Sheets = (() => {
     return { Authorization: `Bearer ${Auth.getToken()}` };
   }
 
+  const _isDev = location.hostname === '127.0.0.1' || location.hostname === 'localhost';
+
   async function _apiError(res, label) {
-    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
+    if (res.status === 401) { if (!_isDev) Auth.logout(); throw new Error('auth_expired'); }
     if (!res.ok) {
       let detail = '';
       try { detail = ': ' + ((await res.json()).error?.message || ''); } catch {}
@@ -251,7 +253,7 @@ const Sheets = (() => {
         }],
       }),
     });
-    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
+    if (res.status === 401) { if (!_isDev) Auth.logout(); throw new Error('auth_expired'); }
     if (!res.ok) throw new Error(`Sheets API ${res.status}`);
     if (ym) invalidateMonth(ym);
     return res.json();
@@ -559,7 +561,7 @@ const Sheets = (() => {
     if (_sheetIdCache) return _sheetIdCache;
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SHEET_ID}?fields=sheets.properties`;
     const res = await fetch(url, { headers: _authHeader() });
-    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
+    if (res.status === 401) { if (!_isDev) Auth.logout(); throw new Error('auth_expired'); }
     if (!res.ok) throw new Error(`Sheets API ${res.status}`);
     const data = await res.json();
     _sheetIdCache = {};
@@ -749,7 +751,7 @@ const Sheets = (() => {
         }],
       }),
     });
-    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
+    if (res.status === 401) { if (!_isDev) Auth.logout(); throw new Error('auth_expired'); }
     if (!res.ok) throw new Error(`Sheets API ${res.status}`);
     return res.json();
   }
@@ -775,7 +777,7 @@ const Sheets = (() => {
         })),
       }),
     });
-    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
+    if (res.status === 401) { if (!_isDev) Auth.logout(); throw new Error('auth_expired'); }
     if (!res.ok) throw new Error(`Sheets API ${res.status}`);
     return res.json();
   }

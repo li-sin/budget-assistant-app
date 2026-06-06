@@ -230,8 +230,8 @@ const Scan = (() => {
     const amount = Math.round(parseFloat(row[4]));
     if (!name || /^\d+$/.test(name)) return null;
     if (!Number.isFinite(qty) || qty === 0 || Math.abs(qty) > 999) return null;
-    if (!Number.isFinite(price) || price === 0 || Math.abs(price) > Math.max(Math.abs(total) * 2, 99999)) return null;
-    if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > Math.max(Math.abs(total) * 2, 99999)) return null;
+    if (!Number.isFinite(price) || (price !== 0 && Math.abs(price) > Math.max(Math.abs(total) * 2, 99999))) return null;
+    if (!Number.isFinite(amount) || (amount !== 0 && Math.abs(amount) > Math.max(Math.abs(total) * 2, 99999))) return null;
     return { name, qty, price, amount, manual: true, ocr: true };
   }
 
@@ -278,10 +278,10 @@ const Scan = (() => {
       const amount = amounts[idx];
       if (
         !Number.isFinite(qty) || !Number.isFinite(price) || !Number.isFinite(amount) ||
-        qty === 0 || price === 0 || amount === 0 ||
+        qty === 0 ||
         Math.abs(qty) > 999 ||
-        Math.abs(price) > Math.max(Math.abs(total) * 2, 99999) ||
-        Math.abs(amount) > Math.max(Math.abs(total) * 2, 99999)
+        (price !== 0 && Math.abs(price) > Math.max(Math.abs(total) * 2, 99999)) ||
+        (amount !== 0 && Math.abs(amount) > Math.max(Math.abs(total) * 2, 99999))
       ) return null;
       return { name, qty, price, amount, manual: true, ocr: true };
     }).filter(Boolean);
@@ -303,7 +303,7 @@ const Scan = (() => {
         if (
           name && !/\d/.test(name) &&
           Number.isFinite(qty) && Number.isFinite(price) && Number.isFinite(amount) &&
-          qty !== 0 && price !== 0 && amount !== 0 &&
+          qty !== 0 &&
           Math.abs(qty) <= 999 &&
           Math.abs(price) <= Math.max(Math.abs(total) * 2, 99999) &&
           Math.abs(amount) <= Math.max(Math.abs(total) * 2, 99999)
@@ -1047,7 +1047,7 @@ const Scan = (() => {
 
     function applyOcrVariant(variant, statusPrefix = '已切換') {
       ocrRawText = variant?.text || '';
-      ocrItems = (variant?.items || []).filter(it => (it.name || '').trim() && Number.isFinite(Number(it.amount)) && Number(it.amount) !== 0);
+      ocrItems = (variant?.items || []).filter(it => (it.name || '').trim() && Number.isFinite(Number(it.amount)));
       ocrExpectedCount = Number.isInteger(variant?.expectedCount) ? variant.expectedCount : null;
       ocrFoundTable = !!variant?.foundTable;
       applyQueryDetailMeta(ocrRawText);
@@ -1108,7 +1108,7 @@ const Scan = (() => {
     function cleanOcrItemsForUse() {
       return ocrItems
         .map(it => ({ ...it, name: (it.name || '').trim(), amount: Math.round(Number(it.amount) || 0) }))
-        .filter(it => it.name && it.amount !== 0)
+        .filter(it => it.name)
         .map(it => ({ ...it, qty: 1, price: it.amount, manual: true, ocr: true }));
     }
 

@@ -1540,37 +1540,82 @@ const Scan = (() => {
       document.body.appendChild(el);
     }
 
-    // 是/否/-/x 不需填品項歸屬，直接顯示摘要並提供匯入/略過
-    const needsAttribution = shared === '部分';
-    const itemOwners = {};       // idx → '🌟 Sin'|'🐨 Bear'|'共用'|'部分'
+    // 可在歸屬頁直接修改 shared / payer
+    let currentShared = shared;
+    let currentPayer  = payer;
+
+    const SHARED_OPTS    = ['是', '否', '部分', '-', 'x'];
+    const itemOwners     = {};  // idx → '🌟 Sin'|'🐨 Bear'|'共用'|'部分'
     const itemCustomAmounts = {}; // idx → Bear 負擔金額（僅 '部分' 時有效）
 
-    const itemRows = needsAttribution && items.length
-      ? items.map((it, idx) => `
-        <div class="attr-item-row" data-idx="${idx}">
-          <span class="attr-item-name">${it.name}</span>
-          <span class="attr-item-amt">$${it.amount}</span>
-          <div class="chip-row attr-owner-chips" style="margin:4px 0 0 0">
-            <button class="chip attr-owner${itemOwners[idx] === '🌟 Sin' ? ' active' : ''}" data-owner="🌟 Sin">🌟 Sin</button>
-            <button class="chip attr-owner${itemOwners[idx] === '🐨 Bear' ? ' active' : ''}" data-owner="🐨 Bear">🐨 Bear</button>
-            <button class="chip attr-owner${itemOwners[idx] === '共用' ? ' active' : ''}" data-owner="共用">共用</button>
-            <button class="chip attr-owner${itemOwners[idx] === '部分' ? ' active' : ''}" data-owner="部分">部分</button>
-          </div>
-          <div class="partial-bear-wrap hidden" id="partial-wrap-${idx}">
-            <div class="amount-wrap" style="margin-top:6px">
-              <span class="amount-prefix">$</span>
-              <input type="number" id="partial-input-${idx}" class="field-input amount-input partial-bear-input"
-                     data-idx="${idx}" value="" min="0" step="1" inputmode="decimal"
-                     placeholder="Bear 負擔">
+    // 偵測平台訂單（備註含 CC_PAY_KEYWORDS；不受 shared 影響）
+    const isPlatformOrder = CONFIG.CC_PAY_KEYWORDS.some(
+      kw => note.toLowerCase().includes(kw.toLowerCase())
+    );
+
+    function _needsItemAttribution() { return currentShared === '部分'; }
+
+    function _updateSubmitBtn() {
+      const btn = document.getElementById('sattr-submit');
+      if (!btn) return;
+      btn.textContent = isPlatformOrder && currentShared !== 'x' ? '確認（待 CC 配對）' : '確認匯入';
+    }
+
+    function _renderItemSection() {
+      const wrap    = document.getElementById('attr-items-wrap');
+      const titleEl = document.getElementById('sattr-section-title');
+      if (!wrap) return;
+
+      if (_needsItemAttribution() && items.length) {
+        if (titleEl) titleEl.classList.remove('hidden');
+        wrap.innerHTML = items.map((it, idx) => `
+          <div class="attr-item-row" data-idx="${idx}">
+            <span class="attr-item-name">${it.name}</span>
+            <span class="attr-item-amt">$${it.amount}</span>
+            <div class="chip-row attr-owner-chips" style="margin:4px 0 0 0">
+              <button class="chip attr-owner${itemOwners[idx] === '🌟 Sin' ? ' active' : ''}" data-owner="🌟 Sin">🌟 Sin</button>
+              <button class="chip attr-owner${itemOwners[idx] === '🐨 Bear' ? ' active' : ''}" data-owner="🐨 Bear">🐨 Bear</button>
+              <button class="chip attr-owner${itemOwners[idx] === '共用' ? ' active' : ''}" data-owner="共用">共用</button>
+              <button class="chip attr-owner${itemOwners[idx] === '部分' ? ' active' : ''}" data-owner="部分">部分</button>
             </div>
-          </div>
-        </div>`).join('')
-      : `<p style="color:#8E8E93;font-size:14px;margin:8px 0">
-          ${shared === '是' ? '整張發票 Sin & Bear 各半' :
-            shared === '否' ? 'Sin 代墊，Bear 全欠' :
-            shared === '-' ? '個人消費，不計入分帳' :
+            <div class="partial-bear-wrap${itemOwners[idx] === '部分' ? '' : ' hidden'}" id="partial-wrap-${idx}">
+              <div class="amount-wrap" style="margin-top:6px">
+                <span class="amount-prefix">$</span>
+                <input type="number" id="partial-input-${idx}" class="field-input amount-input partial-bear-input"
+                       data-idx="${idx}" value="${itemCustomAmounts[idx] ?? ''}" min="0" step="1" inputmode="decimal"
+                       placeholder="Bear 負擔">
+              </div>
+            </div>
+          </div>`).join('');
+
+        wrap.querySelectorAll('.attr-owner').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const row = btn.closest('.attr-item-row');
+            const idx = parseInt(row.dataset.idx);
+            row.querySelectorAll('.attr-owner').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            itemOwners[idx] = btn.dataset.owner;
+            const wrapEl = document.getElementById(`partial-wrap-${idx}`);
+            if (wrapEl) wrapEl.classList.toggle('hidden', itemOwners[idx] !== '部分');
+            if (itemOwners[idx] !== '部分') delete itemCustomAmounts[idx];
+          });
+        });
+
+        wrap.querySelectorAll('.partial-bear-input').forEach(input => {
+          input.addEventListener('input', () => {
+            itemCustomAmounts[parseInt(input.dataset.idx)] = parseFloat(input.value);
+          });
+        });
+      } else {
+        if (titleEl) titleEl.classList.add('hidden');
+        wrap.innerHTML = `<p style="color:#8E8E93;font-size:14px;margin:8px 0">
+          ${currentShared === '是' ? '整張發票 Sin & Bear 各半' :
+            currentShared === '否' ? 'Sin 代墊，Bear 全欠' :
+            currentShared === '-' ? '個人消費，不計入分帳' :
             'x 跳過，不匯入帳本'}
         </p>`;
+      }
+    }
 
     el.innerHTML = `
       <div class="modal-sheet">
@@ -1582,39 +1627,50 @@ const Scan = (() => {
           <div class="sconf-row"><span class="sconf-label">發票</span><span class="sconf-val">${invNum}</span></div>
           <div class="sconf-row"><span class="sconf-label">商店</span><span class="sconf-val">${shop || '—'}</span></div>
           <div class="sconf-row"><span class="sconf-label">金額</span><span class="sconf-val amount-expense">$${total.toLocaleString('zh-TW')}</span></div>
-          <div class="sconf-row"><span class="sconf-label">負責人</span><span class="sconf-val">${payer || '🌟 Star'}</span></div>
-          <div class="sconf-row"><span class="sconf-label">是否共用</span><span class="sconf-val">${shared}</span></div>
-          ${needsAttribution ? `<div class="section-title" style="margin-top:12px">逐項歸屬</div>` : ''}
-          <div id="attr-items-wrap">${itemRows}</div>
+          <div class="sconf-row">
+            <span class="sconf-label">負責人</span>
+            <div class="chip-row" id="sattr-payer-chips" style="justify-content:flex-end;gap:6px;flex:1">
+              <button class="chip${currentPayer === '🌟 Star' ? ' active' : ''}" data-payer="🌟 Star">🌟 Sin</button>
+              <button class="chip${currentPayer === '🐨 Bear' ? ' active' : ''}" data-payer="🐨 Bear">🐨 Bear</button>
+            </div>
+          </div>
+          <div class="sconf-row" style="align-items:flex-start">
+            <span class="sconf-label">是否共用</span>
+            <div class="chip-row" id="sattr-shared-chips" style="justify-content:flex-end;flex-wrap:wrap;gap:6px;flex:1">
+              ${SHARED_OPTS.map(opt => `<button class="chip${currentShared === opt ? ' active' : ''}" data-shared="${opt}">${opt}</button>`).join('')}
+            </div>
+          </div>
+          <div id="sattr-section-title" class="section-title${_needsItemAttribution() ? '' : ' hidden'}" style="margin-top:12px">逐項歸屬</div>
+          <div id="attr-items-wrap"></div>
           <p id="sattr-error" class="add-error hidden"></p>
         </div>
         <div class="modal-footer">
           <button class="btn-secondary" id="sattr-skip">略過</button>
-          <button class="btn-primary" id="sattr-submit">確認匯入</button>
+          <button class="btn-primary" id="sattr-submit">${isPlatformOrder && currentShared !== 'x' ? '確認（待 CC 配對）' : '確認匯入'}</button>
         </div>
       </div>
     `;
 
+    _renderItemSection();
     el.classList.remove('hidden');
 
-    // 歸屬 chip 事件
-    el.querySelectorAll('.attr-owner').forEach(btn => {
+    // 負責人 chip 事件
+    el.querySelectorAll('#sattr-payer-chips .chip').forEach(btn => {
       btn.addEventListener('click', () => {
-        const row = btn.closest('.attr-item-row');
-        const idx = parseInt(row.dataset.idx);
-        row.querySelectorAll('.attr-owner').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        itemOwners[idx] = btn.dataset.owner;
-        const wrapEl = document.getElementById(`partial-wrap-${idx}`);
-        if (wrapEl) wrapEl.classList.toggle('hidden', itemOwners[idx] !== '部分');
-        if (itemOwners[idx] !== '部分') delete itemCustomAmounts[idx];
+        currentPayer = btn.dataset.payer;
+        el.querySelectorAll('#sattr-payer-chips .chip')
+          .forEach(b => b.classList.toggle('active', b.dataset.payer === currentPayer));
       });
     });
 
-    // 部分金額輸入
-    el.querySelectorAll('.partial-bear-input').forEach(input => {
-      input.addEventListener('input', () => {
-        itemCustomAmounts[parseInt(input.dataset.idx)] = parseFloat(input.value);
+    // 是否共用 chip 事件
+    el.querySelectorAll('#sattr-shared-chips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentShared = btn.dataset.shared;
+        el.querySelectorAll('#sattr-shared-chips .chip')
+          .forEach(b => b.classList.toggle('active', b.dataset.shared === currentShared));
+        _renderItemSection();
+        _updateSubmitBtn();
       });
     });
 
@@ -1624,20 +1680,12 @@ const Scan = (() => {
       alert(`發票 ${invNum} 已寫入，可至待處理頁面填寫歸屬後匯入。`);
     });
 
-    // 偵測平台訂單（備註含 CC_PAY_KEYWORDS）
-    const isPlatformOrder = CONFIG.CC_PAY_KEYWORDS.some(
-      kw => note.toLowerCase().includes(kw.toLowerCase())
-    );
-    if (isPlatformOrder && shared !== 'x') {
-      document.getElementById('sattr-submit').textContent = '確認（待 CC 配對）';
-    }
-
     document.getElementById('sattr-submit').addEventListener('click', async () => {
       const errEl = document.getElementById('sattr-error');
       errEl.classList.add('hidden');
 
       // 部分共用：確認所有品項都有歸屬
-      if (needsAttribution) {
+      if (_needsItemAttribution()) {
         const missing = items.some((_, idx) => !itemOwners[idx]);
         if (missing) {
           errEl.textContent = '請先選擇所有品項的歸屬';
@@ -1654,12 +1702,17 @@ const Scan = (() => {
 
       const btn = document.getElementById('sattr-submit');
       btn.disabled    = true;
-      btn.textContent = isPlatformOrder && shared !== 'x' ? '儲存中…' : '匯入中…';
+      btn.textContent = isPlatformOrder && currentShared !== 'x' ? '儲存中…' : '匯入中…';
 
       try {
+        // 若 shared 有異動，先更新已寫入的發票明細列
+        if (currentShared !== shared) {
+          await Sheets.updateInvoiceShared(invRowIndex, currentShared);
+        }
+
         // 平台訂單：只存品項歸屬，不寫月度帳本，等待 CC 配對
-        if (isPlatformOrder && shared !== 'x') {
-          if (needsAttribution && firstItemRow != null) {
+        if (isPlatformOrder && currentShared !== 'x') {
+          if (_needsItemAttribution() && firstItemRow != null) {
             for (let idx = 0; idx < items.length; idx++) {
               const isPartial = itemOwners[idx] === '部分';
               await Sheets.updateItemRow(firstItemRow + idx, isPartial ? '共用' : itemOwners[idx], isPartial ? (itemCustomAmounts[idx] || 0) : null);
@@ -1673,16 +1726,16 @@ const Scan = (() => {
         // 一般訂單：計算分攤後直接寫入月度帳本
         let sinShare, bearShare;
 
-        if (shared === '是') {
+        if (currentShared === '是') {
           sinShare  = Math.floor(total / 2);
           bearShare = total - sinShare;
-        } else if (shared === '否') {
+        } else if (currentShared === '否') {
           sinShare  = total;
           bearShare = 0;
-        } else if (shared === '-' || shared === 'x') {
+        } else if (currentShared === '-' || currentShared === 'x') {
           sinShare  = total;
           bearShare = 0;
-        } else if (shared === '部分') {
+        } else if (currentShared === '部分') {
           bearShare = items.reduce((sum, it, idx) => {
             const owner = itemOwners[idx];
             if (owner === '🐨 Bear') return sum + it.amount;
@@ -1700,7 +1753,7 @@ const Scan = (() => {
           }
         }
 
-        await Sheets.appendMonthlyFromScan({ date, shop, amount: total, shared, category, note, invNum, invRowIndex, payer, source, sinShare, bearShare });
+        await Sheets.appendMonthlyFromScan({ date, shop, amount: total, shared: currentShared, category, note, invNum, invRowIndex, payer: currentPayer, source, sinShare, bearShare });
 
         _closeAttribution();
         alert(`✓ 發票 ${invNum} 已匯入月度帳本`);
@@ -1708,7 +1761,7 @@ const Scan = (() => {
         errEl.textContent = '匯入失敗：' + e.message;
         errEl.classList.remove('hidden');
         btn.disabled    = false;
-        btn.textContent = isPlatformOrder && shared !== 'x' ? '確認（待 CC 配對）' : '確認匯入';
+        btn.textContent = isPlatformOrder && currentShared !== 'x' ? '確認（待 CC 配對）' : '確認匯入';
       }
     });
   }

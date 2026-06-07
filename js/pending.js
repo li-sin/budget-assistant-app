@@ -43,7 +43,7 @@ const Pending = (() => {
     // 🟡 未標記：發票明細 is_shared=部分共用，且品項明細有空白歸屬
     const partialInvNums = new Set(
       invoices
-        .filter(inv => (inv.shared === '部分' || inv.shared === '部分共用') && inv.status !== '作廢' && inv.imported !== 'TRUE')
+        .filter(inv => inv.shared === '部分' && inv.status !== '作廢' && inv.imported !== 'TRUE')
         .map(inv => inv.invNum)
     );
     partialInvNums.forEach(invNum => {
@@ -798,7 +798,7 @@ const Pending = (() => {
               isPartial ? (customAmountMap[i] || 0) : ''
             );
           }
-          await Sheets.updateInvoiceShared(inv.rowIndex, '部分共用');
+          await Sheets.updateInvoiceShared(inv.rowIndex, '部分');
           await Sheets.appendMonthlyFromInvoice({
             date: inv.date,
             shop: inv.shop,

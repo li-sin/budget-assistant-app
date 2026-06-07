@@ -1274,7 +1274,7 @@ const Ledger = (() => {
       overlay.innerHTML = `
         <div class="modal-sheet" style="max-height:60dvh;">
           <div class="modal-header">
-            <span class="modal-title">改為「部分共用」</span>
+            <span class="modal-title">改為「部分」</span>
           </div>
           <div class="modal-body" style="gap:12px;">
             <p style="font-size:14px;color:var(--text-sub);">此發票無品項明細，請選擇處理方式：</p>

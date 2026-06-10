@@ -326,11 +326,11 @@ const Gmail = (() => {
   }
 
   function _parseSinopac(allText, year) {
-    let si = allText.indexOf('消費日 入帳\n起息日');
-    if (si === -1) si = allText.indexOf('消費日 入帳');
+    // 不依賴多欄表頭錨點「消費日 入帳」（PDF.js 會把它拆行 → indexOf=-1 → 0 筆）。
+    // 改以交易行 regex 當 gate（_mergeContinuationLines 已用日期開頭分界），
+    // 僅保留敘述句終點錨點切掉彙總尾段，避免被 merge 併入最後一筆交易。
     const ei = allText.indexOf('您的正卡，本期應繳金額合計');
-    if (si === -1) return [];
-    const section = ei !== -1 ? allText.slice(si, ei) : allText.slice(si);
+    const section = ei !== -1 ? allText.slice(0, ei) : allText;
     const lines   = _mergeContinuationLines(section.split('\n'));
     const SKIP    = ['豐點', '回饋', '折抵', '自扣', '點數'];
     const p = /^(\d{2}\/\d{2})\s+(\d{2}\/\d{2})\s+(\d{4})\s+(?:[A-Z]{1,3}-\s+)?(.+?)\s+(-?\d{1,3}(?:,\d{3})*)$/;
@@ -349,12 +349,12 @@ const Gmail = (() => {
   }
 
   function _parseFubon(allText) {
-    const si = allText.indexOf('消費日期 消費說明');
-    if (si === -1) return [];
+    // 不依賴表頭錨點「消費日期 消費說明」（PDF.js 下可能被拆行）。富邦關鍵在「終點 marker」：
+    // 以 end marker 切掉彙總尾段，避免被 merge 黏入最後一筆交易；交易行 regex 當 gate。
     const eis = ['本期應繳金額', '您本期循環信用年利率']
-      .map(marker => allText.indexOf(marker, si)).filter(i => i !== -1);
+      .map(marker => allText.indexOf(marker)).filter(i => i !== -1);
     const ei      = eis.length ? Math.min(...eis) : -1;
-    const section = ei !== -1 ? allText.slice(si, ei) : allText.slice(si);
+    const section = ei !== -1 ? allText.slice(0, ei) : allText;
     const lines   = _mergeContinuationLines(section.split('\n'));
     const SKIP    = ['前期應繳', '本期應繳', '自動扣繳', '退款', '上期'];
     const p = /^(\d{3}\/\d{2}\/\d{2})\s+(.+?)\s+(\d{3}\/\d{2}\/\d{2})(?:\s+\S+\/\S+\s+\S+)?(?:\s+[A-Z]{2,3})?\s+(-?\d{1,3}(?:,\d{3})*)$/;

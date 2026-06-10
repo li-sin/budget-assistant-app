@@ -608,8 +608,14 @@ const Pending = (() => {
       <div class="chip-row" id="cc-shared-chips" style="margin-bottom:12px">
         ${SHARED_OPTS.map(opt => `<button class="chip${selectedShared === opt ? ' active' : ''}" data-opt="${opt}">${opt}</button>`).join('')}
       </div>
-      <label class="field-label">備注</label>
-      <input type="text" id="cc-note" class="field-input" value="${cc.note}" placeholder="選填">
+      <div id="cc-note-row">
+        <label class="field-label">備注</label>
+        <input type="text" id="cc-note" class="field-input" value="${cc.note}" placeholder="選填">
+      </div>
+      <div id="cc-bear-row" class="hidden">
+        <label class="field-label">Bear 負擔金額</label>
+        <input type="number" id="cc-bear" class="field-input" inputmode="decimal" placeholder="Bear 負擔多少（總額 ${cc.amount}）">
+      </div>
       <p id="cc-error" class="add-error hidden"></p>
     `;
     document.getElementById('pending-modal-footer').innerHTML = `
@@ -627,11 +633,19 @@ const Pending = (() => {
       });
     });
 
+    const _updatePartialUI = () => {
+      const isPartial = selectedShared === '部分';
+      document.getElementById('cc-bear-row').classList.toggle('hidden', !isPartial);
+      document.getElementById('cc-note-row').classList.toggle('hidden', isPartial);
+    };
+    _updatePartialUI();
+
     document.querySelectorAll('#cc-shared-chips .chip').forEach(btn => {
       btn.addEventListener('click', () => {
         selectedShared = btn.dataset.opt;
         document.querySelectorAll('#cc-shared-chips .chip')
           .forEach(b => b.classList.toggle('active', b.dataset.opt === selectedShared));
+        _updatePartialUI();
       });
     });
 
@@ -643,11 +657,22 @@ const Pending = (() => {
         errEl.classList.remove('hidden');
         return;
       }
+      let note;
+      if (selectedShared === '部分') {
+        const bearAmt = parseFloat(document.getElementById('cc-bear').value);
+        if (isNaN(bearAmt) || bearAmt < 0 || bearAmt > cc.amount) {
+          errEl.textContent = `請輸入 Bear 負擔金額（0 ~ ${cc.amount}）`;
+          errEl.classList.remove('hidden');
+          return;
+        }
+        note = String(Math.round(bearAmt));   // 寫入備註(J欄)，importToMonthly 讀此值算 Bear 負擔
+      } else {
+        note = document.getElementById('cc-note').value;
+      }
       const btn = document.getElementById('cc-save');
       btn.disabled = true;
       btn.textContent = '儲存中…';
       try {
-        const note = document.getElementById('cc-note').value;
         await Sheets.updateCCFields(cc.rowIndex, { category: selectedCat, shared: selectedShared, note });
         _saveClose();
         await _reload();

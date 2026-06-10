@@ -510,22 +510,24 @@ const Sheets = (() => {
   }
 
   // ── 讀商店分類規則 A:C，回傳平台 mapping ──────────────────────
-  // 回傳: { 'UberEats': ['優步福爾摩沙', '優食'], '蝦皮': ['樂購蝦皮'] }
+  // 回傳: { 'UberEats': ['優步', '優食', ...], '蝦皮': ['樂購蝦皮'] }
+  // 內建平台商家預設（永豐等新來源的 CC 商店字串），與 Sheet 第三欄合併，
+  //   Sheet 仍可再擴充其他平台/商家；UberEats CC 出現「優步福爾摩沙…」與「優食－…」兩種字串。
+  const _BUILTIN_PLATFORM_MERCHANTS = { 'UberEats': ['優步', '優食'] };
   async function getRulesData() {
+    const map = {};
+    for (const [p, kws] of Object.entries(_BUILTIN_PLATFORM_MERCHANTS)) map[p] = [...kws];
     try {
       const data = await _get(`${CONFIG.TABS.RULES}!A:C`);
-      const map = {};
       (data.values || []).slice(1).forEach(r => {
         const keyword  = (r[0] || '').trim();
         const platform = (r[2] || '').trim();
-        if (keyword && platform) {
+        if (keyword && platform && !(map[platform] || []).includes(keyword)) {
           (map[platform] = map[platform] || []).push(keyword);
         }
       });
-      return map;
-    } catch {
-      return {};
-    }
+    } catch { /* 讀取失敗仍回傳內建預設 */ }
+    return map;
   }
 
   // ── 平台訂單配對 CC 後寫入月度帳本 ───────────────────────────

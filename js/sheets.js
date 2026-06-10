@@ -189,7 +189,7 @@ const Sheets = (() => {
 
   async function getCreditCardImportStatus(year, month) {
     const ym = `${year}-${String(month).padStart(2, '0')}`;
-    const banks = ['台新', '星展', '永豐'];
+    const banks = ['台新', '星展', '永豐', '富邦'];
     const counts = Object.fromEntries(banks.map(b => [b, 0]));
     const data = await _get(`${CONFIG.TABS.CC}!A:L`);
     (data.values || []).slice(1).forEach(r => {

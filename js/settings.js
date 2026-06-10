@@ -284,6 +284,8 @@ const Settings = (() => {
             } else {
               logMsg('⚠ 無有效 CC 交易');
             }
+            // CC 解析後比對發票（金額±1、日期±3，蝦皮±10），自動填 CC I 欄連結
+            await Sheets.matchCCWithInvoices(msg => logMsg(msg));
           } catch (e) {
             logMsg(`❌ CC：${e.message}`);
           }

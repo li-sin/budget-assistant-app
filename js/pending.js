@@ -5,6 +5,7 @@ const Pending = (() => {
   let _currentItem = null; // 目前 modal 中的 item（用於 auto-advance）
   let _advanceIdx  = -1;   // reload 後自動開啟的清單索引（-1 = 不自動開啟）
 
+  const CATEGORIES = ['🍴', '🛒', '🧋', '⛽', '📦', '🎬', '👗', '🏠', '💊', '📚'];
   const APP_INVOICE_CARRIERS = new Set(['掃描發票', '手查發票']);
   const _isAppInvoiceCarrier = carrier => APP_INVOICE_CARRIERS.has(carrier);
   const _sourceFromCarrier = carrier => _isAppInvoiceCarrier(carrier) ? carrier : '發票';
@@ -587,14 +588,25 @@ const Pending = (() => {
   function _renderCCPending(item) {
     const cc = item.cc;
     const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
-    let selectedShared = '';
+    let selectedShared = cc.shared || '';          // CC 下載時若已自動填，預選供 double check
+    let selectedCat    = cc.category || '';        // 類別：下載時 _lookupCategory 可能已自動填
     document.getElementById('pending-modal-title').textContent = `🔵 ${cc.shop}`;
 
+    // 下載時已自動帶入的欄位，提示使用者確認
+    const prefillHint = (cc.category || cc.shared)
+      ? `<p class="list-item-sub" style="margin:0 0 12px;font-size:11px;opacity:.7">已自動帶入${cc.category ? `類別 ${cc.category}` : ''}${cc.category && cc.shared ? '、' : ''}${cc.shared ? `是否共用 ${cc.shared}` : ''}，請確認</p>`
+      : '';
+
     document.getElementById('pending-modal-body').innerHTML = `
-      <p class="list-item-sub" style="margin-bottom:12px">${cc.bank}　${cc.txDate}　${_fmt(cc.amount)}</p>
+      <p class="list-item-sub" style="margin-bottom:8px">${cc.bank}　${cc.txDate}　${_fmt(cc.amount)}</p>
+      ${prefillHint}
+      <label class="field-label">類別</label>
+      <div class="chip-row" id="cc-cat-chips" style="margin-bottom:12px">
+        ${CATEGORIES.map(c => `<button class="chip${selectedCat === c ? ' active' : ''}" data-cat="${c}">${c}</button>`).join('')}
+      </div>
       <label class="field-label">是否共用</label>
       <div class="chip-row" id="cc-shared-chips" style="margin-bottom:12px">
-        ${SHARED_OPTS.map(opt => `<button class="chip" data-opt="${opt}">${opt}</button>`).join('')}
+        ${SHARED_OPTS.map(opt => `<button class="chip${selectedShared === opt ? ' active' : ''}" data-opt="${opt}">${opt}</button>`).join('')}
       </div>
       <label class="field-label">備注</label>
       <input type="text" id="cc-note" class="field-input" value="${cc.note}" placeholder="選填">
@@ -606,6 +618,14 @@ const Pending = (() => {
     `;
 
     NoteChips.render('cc-note');
+
+    document.querySelectorAll('#cc-cat-chips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedCat = selectedCat === btn.dataset.cat ? '' : btn.dataset.cat;  // 再按一次取消
+        document.querySelectorAll('#cc-cat-chips .chip')
+          .forEach(b => b.classList.toggle('active', b.dataset.cat === selectedCat));
+      });
+    });
 
     document.querySelectorAll('#cc-shared-chips .chip').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -628,7 +648,7 @@ const Pending = (() => {
       btn.textContent = '儲存中…';
       try {
         const note = document.getElementById('cc-note').value;
-        await Sheets.updateCCShared(cc.rowIndex, selectedShared, note);
+        await Sheets.updateCCFields(cc.rowIndex, { category: selectedCat, shared: selectedShared, note });
         _saveClose();
         await _reload();
       } catch (e) {

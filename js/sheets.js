@@ -458,6 +458,7 @@ const Sheets = (() => {
       txDate:   r[1] || '',
       shop:     r[3] || '',
       amount:   parseFloat(r[4]) || 0,
+      category: r[6] || '',
       shared:   r[7] || '',
       note:     r[9] || '',
       imported: r[10] || '',
@@ -1026,6 +1027,71 @@ const Sheets = (() => {
 
   // ── CC 明細：從 Gmail.fetchCCForMonth() 回傳的交易寫入 Sheets ──
 
+  // ── CC ↔ 發票自動配對（port Python match.py match_cc_with_invoices）──
+  //  開立發票：金額±1、日期±3（蝦皮±10）→ CC I 欄填發票連結、H 原空才填 'x'
+  //  作廢發票（cc金額>0）：金額±1、日期±3 → I 欄填「號碼(作廢)」連結、H='x'
+  //  每張發票只配一次。
+  function _parseDateObj(s) {
+    const m = _normalizeDate(s).replace(/\//g, '-').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+  }
+  const _CC_DATE_DELTA_OVERRIDES = [['蝦皮', 10], ['樂購蝦皮', 10]];
+
+  async function matchCCWithInvoices(onProgress) {
+    const log = m => onProgress?.(m);
+    const [invData, ccData] = await Promise.all([
+      _get(`${CONFIG.TABS.INVOICE}!A:F`),
+      _get(`${CONFIG.TABS.CC}!A:I`),
+    ]);
+    const opened = [], voided = [];
+    (invData.values || []).slice(1).forEach(r => {
+      const d   = _parseDateObj(r[1]);
+      const amt = parseFloat(String(r[4] || '').replace(/,/g, '')) || 0;
+      const num = (r[2] || '').trim();
+      if (!d || !amt || !num) return;
+      (r[5] === '作廢' ? voided : opened).push({ d, amt, num });
+    });
+    if (!opened.length && !voided.length) { log('→ 發票配對：無發票可比對'); return 0; }
+
+    const _days = (a, b) => Math.abs((a - b) / 86400000);
+    const matchedInv = new Set();
+    const updates = [];
+    const ccRows = (ccData.values || []).slice(1);
+    for (let i = 0; i < ccRows.length; i++) {
+      const r = ccRows[i];
+      const rowNum = i + 2;
+      if ((r[8] || '').trim()) continue;            // I 欄已連結
+      const ccD   = _parseDateObj(r[1]);
+      const ccAmt = parseFloat(String(r[4] || '').replace(/,/g, '')) || 0;
+      if (!ccD || !ccAmt) continue;
+      const shop  = r[3] || '';
+      const delta = (_CC_DATE_DELTA_OVERRIDES.find(([k]) => shop.includes(k)) || [null, 3])[1];
+      let matched = false;
+      for (const inv of opened) {
+        if (matchedInv.has(inv.num)) continue;
+        if (_days(ccD, inv.d) <= delta && Math.abs(ccAmt - inv.amt) <= 1) {
+          updates.push({ range: `${CONFIG.TABS.CC}!I${rowNum}`, values: [[_dynamicInvoiceLink(inv.num)]] });
+          if (!(r[7] || '').trim()) updates.push({ range: `${CONFIG.TABS.CC}!H${rowNum}`, values: [['x']] });
+          matchedInv.add(inv.num); matched = true; break;
+        }
+      }
+      if (!matched && ccAmt > 0) {
+        for (const inv of voided) {
+          if (matchedInv.has(inv.num)) continue;
+          if (_days(ccD, inv.d) <= 3 && Math.abs(ccAmt - inv.amt) <= 1) {
+            updates.push({ range: `${CONFIG.TABS.CC}!I${rowNum}`, values: [[_dynamicInvoiceLink(inv.num, `${inv.num}(作廢)`)]] });
+            updates.push({ range: `${CONFIG.TABS.CC}!H${rowNum}`, values: [['x']] });
+            matchedInv.add(inv.num); break;
+          }
+        }
+      }
+    }
+    const count = updates.filter(u => u.range.includes('!I')).length;
+    if (updates.length) await _batchUpdate(updates);
+    log(`→ 發票配對：連結 ${count} 筆`);
+    return count;
+  }
+
   async function writeCCFromGmail(transactions, onProgress) {
     const log = m => onProgress?.(m);
     if (!transactions.length) return { written: 0, skipped: 0 };
@@ -1100,7 +1166,7 @@ const Sheets = (() => {
     getCCAllData, linkCCToInvoice,
     getRulesData, linkPlatformToCC,
     importToMonthly,
-    countRawInvoicesForMonth, writeInvoicesFromGmail,
+    countRawInvoicesForMonth, writeInvoicesFromGmail, matchCCWithInvoices,
     deleteInvoiceRow, deleteItemRows,
     updateInvoiceFields, updateItemFields, updateMonthlyFields,
     getCCForInvoice, updateMonthlyGH, unlinkCC,

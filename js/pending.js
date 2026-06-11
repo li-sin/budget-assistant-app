@@ -378,12 +378,10 @@ const Pending = (() => {
   }
 
   // 存入後關閉：捕捉當前 index，reload 後自動開下一筆
+  // 用 _visibleItems()（與 _reload 自動跳轉同一份清單，含月份篩選）確保 index 一致
   function _saveClose() {
     if (_currentItem) {
-      const list = _bankFilter
-        ? _items.filter(it => it.type === 'cc_pending' && it.cc.bank === _bankFilter)
-        : _items;
-      _advanceIdx = list.findIndex(it => it === _currentItem);
+      _advanceIdx = _visibleItems().findIndex(it => it === _currentItem);
     }
     _closeDetail();
   }

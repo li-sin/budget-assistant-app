@@ -83,6 +83,8 @@
   transition: background 0.15s, color 0.15s;
 }
 .chip.active { background: var(--teal); color: #000; font-weight: 600; }
+/* 桌機滑鼠點完 chip 仍保持 :focus，外框殘留看似還亮著；鍵盤操作(:focus-visible)才顯示 */
+.chip:focus:not(:focus-visible) { outline: none; }
 .filter-row { display: flex; align-items: center; gap: 8px; }
 .cat-chip-row {
   flex-wrap: nowrap;

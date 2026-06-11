@@ -4,6 +4,7 @@ const Pending = (() => {
   let _jumpBank    = null; // jumpTo 暫存，等 activate/init 時套用
   let _currentItem = null; // 目前 modal 中的 item（用於 auto-advance）
   let _advanceIdx  = -1;   // reload 後自動開啟的清單索引（-1 = 不自動開啟）
+  let _pendingMonth = null; // {year, month} 月份切換器選的月份；null = 尚未初始化（首次取最新有項目的月）
 
   const CATEGORIES = ['🍴', '🛒', '🧋', '⛽', '📦', '🎬', '👗', '🏠', '💊', '📚'];
   const APP_INVOICE_CARRIERS = new Set(['掃描發票', '手查發票']);
@@ -222,15 +223,64 @@ const Pending = (() => {
     }));
   }
 
+  // ── 月份篩選 helper ──────────────────────────────────────────
+  function _ymOf(dateStr) {
+    const s = String(dateStr || '').replace(/^'/, '').trim();
+    let m = s.match(/^(\d{4})(\d{2})(\d{2})$/);            // YYYYMMDD
+    if (m) return `${m[1]}-${m[2]}`;
+    m = s.match(/^(\d{4})[-/](\d{1,2})/);                  // YYYY-MM-DD / YYYY/MM/DD
+    if (m) return `${m[1]}-${String(m[2]).padStart(2, '0')}`;
+    return '';
+  }
+  function _itemDate(it) {
+    return it.cc?.txDate || it.inv?.date || it.row?.date || it.date || '';
+  }
+  function _defaultMonth(items) {
+    let best = '';
+    items.forEach(it => { const ym = _ymOf(_itemDate(it)); if (ym && ym > best) best = ym; });
+    if (best) { const [y, mo] = best.split('-'); return { year: +y, month: +mo }; }
+    const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() + 1 };
+  }
+  function _allItems() {
+    return _bankFilter
+      ? _items.filter(it => it.type === 'cc_pending' && it.cc.bank === _bankFilter)
+      : _items;
+  }
+  function _visibleItems() {
+    const all = _allItems();
+    if (_bankFilter) return all;
+    if (!_pendingMonth) _pendingMonth = _defaultMonth(all);
+    const ymSel = `${_pendingMonth.year}-${String(_pendingMonth.month).padStart(2, '0')}`;
+    return all.filter(it => { const ym = _ymOf(_itemDate(it)); return ym === ymSel || ym === ''; });
+  }
+  function _shiftMonth(delta) {
+    if (!_pendingMonth) _pendingMonth = _defaultMonth(_allItems());
+    let { year, month } = _pendingMonth;
+    month += delta;
+    if (month < 1)  { month = 12; year--; }
+    if (month > 12) { month = 1;  year++; }
+    _pendingMonth = { year, month };
+    _renderList();
+  }
+
   // ── 渲染列表 ──────────────────────────────────────────────────
 
   function _renderList() {
     const el = document.getElementById('pending-list');
-    const items = _bankFilter
-      ? _items.filter(it => it.type === 'cc_pending' && it.cc.bank === _bankFilter)
-      : _items;
+    const all   = _allItems();
+    const items = _visibleItems();
 
-    document.getElementById('pending-count').textContent = `${items.length} 項`;
+    const monthNav  = document.getElementById('pending-month-nav');
+    const summaryEl = document.getElementById('pending-summary');
+    if (_bankFilter) {
+      monthNav?.classList.add('hidden');
+      if (summaryEl) summaryEl.textContent = `${items.length} 項`;
+    } else {
+      monthNav?.classList.remove('hidden');
+      const lbl = document.getElementById('pending-month-lbl');
+      if (lbl) lbl.textContent = `${_pendingMonth.year}年${_pendingMonth.month}月`;
+      if (summaryEl) summaryEl.textContent = `${_pendingMonth.month}月共 ${items.length} 張　待處理共 ${all.length} 張`;
+    }
 
     let html = '';
     if (_bankFilter) {
@@ -242,7 +292,10 @@ const Pending = (() => {
     }
 
     if (!items.length) {
-      html += '<div class="empty-state"><span>✅</span><p>沒有待處理項目</p></div>';
+      const msg = (!_bankFilter && all.length > 0)
+        ? `本月無待處理（其他月份還有 ${all.length} 張，用 ◀ ▶ 切換）`
+        : '沒有待處理項目';
+      html += `<div class="empty-state"><span>✅</span><p>${msg}</p></div>`;
     } else {
       html += items.map((it, idx) => {
         let title, sub, amount;
@@ -1063,14 +1116,13 @@ const Pending = (() => {
     _advanceIdx = -1;
     const el = document.getElementById('pending-list');
     if (el) el.innerHTML = '<div class="spinner"></div>';
-    document.getElementById('pending-count').textContent = '';
+    const sEl = document.getElementById('pending-summary');
+    if (sEl) sEl.textContent = '';
     try {
       await _collect();
       _renderList();
       if (savedAdvanceIdx >= 0) {
-        const next = _bankFilter
-          ? _items.filter(it => it.type === 'cc_pending' && it.cc.bank === _bankFilter)
-          : _items;
+        const next = _visibleItems();
         if (next.length > 0) _openDetail(next[Math.min(savedAdvanceIdx, next.length - 1)]);
       }
     } catch (e) {
@@ -1082,14 +1134,21 @@ const Pending = (() => {
 
   function _buildShell() {
     document.getElementById('tab-pending').innerHTML = `
-      <div class="home-nav" style="margin-bottom:16px">
+      <div class="home-nav" style="margin-bottom:8px">
         <span style="flex:1;font-size:16px;font-weight:600">待處理</span>
-        <span id="pending-count" class="ledger-count"></span>
         <button class="month-btn refresh-btn" id="pending-refresh" title="重新載入">↺</button>
       </div>
+      <div class="home-nav" id="pending-month-nav" style="margin-bottom:6px">
+        <button class="month-btn" id="pending-prev-m">◀</button>
+        <span id="pending-month-lbl" style="flex:1;text-align:center;font-weight:600"></span>
+        <button class="month-btn" id="pending-next-m">▶</button>
+      </div>
+      <div id="pending-summary" class="ledger-count" style="display:block;margin-bottom:8px"></div>
       <div class="card" id="pending-list"></div>
     `;
     document.getElementById('pending-refresh').addEventListener('click', _reload);
+    document.getElementById('pending-prev-m').addEventListener('click', () => _shiftMonth(-1));
+    document.getElementById('pending-next-m').addEventListener('click', () => _shiftMonth(1));
   }
 
   function jumpTo({ bank } = {}) {

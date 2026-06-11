@@ -72,6 +72,9 @@ const Ledger = (() => {
 
   let _invSubEditRow = null;
   let _invSubEditShared = '';
+  let _invSubPayer = '';              // 發票明細編輯：對應月度帳本負責人
+  let _invSubMonthlyRowIndex = null;  // 對應月度帳本列 index（可寫 D 欄）
+  let _invSubPayerEditable = false;   // 掃描/手查發票且已匯入才可改
   let _ccSubEditRow = null;
   let _ccSubEditShared = '';
 
@@ -1895,6 +1898,8 @@ const Ledger = (() => {
             <option value="">（未分類）</option>
             ${CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}
           </select>
+          <label class="field-label">負責人</label>
+          <div class="chip-row" id="inv-sub-payer-chips"></div>
           <label class="field-label">是否共用</label>
           <div class="chip-row" id="inv-sub-shared-chips">
             ${SHARED_OPTS.map(v => `<button class="chip" data-val="${v}">${v}</button>`).join('')}
@@ -1930,6 +1935,11 @@ const Ledger = (() => {
       btn.disabled = true; btn.textContent = '儲存中…';
       try {
         await Sheets.updateInvoiceFields(row.rowIndex, { category: cat, shared: _invSubEditShared, note });
+        // 負責人寫月度帳本 D 欄（僅掃描/手查發票且已匯入、且有值時）
+        if (_invSubPayerEditable && _invSubMonthlyRowIndex && _invSubPayer) {
+          await Sheets.updateMonthlyFields(_invSubMonthlyRowIndex, { payer: _invSubPayer },
+            `${_year}-${String(_month).padStart(2, '0')}`);
+        }
         _clearInvoiceCache();
         _closeInvSubModal();
         _invRows = [];
@@ -1940,6 +1950,43 @@ const Ledger = (() => {
       } finally {
         btn.disabled = false; btn.textContent = '儲存';
       }
+    });
+  }
+
+  // 負責人存在月度帳本 D 欄（非發票明細）。財政部發票恆 Sin、唯讀；
+  // 掃描/手查發票且已匯入月度帳本才可改，寫月度帳本 D 欄。
+  async function _loadInvSubPayer(row) {
+    const chipsEl = document.getElementById('inv-sub-payer-chips');
+    _invSubPayer = '';
+    _invSubMonthlyRowIndex = null;
+    _invSubPayerEditable = false;
+    const isApp = row.carrier === '掃描發票' || row.carrier === '手查發票';
+    if (!isApp) {
+      chipsEl.innerHTML = '<span class="list-item-sub">🌟 Sin（財政部發票固定）</span>';
+      return;
+    }
+    chipsEl.innerHTML = '<span class="list-item-sub">讀取中…</span>';
+    let monthlyRow = null;
+    try {
+      const monthly = await Sheets.getMonthlyData(_year, _month);
+      monthlyRow = monthly.find(mr =>
+        mr.sourceLink === row.invNum &&
+        (mr.source === '發票' || mr.source === '掃描發票' || mr.source === '手查發票'));
+    } catch { /* 讀取失敗時下方顯示提示 */ }
+    if (!monthlyRow) {
+      chipsEl.innerHTML = '<span class="list-item-sub">尚未匯入月度帳本（匯入後才能設定負責人）</span>';
+      return;
+    }
+    _invSubMonthlyRowIndex = monthlyRow.rowIndex;
+    _invSubPayer = monthlyRow.payer || _defaultPayer();
+    _invSubPayerEditable = true;
+    chipsEl.innerHTML = [['🌟 Star', '🌟 Sin'], ['🐨 Bear', '🐨 Bear']].map(([val, label]) =>
+      `<button class="chip${_invSubPayer === val ? ' active' : ''}" data-payer="${val}">${label}</button>`).join('');
+    chipsEl.querySelectorAll('.chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _invSubPayer = btn.dataset.payer;
+        chipsEl.querySelectorAll('.chip').forEach(b => b.classList.toggle('active', b.dataset.payer === _invSubPayer));
+      });
     });
   }
 
@@ -1955,6 +2002,7 @@ const Ledger = (() => {
     document.querySelectorAll('#inv-sub-shared-chips .chip')
       .forEach(b => b.classList.toggle('active', b.dataset.val === _invSubEditShared));
     document.getElementById('inv-sub-edit-modal').classList.remove('hidden');
+    _loadInvSubPayer(row);   // 非同步填負責人（modal 先開）
   }
 
   function _closeInvSubModal() {

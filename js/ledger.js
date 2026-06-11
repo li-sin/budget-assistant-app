@@ -1987,8 +1987,14 @@ const Ledger = (() => {
           <div class="chip-row" id="cc-sub-shared-chips">
             ${CC_SHARED.map(v => `<button class="chip" data-val="${v}">${v}</button>`).join('')}
           </div>
-          <label class="field-label">備註</label>
-          <input type="text" id="cc-sub-note" class="field-input">
+          <div id="cc-sub-note-row">
+            <label class="field-label">備註</label>
+            <input type="text" id="cc-sub-note" class="field-input">
+          </div>
+          <div id="cc-sub-bear-row" class="hidden">
+            <label class="field-label">Bear 負擔金額</label>
+            <input type="number" id="cc-sub-bear" class="field-input" inputmode="decimal" placeholder="Bear 負擔多少">
+          </div>
           <p id="cc-sub-error" class="add-error hidden"></p>
         </div>
         <div class="modal-footer">
@@ -2005,6 +2011,7 @@ const Ledger = (() => {
         el.querySelectorAll('#cc-sub-shared-chips .chip').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         _ccSubEditShared = btn.dataset.val;
+        _updateCCSubPartialUI();
       });
     });
     document.getElementById('cc-sub-save').addEventListener('click', async () => {
@@ -2013,8 +2020,19 @@ const Ledger = (() => {
       const btn   = document.getElementById('cc-sub-save');
       const errEl = document.getElementById('cc-sub-error');
       const cat   = document.getElementById('cc-sub-cat').value;
-      const note  = document.getElementById('cc-sub-note').value.trim();
       errEl.classList.add('hidden');
+      let note;
+      if (_ccSubEditShared === '部分') {
+        const bearAmt = parseFloat(document.getElementById('cc-sub-bear').value);
+        if (isNaN(bearAmt) || bearAmt < 0 || bearAmt > row.amount) {
+          errEl.textContent = `請輸入 Bear 負擔金額（0 ~ ${row.amount}）`;
+          errEl.classList.remove('hidden');
+          return;
+        }
+        note = String(Math.round(bearAmt));   // 寫入備註(J欄)，importToMonthly 讀此值算 Bear 負擔
+      } else {
+        note = document.getElementById('cc-sub-note').value.trim();
+      }
       btn.disabled = true; btn.textContent = '儲存中…';
       try {
         await Sheets.updateCCFields(row.rowIndex, { category: cat, shared: _ccSubEditShared, note });
@@ -2030,6 +2048,12 @@ const Ledger = (() => {
     });
   }
 
+  function _updateCCSubPartialUI() {
+    const isPartial = _ccSubEditShared === '部分';
+    document.getElementById('cc-sub-bear-row')?.classList.toggle('hidden', !isPartial);
+    document.getElementById('cc-sub-note-row')?.classList.toggle('hidden', isPartial);
+  }
+
   function _openCCSubModal(row) {
     _buildCCSubEditModal();
     _ccSubEditRow    = row;
@@ -2038,9 +2062,12 @@ const Ledger = (() => {
       `${row.bank}　${row.shop || '（未知）'}　${row.txDate}<br>金額 $${row.amount.toLocaleString('zh-TW')}`;
     document.getElementById('cc-sub-cat').value  = row.category || '';
     document.getElementById('cc-sub-note').value = row.note     || '';
+    // 部分：備註(J欄)存的是 Bear 金額，預填到金額輸入
+    document.getElementById('cc-sub-bear').value = _ccSubEditShared === '部分' ? (row.note || '') : '';
     document.getElementById('cc-sub-error').classList.add('hidden');
     document.querySelectorAll('#cc-sub-shared-chips .chip')
       .forEach(b => b.classList.toggle('active', b.dataset.val === _ccSubEditShared));
+    _updateCCSubPartialUI();
     document.getElementById('cc-sub-edit-modal').classList.remove('hidden');
   }
 

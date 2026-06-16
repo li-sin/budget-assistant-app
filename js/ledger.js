@@ -23,6 +23,7 @@ const Ledger = (() => {
   let _expandCCRow   = null; // 展開中發票的 CC 配對列（有配對才非 null）
   let _swipeActiveWrap  = null;
   let _sharedDeleteBg   = null;
+  let _lastDragEnd      = 0; // 最近一次橫向拖曳結束時間，避免拖曳後誤觸整列點擊
   let _activeSubTab    = 'monthly';
   let _invRows         = [];
   let _invSharedFilter = new Set();
@@ -171,7 +172,7 @@ const Ledger = (() => {
       return `
         <div class="swipe-container">
           <div class="list-item" data-row="${r.rowIndex}" data-is-invoice="${isInvoice ? '1' : ''}">
-            <span class="list-item-icon">${cat}</span>
+            <span class="list-item-icon${isSin ? ' cat-pickable' : ''}">${cat}</span>
             <div class="list-item-body">
               <div class="list-item-title">${srcIcon(r.source)} ${r.item || '（未命名）'}</div>
               <div class="list-item-sub">${mmdd}　${sharedLabel}${bearBadge}${noteText}</div>
@@ -179,7 +180,7 @@ const Ledger = (() => {
             </div>
             <div class="list-item-right">
               <div class="amount-expense">${_fmt(r.amount)}</div>
-              ${isSin ? `<button class="expand-btn" data-row="${r.rowIndex}">${isInvoice ? '▼' : '✎'}</button>` : ''}
+              ${isSin && isInvoice ? `<button class="expand-btn" data-row="${r.rowIndex}">▼</button>` : ''}
             </div>
           </div>
         </div>`;
@@ -198,6 +199,31 @@ const Ledger = (() => {
         else _toggleNonInvoiceDetail(row, btn);
       });
     });
+
+    // 類別 emoji → 彈出選盤快速改類別；非 emoji 區域 → 開啟編輯（沿用 expand 行為）
+    if (isSin) {
+      el.querySelectorAll('.cat-pickable').forEach(icon => {
+        icon.addEventListener('click', e => {
+          e.stopPropagation();
+          if (_swipeActiveWrap) { _collapseActiveSwipe(); return; }
+          const li  = icon.closest('.list-item');
+          const row = _allRows.find(r => r.rowIndex === parseInt(li.dataset.row, 10));
+          if (row) _openCatPicker(row);
+        });
+      });
+      el.querySelectorAll('.list-item').forEach(li => {
+        li.addEventListener('click', e => {
+          if (e.target.closest('.cat-pickable') || e.target.closest('.expand-btn')) return;
+          if (_swipeActiveWrap) { _collapseActiveSwipe(); return; }
+          if (Date.now() - _lastDragEnd < 300) return; // 剛拖曳完不開編輯
+          const row = _allRows.find(r => r.rowIndex === parseInt(li.dataset.row, 10));
+          if (!row) return;
+          const isInv = isInvoiceSource(row.source) && row.sourceLink;
+          if (isInv) _toggleInvoiceFields(row, li); // 發票列：非 emoji 區 → 發票欄位
+          else _toggleNonInvoiceDetail(row, li);    // 非發票列：→ inline 編輯
+        });
+      });
+    }
 
     // 右滑刪除
     if (isSin) _setupSwipeDelete(el);
@@ -292,6 +318,7 @@ const Ledger = (() => {
         _lastTouchEnd = Date.now();
         if (!dragging || !isHoriz) { dragging = false; return; }
         dragging = false;
+        _lastDragEnd = Date.now();
         const dx = e.changedTouches[0].clientX - startX;
         if (startOffset + dx < THRESHOLD) {
           if (startOffset === SNAP_OPEN && Math.abs(dx) < 20) {
@@ -334,6 +361,7 @@ const Ledger = (() => {
         document.removeEventListener('mouseup', onMouseUp);
         if (!mouseDragging) return;
         mouseDragging = false;
+        _lastDragEnd = Date.now();
         inner.style.cursor = '';
         const dx = e.clientX - mouseStartX;
         if (mouseStartOffset + dx < THRESHOLD) {
@@ -476,6 +504,7 @@ const Ledger = (() => {
         document.removeEventListener('mouseup', onMouseUp);
         if (!mouseDragging) return;
         mouseDragging = false;
+        _lastDragEnd = Date.now();
         inner.style.cursor = '';
         const dx = e.clientX - mouseStartX;
         if (mouseStartOffset + dx < THRESHOLD) {
@@ -770,6 +799,47 @@ const Ledger = (() => {
     return { sinShare: sinFood + diffSin, bearShare: bearFood + (diff - diffSin) };
   }
 
+  // ── 發票列：非 emoji 區 → 只展開發票欄位（類別/負責人/共用/備註）──
+  // 與 _toggleItemDetail（▼ → 品項明細）分離，兩者獨立 toggle。
+
+  async function _toggleInvoiceFields(row, anchorEl) {
+    const detailId = `inv-fields-${row.rowIndex}`;
+    const listItem = anchorEl.closest('.list-item') || anchorEl;
+    const existing = document.getElementById(detailId);
+    if (existing) { existing.remove(); listItem.classList.remove('row-editing'); return; }
+
+    listItem.classList.add('row-editing');
+    // 互斥：開發票欄位前先收掉同列的品項細項展開
+    const itemBlock = document.getElementById(`item-detail-${row.rowIndex}`);
+    if (itemBlock) {
+      itemBlock.remove();
+      const eb = listItem.querySelector('.expand-btn');
+      if (eb) eb.textContent = '▼';
+    }
+    try {
+      const invNum = row.sourceLink;
+      const [allInvoices, ccRows] = await Promise.all([
+        _getInvoiceCache(),
+        Sheets.getCCForInvoice(invNum),
+      ]);
+      const invRow = allInvoices.find(inv => inv.invNum === invNum);
+      const ccRow  = ccRows.length ? ccRows[0] : null;
+      _expandCCRow = ccRow;
+
+      const detail = document.createElement('div');
+      detail.id        = detailId;
+      detail.className = 'item-detail-list';
+      detail.appendChild(_buildInvoiceEditSection(row, invRow, _isSin(), ccRow));
+
+      (listItem.closest('.swipe-container') || listItem).insertAdjacentElement('afterend', detail);
+      detail.querySelectorAll('input[data-notechips]').forEach(inp => {
+        if (inp.id) NoteChips?.render(inp.id);
+      });
+    } catch (e) {
+      listItem.classList.remove('row-editing');
+    }
+  }
+
   // ── 展開品項（可編輯，F20）────────────────────────────────────
 
   async function _toggleItemDetail(row, btnEl) {
@@ -777,6 +847,10 @@ const Ledger = (() => {
     const listItem = btnEl.closest('.list-item');
     const existing = document.getElementById(detailId);
     if (existing) { existing.remove(); btnEl.textContent = '▼'; _expandCCRow = null; return; }
+
+    // 互斥：開品項前先收掉同列的發票欄位展開
+    const fieldsBlock = document.getElementById(`inv-fields-${row.rowIndex}`);
+    if (fieldsBlock) { fieldsBlock.remove(); listItem?.classList.remove('row-editing'); }
 
     btnEl.textContent = '…';
     try {
@@ -809,11 +883,7 @@ const Ledger = (() => {
         detail.appendChild(noteAgg);
       }
 
-      // ── 發票層欄位（可編輯，Sin only）────────────────────────
-      const invSection = _buildInvoiceEditSection(row, invRow, isSin, _expandCCRow);
-      detail.appendChild(invSection);
-
-      // ── 品項層 ────────────────────────────────────────────────
+      // ── 品項層（發票欄位已分離至 _toggleInvoiceFields，由非 emoji 區觸發）──
       if (!invItems.length) {
         const empty = document.createElement('div');
         empty.className = 'item-detail-empty';
@@ -824,6 +894,7 @@ const Ledger = (() => {
           const itRow = _buildItemEditRow(it, isSin, _expandCCRow);
           detail.appendChild(itRow);
         });
+        if (isSin) detail.appendChild(_buildItemsSaveBar(detail, invItems, _expandCCRow));
       }
 
       (listItem.closest('.swipe-container') || listItem).insertAdjacentElement('afterend', detail);
@@ -879,15 +950,60 @@ const Ledger = (() => {
     }
   }
 
+  // ── 類別 emoji 快速選盤（點圖示 → 直接改月度帳本 F 欄類別）──────
+
+  function _openCatPicker(row) {
+    const cur = row.category || '';
+    const grid = CATEGORIES.map(c =>
+      `<button class="cat-pick-btn${cur === c ? ' active' : ''}" data-cat="${c}">${c}</button>`
+    ).join('');
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-sheet" style="max-height:50dvh;">
+        <div class="modal-header">
+          <span class="modal-title">選擇類別</span>
+          <button class="modal-close" id="cat-pick-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size:13px;color:var(--text-sub);margin-bottom:4px;">${row.item || '（未命名）'}</p>
+          <div class="cat-pick-grid">${grid}</div>
+          <p class="cat-pick-error add-error hidden"></p>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('#cat-pick-close').addEventListener('click', close);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    overlay.querySelectorAll('.cat-pick-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const newCat = btn.dataset.cat;
+        if (newCat === cur) { close(); return; }
+        overlay.querySelectorAll('.cat-pick-btn').forEach(b => { b.disabled = true; });
+        try {
+          await Sheets.updateMonthlyFields(row.rowIndex, { category: newCat }, row.date.slice(0, 7));
+          close();
+          await _load();
+          window.Home?.reload();
+        } catch (e) {
+          const err = overlay.querySelector('.cat-pick-error');
+          err.textContent = '儲存失敗：' + e.message;
+          err.classList.remove('hidden');
+          overlay.querySelectorAll('.cat-pick-btn').forEach(b => { b.disabled = false; });
+        }
+      });
+    });
+  }
+
   // ── 非發票列 inline 展開編輯（手動記帳 / CC月度）────────────
 
-  function _toggleNonInvoiceDetail(row, btnEl) {
+  function _toggleNonInvoiceDetail(row, anchorEl) {
     const detailId = `ne-detail-${row.rowIndex}`;
-    const listItem = btnEl.closest('.list-item');
+    const listItem = anchorEl.closest('.list-item') || anchorEl;
     const existing = document.getElementById(detailId);
-    if (existing) { existing.remove(); btnEl.textContent = '✎'; return; }
+    if (existing) { existing.remove(); listItem.classList.remove('row-editing'); return; }
 
-    btnEl.textContent = '▲';
+    listItem.classList.add('row-editing');
 
     const catOpts = ['', ...CATEGORIES].map(c =>
       `<option value="${c}" ${(row.category || '') === c ? 'selected' : ''}>${c || '（未分類）'}</option>`
@@ -1438,6 +1554,7 @@ const Ledger = (() => {
   function _buildItemEditRow(it, isSin, ccRow) {
     const wrap = document.createElement('div');
     wrap.className = 'item-detail-row item-edit-row';
+    wrap.dataset.itemRow = it.rowIndex;
 
     if (!isSin) {
       wrap.innerHTML = `
@@ -1467,53 +1584,76 @@ const Ledger = (() => {
           <input type="number" class="field-input amount-input bear-amt-input" style="font-size:12px;padding:5px 5px 5px 22px;" min="0" step="1" inputmode="decimal" placeholder="Bear 負擔金額" value="${currentCustom}">
         </div>
       </div>
-      <div>
+      <div class="item-note-wrap" style="display:none;margin-top:4px;">
         <input type="text" id="item-note-${it.rowIndex}" class="field-input item-note-input" data-notechips="true" style="font-size:12px;padding:5px 8px;" placeholder="備註（J欄）" value="${currentNote}">
       </div>
-      <div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
-        <button class="btn-item-save btn-primary" style="padding:5px 12px;font-size:12px;">儲存</button>
-        <span class="item-save-msg" style="font-size:11px;color:var(--teal);display:none;">✓ 已儲存</span>
-      </div>
-      <p class="item-edit-error hidden" style="font-size:11px;color:var(--salmon);margin-top:4px;"></p>`;
+      <div style="margin-top:6px;">
+        <button class="btn-item-note-toggle chip${currentNote ? ' active' : ''}" style="font-size:11px;padding:3px 10px;">📝 備註${currentNote ? ' ●' : ''}</button>
+      </div>`;
 
     // chip 互動
-    let selectedOpt = displayAttr;
     wrap.querySelectorAll('.item-attr-chip').forEach(chip => {
       chip.addEventListener('click', () => {
         wrap.querySelectorAll('.item-attr-chip').forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
-        selectedOpt = chip.dataset.opt;
-        wrap.querySelector('.bear-partial-wrap').style.display = selectedOpt === '部分' ? 'block' : 'none';
+        wrap.querySelector('.bear-partial-wrap').style.display = chip.dataset.opt === '部分' ? 'block' : 'none';
       });
     });
 
-    wrap.querySelector('.btn-item-save').addEventListener('click', async () => {
-      const btn   = wrap.querySelector('.btn-item-save');
-      const errEl = wrap.querySelector('.item-edit-error');
-      const msgEl = wrap.querySelector('.item-save-msg');
+    // 備註預設收合，點「📝 備註」才展開（品項備註少用，平時不佔版面）
+    const _noteWrap = wrap.querySelector('.item-note-wrap');
+    wrap.querySelector('.btn-item-note-toggle').addEventListener('click', () => {
+      const show = _noteWrap.style.display === 'none';
+      _noteWrap.style.display = show ? 'block' : 'none';
+      if (show) wrap.querySelector('.item-note-input')?.focus();
+    });
+
+    return wrap;
+  }
+
+  // ── 品項整批儲存列（一個儲存鈕掃描所有品項列一次寫入）──────────
+  // 平常會把所有品項都選好負責人才一次存；故不再每筆一顆儲存。
+
+  function _buildItemsSaveBar(detail, invItems, ccRow) {
+    const bar = document.createElement('div');
+    bar.className = 'items-save-bar';
+    bar.innerHTML = `
+      <button class="btn-items-save-all btn-primary" style="padding:6px 18px;font-size:13px;">儲存</button>
+      <span class="items-save-msg" style="font-size:12px;color:var(--teal);display:none;">✓ 已儲存</span>
+      <p class="items-save-error add-error hidden" style="margin:6px 0 0;font-size:12px;width:100%;"></p>`;
+    const btn   = bar.querySelector('.btn-items-save-all');
+    const msgEl = bar.querySelector('.items-save-msg');
+    const errEl = bar.querySelector('.items-save-error');
+
+    btn.addEventListener('click', async () => {
       errEl.classList.add('hidden');
       btn.disabled = true;
       btn.textContent = '儲存中…';
-
       try {
-        let attribution  = selectedOpt;
-        let customAmount = '';
-        if (selectedOpt === '部分') {
-          attribution  = '共用';
-          customAmount = wrap.querySelector('.bear-amt-input').value;
+        const rows = [...detail.querySelectorAll('.item-edit-row[data-item-row]')];
+        for (const rowEl of rows) {
+          const ri = parseInt(rowEl.dataset.itemRow, 10);
+          const it = invItems.find(x => x.rowIndex === ri);
+          if (!it) continue;
+          const activeChip = rowEl.querySelector('.item-attr-chip.active');
+          let attribution  = activeChip ? activeChip.dataset.opt : (it.attribution || '');
+          let customAmount = '';
+          if (attribution === '部分') {
+            attribution  = '共用';
+            customAmount = rowEl.querySelector('.bear-amt-input')?.value || '';
+          }
+          const note = (rowEl.querySelector('.item-note-input')?.value || '').trim();
+          await Sheets.updateItemFields(it.rowIndex, { attribution, customAmount, note });
+          it.attribution = attribution;
+          it.custom      = customAmount;
+          it.note        = note;
         }
-        const note = wrap.querySelector('.item-note-input').value.trim();
-        await Sheets.updateItemFields(it.rowIndex, { attribution, customAmount, note });
-        it.attribution = attribution;
-        it.custom      = customAmount;
-        it.note        = note;
-        msgEl.style.display = 'inline';
-        setTimeout(() => { msgEl.style.display = 'none'; }, 2000);
-        const ym = (it.date || '').slice(0, 7);
-        // CC 連結：月度 G/H 為靜態值，需手動重算
-        if (ccRow) {
-          const allItems = (_itemsCache || []).filter(ii => ii.invNum === it.invNum);
-          const monthlyRow = _allRows.find(r => r.sourceLink === it.invNum);
+        // CC 連結：月度 G/H 為靜態值，所有品項存完後重算一次
+        const inv0 = invItems[0];
+        const ym   = (inv0?.date || '').slice(0, 7);
+        if (ccRow && inv0) {
+          const allItems = (_itemsCache || []).filter(ii => ii.invNum === inv0.invNum);
+          const monthlyRow = _allRows.find(r => r.sourceLink === inv0.invNum);
           if (monthlyRow) {
             const { sinShare, bearShare } = _calcPlatformSplit(allItems, monthlyRow.shared, ccRow.amount);
             await Sheets.updateMonthlyGH(monthlyRow.rowIndex, sinShare, bearShare, ym);
@@ -1522,6 +1662,8 @@ const Ledger = (() => {
           Sheets.invalidateMonth(ym);
         }
         window.Home?.reload();
+        msgEl.style.display = 'inline';
+        setTimeout(() => { msgEl.style.display = 'none'; }, 2000);
       } catch (e) {
         errEl.textContent = '儲存失敗：' + e.message;
         errEl.classList.remove('hidden');
@@ -1530,8 +1672,7 @@ const Ledger = (() => {
         btn.textContent = '儲存';
       }
     });
-
-    return wrap;
+    return bar;
   }
 
   // ── 刪除 Modal ────────────────────────────────────────────────

@@ -1099,7 +1099,7 @@ const Sheets = (() => {
     if (!transactions.length) return { written: 0, skipped: 0 };
 
     // 0. 讀商店分類規則（A=關鍵字, B=類別），用於自動填 G/H 欄
-    //    規則同 Python write_to_sheets.py：負數→x、悠遊→x、類別'-'→'-'
+    //    規則同 Python write_to_sheets.py：負數→x、悠遊卡（加值/儲值）→x、類別'-'→'-'
     let rulesRows = [];
     try {
       const rd = await _get(`${CONFIG.TABS.RULES}!A:B`);
@@ -1114,7 +1114,7 @@ const Sheets = (() => {
       return '';
     }
     function _autoShared(shop, amount, category) {
-      if (amount < 0 || shop.includes('悠遊')) return 'x';
+      if (amount < 0 || shop.includes('悠遊卡')) return 'x';
       if (category === '-') return '-';
       return '';
     }

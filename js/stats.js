@@ -7,7 +7,8 @@ const Stats = (() => {
   let _year  = now.getFullYear();
   let _month = now.getMonth() + 1;
   let _mode         = 'month';   // 'month' | 'year'
-  let _sharedFilter = 'all';     // 'all' | 'shared' | 'bear' | 'personal'
+  let _memberFilter   = 'all';   // 'all' | 'sin' | 'bear' —— 算誰的負擔額
+  let _sharedSelected = new Set(); // 空=全部；值 '是'/'部分'/'否'/'-'（對齊明細 tab）
   let _chartType    = 'donut';   // 'donut' | 'bar'
   let _rows         = [];        // 供分類下鑽用
 
@@ -18,12 +19,14 @@ const Stats = (() => {
     return String(Math.round(n));
   }
 
-  function _passFilter(r) {
-    if (r.shared === 'x') return false;
-    if (_sharedFilter === 'shared')   return r.shared === '是' || r.shared === '部分';
-    if (_sharedFilter === 'bear')     return r.shared === '否';
-    if (_sharedFilter === 'personal') return r.shared === '-';
-    return true;
+  // 回傳該列依「成員 + 是否共用」篩選後的負擔額貢獻（0=不納入統計）
+  //   成員 all→總金額、sin→sinShare、bear→bearShare；是否共用複選篩列（空=全部）
+  function _rowContribution(r) {
+    if (r.shared === 'x') return 0;
+    if (_sharedSelected.size > 0 && !_sharedSelected.has(r.shared)) return 0;
+    if (_memberFilter === 'sin')  return r.sinShare  || 0;
+    if (_memberFilter === 'bear') return r.bearShare || 0;
+    return r.amount || 0;   // all：兩人總額
   }
 
   // ── SVG donut chart ───────────────────────────────────────────
@@ -135,8 +138,9 @@ const Stats = (() => {
   }
 
   function _bindCatClicks() {
-    const jump = cat => window.Ledger?.jumpTo({ category: cat, shared: _sharedFilter });
-    const jumpTotal = () => window.Ledger?.jumpTo({ shared: _sharedFilter });
+    const sharedVals = [..._sharedSelected];
+    const jump = cat => window.Ledger?.jumpTo({ category: cat, member: _memberFilter, sharedValues: sharedVals });
+    const jumpTotal = () => window.Ledger?.jumpTo({ member: _memberFilter, sharedValues: sharedVals });
     document.querySelectorAll('#stats-chart .donut-slice').forEach(el => {
       el.addEventListener('click', () => jump(el.dataset.cat));
     });
@@ -180,9 +184,10 @@ const Stats = (() => {
       if (_mode === 'year' && _chartType === 'bar') {
         const monthMap = {};
         rows.forEach(r => {
-          if (!_passFilter(r) || r.amount <= 0) return;
+          const amt = _rowContribution(r);
+          if (amt <= 0) return;
           const m = parseInt(r.date.slice(5, 7), 10);
-          monthMap[m] = (monthMap[m] || 0) + r.amount;
+          monthMap[m] = (monthMap[m] || 0) + amt;
         });
         const maxAmt = Math.max(...Object.values(monthMap), 1);
         document.getElementById('stats-chart').innerHTML = _buildYearBarChart(monthMap, maxAmt);
@@ -192,9 +197,10 @@ const Stats = (() => {
       // Category breakdown
       const map = {};
       rows.forEach(r => {
-        if (!_passFilter(r) || r.amount <= 0) return;
+        const amt = _rowContribution(r);
+        if (amt <= 0) return;
         const key = r.category || '';
-        map[key] = (map[key] || 0) + r.amount;
+        map[key] = (map[key] || 0) + amt;
       });
       const groups = Object.entries(map)
         .map(([cat, amount]) => ({ cat, amount }))
@@ -246,10 +252,16 @@ const Stats = (() => {
         </div>
         <div class="stats-filter-bar">
           <div class="chip-row">
+            <button class="chip active" data-member="all">全部</button>
+            <button class="chip" data-member="sin">🌟 Sin</button>
+            <button class="chip" data-member="bear">🐨 Bear</button>
+          </div>
+          <div class="chip-row">
             <button class="chip active" data-shared-filter="all">全部</button>
-            <button class="chip" data-shared-filter="shared">共用</button>
-            <button class="chip" data-shared-filter="bear">Bear個人</button>
-            <button class="chip" data-shared-filter="personal">Sin個人</button>
+            <button class="chip" data-shared-filter="是">是</button>
+            <button class="chip" data-shared-filter="部分">部分</button>
+            <button class="chip" data-shared-filter="否">否</button>
+            <button class="chip" data-shared-filter="-">-</button>
           </div>
           <div class="chip-row">
             <button class="chip active" data-chart-type="donut">圓環</button>
@@ -273,12 +285,34 @@ const Stats = (() => {
       });
     });
 
-    document.querySelectorAll('#tab-stats .chip[data-shared-filter]').forEach(btn => {
+    document.querySelectorAll('#tab-stats .chip[data-member]').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('#tab-stats .chip[data-shared-filter]')
+        document.querySelectorAll('#tab-stats .chip[data-member]')
           .forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        _sharedFilter = btn.dataset.sharedFilter;
+        _memberFilter = btn.dataset.member;
+        _load();
+      });
+    });
+
+    document.querySelectorAll('#tab-stats .chip[data-shared-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const val = btn.dataset.sharedFilter;
+        if (val === 'all') {
+          _sharedSelected.clear();
+        } else if (_sharedSelected.has(val)) {
+          _sharedSelected.delete(val);
+        } else {
+          _sharedSelected.add(val);
+        }
+        // 空集合 → 「全部」亮；否則亮選中的（對齊明細 tab）
+        document.querySelectorAll('#tab-stats .chip[data-shared-filter]').forEach(b => {
+          if (b.dataset.sharedFilter === 'all') {
+            b.classList.toggle('active', _sharedSelected.size === 0);
+          } else {
+            b.classList.toggle('active', _sharedSelected.has(b.dataset.sharedFilter));
+          }
+        });
         _load();
       });
     });

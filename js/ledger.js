@@ -688,9 +688,10 @@ const Ledger = (() => {
         b.classList.toggle('active', b.dataset.member === _memberFilter);
       });
     }
-    if (f.shared !== undefined) {
+    if (f.shared !== undefined || f.sharedValues !== undefined) {
+      // sharedValues（直接給值集合，統計 tab 複選用）優先；否則用 STATS_MAP 映射單一 key
       const STATS_MAP = { all: [], shared: ['是', '部分'], bear: ['否'], personal: ['-'] };
-      const vals = STATS_MAP[f.shared] ?? [];
+      const vals = f.sharedValues !== undefined ? f.sharedValues : (STATS_MAP[f.shared] ?? []);
       _sharedSelected = new Set(vals);
       const chips = document.querySelectorAll('#tab-ledger .chip[data-shared-filter]');
       if (_sharedSelected.size === 0) {
@@ -2884,7 +2885,7 @@ const Ledger = (() => {
     }
   }
 
-  function jumpTo({ member, category, shared, rowIndex } = {}) {
+  function jumpTo({ member, category, shared, sharedValues, rowIndex } = {}) {
     // 確保切回月度帳本 sub-tab
     _activeSubTab = 'monthly';
     document.querySelectorAll('.sub-tab-btn').forEach(b =>
@@ -2896,6 +2897,7 @@ const Ledger = (() => {
     _pendingFilter = {};
     if (member   !== undefined) _pendingFilter.member   = member;
     if (shared   !== undefined) _pendingFilter.shared   = shared;
+    if (sharedValues !== undefined) _pendingFilter.sharedValues = sharedValues;
     if (category !== undefined) _pendingFilter.category = category;
     if (rowIndex !== undefined) _pendingScrollRow = rowIndex;
     Router.navigate('ledger');

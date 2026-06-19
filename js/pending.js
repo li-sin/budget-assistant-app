@@ -155,37 +155,59 @@ const Pending = (() => {
         });
       });
 
-    // 🔗 App 發票/CC配對：備註含 CC_PAY_KEYWORDS + 已匯入月度帳本 + 找到尚未連結的 CC 交易
+    // 🔗 掃描/CC配對：已匯入發票尚未連結 CC → 列候選讓使用者選（發票驅動）
+    //   發票已被某 CC 連結（已配對完成）→ 排除，不再偵測
+    //   平台發票（備註含平台關鍵字）：平台商店 mapping + 日期範圍（金額不等，不用金額）
+    //   非平台發票：金額完全一致 + 日期 ±3
+    const linkedInvNums = new Set(ccAllRows.map(cc => cc.matched).filter(Boolean));
     invoices
       .filter(inv =>
         _isAppInvoiceCarrier(inv.carrier) &&
         inv.imported === 'TRUE' &&
-        inv.shared !== 'x' && inv.shared !== '' &&
-        CONFIG.CC_PAY_KEYWORDS.some(kw => inv.note.toLowerCase().includes(kw.toLowerCase()))
+        inv.shared !== 'x' && inv.shared !== '' && inv.invNum !== '' &&
+        !linkedInvNums.has(inv.invNum)
       )
       .forEach(inv => {
-        const invDate = new Date(inv.date);
-        const isShopee = inv.note.toLowerCase().includes('蝦皮');
-        const dayRange = isShopee ? 10 : 3;
+        const invDate    = new Date(inv.date);
+        const isPlatform = CONFIG.CC_PAY_KEYWORDS.some(kw => inv.note.toLowerCase().includes(kw.toLowerCase()));
 
-        const matched = ccAllRows.filter(cc => {
-          if (cc.shared === 'x' || cc.matched) return false;
-          const ccDate = new Date(cc.txDate);
-          const diff = Math.abs((invDate - ccDate) / 86400000);
-          return diff <= dayRange && Math.abs(cc.amount - inv.amount) <= 1;
+        let candidates;
+        if (isPlatform) {
+          const platformKey = Object.keys(platformMap).find(
+            p => inv.note.toLowerCase().includes(p.toLowerCase())
+          ) || CONFIG.CC_PAY_KEYWORDS.find(
+            kw => inv.note.toLowerCase().includes(kw.toLowerCase())
+          ) || '';
+          const merchants = platformMap[platformKey] || [];
+          const dayRange  = inv.note.toLowerCase().includes('蝦皮') ? 10 : 3;
+          candidates = ccAllRows.filter(cc => {
+            if (cc.shared === 'x' || cc.matched) return false;
+            const diff = Math.abs((invDate - new Date(cc.txDate)) / 86400000);
+            return diff <= dayRange && merchants.some(m => cc.shop.includes(m));
+          });
+        } else {
+          candidates = ccAllRows.filter(cc => {
+            if (cc.shared === 'x' || cc.matched) return false;
+            const diff = Math.abs((invDate - new Date(cc.txDate)) / 86400000);
+            return diff <= 3 && cc.amount === inv.amount;   // 非平台：金額完全一致
+          });
+        }
+        if (!candidates.length) return;
+
+        // 排序：日期最近排前 → 金額接近排前
+        candidates = candidates.slice().sort((a, b) => {
+          const da = Math.abs(new Date(a.txDate) - invDate);
+          const db = Math.abs(new Date(b.txDate) - invDate);
+          if (da !== db) return da - db;
+          return Math.abs(a.amount - inv.amount) - Math.abs(b.amount - inv.amount);
         });
-        if (!matched.length) return;
-
-        const bestCC = matched.sort((a, b) =>
-          Math.abs(new Date(a.txDate) - invDate) - Math.abs(new Date(b.txDate) - invDate)
-        )[0];
 
         result.push({
           type: 'scan_cc_dup',
           label: '掃描/CC配對',
           color: '#17B897',
           inv,
-          cc: bestCC,
+          candidates,
           invItems: items.filter(it => it.invNum === inv.invNum),
         });
       });
@@ -317,7 +339,7 @@ const Pending = (() => {
           amount = it.inv.amount;
         } else if (it.type === 'scan_cc_dup') {
           title  = it.inv.shop || it.inv.invNum;
-          sub    = `${it.inv.date}　↔　${it.cc.bank} ${it.cc.txDate}`;
+          sub    = `${it.inv.date}　${it.candidates.length} 筆候選 CC`;
           amount = it.inv.amount;
         } else {
           title  = it.row.item || '（未命名）';
@@ -1056,51 +1078,69 @@ const Pending = (() => {
   // ── 🔗 掃描/CC配對：確認配對或標記非重複 ─────────────────────
 
   function _renderScanCCDup(item) {
-    const { inv, cc } = item;
+    const { inv, candidates } = item;
     const carrierLabel = _carrierLabel(inv.carrier);
     document.getElementById('pending-modal-title').textContent = `🔗 ${inv.shop || inv.invNum}`;
 
+    let selectedCC = null;
+
+    const ccHtml = `
+      <div class="section-title" style="margin-top:12px">選擇對應 CC 明細</div>
+      <div id="scd-cc-list">
+        ${candidates.map((cc, i) => `
+          <div class="list-item scd-cc-item" data-i="${i}" style="cursor:pointer;border-radius:8px;margin-bottom:4px">
+            <div class="list-item-body">
+              <div class="list-item-title">${cc.shop}</div>
+              <div class="list-item-sub">${cc.bank}　${cc.txDate}</div>
+            </div>
+            <div class="list-item-right amount-expense">${_fmt(cc.amount)}</div>
+          </div>`).join('')}
+      </div>`;
+
     document.getElementById('pending-modal-body').innerHTML = `
-      <p class="list-item-sub" style="margin-bottom:12px">
-        ${carrierLabel}已記入月度帳本，偵測到可能重複的信用卡交易
+      <p class="list-item-sub" style="margin-bottom:4px">
+        ${carrierLabel}已記入月度帳本　${inv.date}　發票 ${_fmt(inv.amount)}　備註：${inv.note}
       </p>
-      <div class="card" style="margin-bottom:8px">
-        <div class="settings-row">
-          <span class="settings-label">📷 ${carrierLabel}</span>
-        </div>
-        <div class="list-item-title">${inv.shop || inv.invNum}</div>
-        <div class="list-item-sub">${inv.date}　${_fmt(inv.amount)}　備註：${inv.note}</div>
-      </div>
-      <div class="card" style="margin-bottom:8px">
-        <div class="settings-row">
-          <span class="settings-label">💳 信用卡明細</span>
-        </div>
-        <div class="list-item-title">${cc.shop}</div>
-        <div class="list-item-sub">${cc.bank}　${cc.txDate}　${_fmt(cc.amount)}</div>
-      </div>
+      ${ccHtml}
       <p style="color:#8E8E93;font-size:13px;margin-top:8px">
-        確認配對後，信用卡這筆將標為「x 跳過」，不會被腳本重複匯入月度帳本。
+        選擇後該信用卡交易將標為「x 跳過」並連結此發票，不會被重複匯入月度帳本。<br>
+        若都不對應，按「無對應」略過。
       </p>
       <p id="scd-error" class="add-error hidden"></p>
     `;
 
     document.getElementById('pending-modal-footer').innerHTML = `
-      <button class="btn-secondary" id="scd-not-dup">非重複</button>
-      <button class="btn-primary" id="scd-confirm">確認配對</button>
+      <button class="btn-secondary" id="scd-none">無對應</button>
+      <button class="btn-primary" id="scd-confirm" disabled>確認配對</button>
     `;
 
-    document.getElementById('scd-not-dup').addEventListener('click', _closeDetail);
+    document.querySelectorAll('.scd-cc-item').forEach(row => {
+      row.addEventListener('click', () => {
+        document.querySelectorAll('.scd-cc-item').forEach(r => r.classList.remove('active'));
+        row.classList.add('active');
+        selectedCC = candidates[parseInt(row.dataset.i)];
+        document.getElementById('scd-confirm').disabled = false;
+      });
+    });
+
+    document.getElementById('scd-none').addEventListener('click', _closeDetail);
     document.getElementById('scd-confirm').addEventListener('click', async () => {
+      const errEl = document.getElementById('scd-error');
+      if (!selectedCC) {
+        errEl.textContent = '請先選擇對應的 CC 明細';
+        errEl.classList.remove('hidden');
+        return;
+      }
       const btn = document.getElementById('scd-confirm');
       btn.disabled = true;
       btn.textContent = '儲存中…';
       try {
-        await Sheets.linkCCToInvoice(cc.rowIndex, inv.invNum, inv.rowIndex);
+        await Sheets.linkCCToInvoice(selectedCC.rowIndex, inv.invNum, inv.rowIndex);
         _saveClose();
         await _reload();
       } catch (e) {
-        document.getElementById('scd-error').textContent = '儲存失敗：' + e.message;
-        document.getElementById('scd-error').classList.remove('hidden');
+        errEl.textContent = '儲存失敗：' + e.message;
+        errEl.classList.remove('hidden');
         btn.disabled = false;
         btn.textContent = '確認配對';
       }

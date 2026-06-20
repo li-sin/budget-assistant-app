@@ -1,5 +1,6 @@
 const Ledger = (() => {
   const CATEGORIES = ['🍴', '🛒', '🧋', '⛽', '📦', '🎬', '👗', '🏠', '💊', '📚'];
+  const UNCAT = '✘';   // 未分類的顯示標籤 + 篩選 sentinel（與統計 tab 一致；空 category 對應此值；深色 x，跟隨文字色）
   const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
   const ITEM_ATTR_OPTS = ['🌟 Sin', '🐨 Bear', '共用', '部分'];
 
@@ -107,7 +108,8 @@ const Ledger = (() => {
     if (_memberFilter === 'sin')    rows = rows.filter(r => r.sinShare  > 0);
     if (_memberFilter === 'bear')   rows = rows.filter(r => r.bearShare > 0);
     if (_sharedSelected.size > 0) rows = rows.filter(r => _sharedSelected.has(r.shared));
-    if (_catFilter)                 rows = rows.filter(r => r.category === _catFilter);
+    if (_catFilter === UNCAT)       rows = rows.filter(r => !r.category);
+    else if (_catFilter)            rows = rows.filter(r => r.category === _catFilter);
     if (_sourceFilter)              rows = rows.filter(r => r.source === _sourceFilter);
     if (_searchQuery) {
       const q = _searchQuery.toLowerCase();
@@ -158,7 +160,7 @@ const Ledger = (() => {
 
     el.innerHTML = rows.map(r => {
       const mmdd = r.date.slice(5).replace('-', '/');
-      const cat  = r.category || '💳';
+      const cat  = r.category || UNCAT;
       const shares = [];
       if (r.sinShare  > 0) shares.push(`Sin ${_fmt(r.sinShare)}`);
       if (r.bearShare > 0) shares.push(`Bear ${_fmt(r.bearShare)}`);
@@ -635,11 +637,14 @@ const Ledger = (() => {
 
   function _refreshCatOptions() {
     const cats = [...new Set(_allRows.map(r => r.category).filter(Boolean))].sort();
+    const hasUncat = _allRows.some(r => !r.category);
     const sel  = document.getElementById('ledger-cat');
-    const prev = sel.value;
+    const prev = _catFilter;   // 以 _catFilter 為準（跳轉時 _applyFilter 先設值，避免被 dropdown 覆寫）
     sel.innerHTML = '<option value="">全部類別</option>'
-      + cats.map(c => `<option value="${c}">${c}</option>`).join('');
-    sel.value  = cats.includes(prev) ? prev : '';
+      + cats.map(c => `<option value="${c}">${c}</option>`).join('')
+      + (hasUncat ? `<option value="${UNCAT}">${UNCAT}</option>` : '');
+    const valid = prev === '' || cats.includes(prev) || (prev === UNCAT && hasUncat);
+    sel.value  = valid ? prev : '';
     _catFilter = sel.value;
   }
 

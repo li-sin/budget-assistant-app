@@ -3,6 +3,7 @@ const Stats = (() => {
     '#00C9A7','#FF6B6B','#FFD166','#6BCB77',
     '#4D96FF','#C77DFF','#FF9F43','#FF6BB5',
   ];
+  const UNCAT = '✘';            // 未分類的顯示標籤 + 篩選 sentinel（與明細 tab 一致；深色 x，跟隨文字色）
   const now  = new Date();
   let _year  = now.getFullYear();
   let _month = now.getMonth() + 1;
@@ -60,7 +61,7 @@ const Stats = (() => {
       const sweep = (g.amount / total) * TWO_PI;
       if (sweep < 0.01) return;
       paths += `<path d="${_slice(cx, cy, oR, iR, angle + GAP / 2, angle + sweep - GAP / 2)}"
-        fill="${PALETTE[i % PALETTE.length]}" data-cat="${g.cat}" class="donut-slice"/>`;
+        fill="${PALETTE[i % PALETTE.length]}" data-cat="${g.cat || UNCAT}" class="donut-slice"/>`;
       angle += sweep;
     });
     return `
@@ -79,9 +80,9 @@ const Stats = (() => {
     return groups.map((g, i) => {
       const pct = ((g.amount / total) * 100).toFixed(1);
       return `
-        <div class="legend-item legend-item-clickable" data-cat="${g.cat}">
+        <div class="legend-item legend-item-clickable" data-cat="${g.cat || UNCAT}">
           <span class="legend-dot" style="background:${PALETTE[i % PALETTE.length]}"></span>
-          <span class="legend-cat">${g.cat || '（未分類）'}</span>
+          <span class="legend-cat">${g.cat || UNCAT}</span>
           <span class="legend-pct">${pct}%</span>
           <span class="legend-amt">${_fmt(g.amount)}</span>
         </div>`;
@@ -100,8 +101,8 @@ const Stats = (() => {
         const fillPct  = (g.amount / maxAmt * 100).toFixed(1);
         const sharePct = ((g.amount / total) * 100).toFixed(1);
         return `
-          <div class="bar-row bar-row-clickable" data-cat="${g.cat}">
-            <div class="bar-cat-label">${g.cat || '其他'}</div>
+          <div class="bar-row bar-row-clickable" data-cat="${g.cat || UNCAT}">
+            <div class="bar-cat-label">${g.cat || UNCAT}</div>
             <div class="bar-track">
               <div class="bar-fill" style="width:${fillPct}%;background:${PALETTE[i % PALETTE.length]}"></div>
             </div>

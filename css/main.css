@@ -126,7 +126,7 @@ main#content {
   bottom: 3px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 9px;
+  font-size: 10px;
   color: var(--text-sub);
   opacity: 0.45;
   pointer-events: none;

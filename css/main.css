@@ -126,9 +126,9 @@ main#content {
   bottom: 3px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 8px;
+  font-size: 9px;
   color: var(--text-sub);
-  opacity: 0.35;
+  opacity: 0.45;
   pointer-events: none;
   white-space: nowrap;
   letter-spacing: 0.02em;

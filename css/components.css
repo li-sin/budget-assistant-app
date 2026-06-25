@@ -982,10 +982,6 @@ select.field-input { height: 44px; }
   color: var(--teal);
   border-radius: 10px;
   padding: 1px 5px;
-  margin-left: 3px;
-  vertical-align: middle;
-  flex: 0 0 auto;
-  order: 2;
   white-space: nowrap;
 }
 .badge-linked {
@@ -997,19 +993,14 @@ select.field-input { height: 44px; }
   border: 0;
   border-radius: 10px;
   padding: 1px 5px;
-  margin-left: 3px;
-  vertical-align: middle;
   cursor: pointer;
-  flex: 0 0 auto;
-  order: 1;
   white-space: nowrap;
 }
 .cc-badge-row {
   display: flex;
+  flex-direction: column;
   gap: 3px;
-  justify-content: flex-end;
-  align-items: center;
-  flex-wrap: nowrap;
+  align-items: flex-end;
 }
 .swipe-unlink-bg { background: #C89B22; }
 .cc-link-card {
@@ -1051,7 +1042,7 @@ select.field-input { height: 44px; }
   font-weight: 400;
   margin-right: 4px;
 }
-.cc-link-expand-btn {
+.cc-link-expand-icon {
   width: 22px;
   height: 22px;
   margin-top: 1px;
@@ -1060,17 +1051,16 @@ select.field-input { height: 44px; }
   background: rgba(242,201,76,0.10);
   color: #F2C94C;
   font-size: 11px;
-  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  user-select: none;
 }
-.cc-link-expand-btn.cc-link-no-items {
+.cc-link-expand-icon.cc-link-no-items {
   border-color: rgba(255,255,255,0.12);
   background: transparent;
   color: var(--text-sub);
-  cursor: default;
   opacity: 0.55;
 }
 .cc-link-inv-text,

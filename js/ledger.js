@@ -2304,9 +2304,9 @@ const Ledger = (() => {
 
       const invItems = inv ? allItems.filter(it => it.invNum === inv.invNum) : [];
       const hasItems = invItems.length > 0;
-      const expandBtn = hasItems
-        ? `<button class="cc-link-expand-btn" title="展開品項">▼</button>`
-        : `<button class="cc-link-expand-btn cc-link-no-items" disabled title="無品項明細">✘</button>`;
+      const expandIcon = hasItems
+        ? `<span class="cc-link-expand-icon">▼</span>`
+        : `<span class="cc-link-expand-icon cc-link-no-items" title="無品項明細">✘</span>`;
 
       const invText = inv
         ? `<button class="cc-link-inv-text">${inv.invNum}</button> · ${inv.shop || '（未知）'} · $${inv.amount.toLocaleString('zh-TW')}`
@@ -2332,12 +2332,12 @@ const Ledger = (() => {
           <span class="cc-link-card-sub">${modeText}</span>
         </div>
         <div class="cc-link-grid">
-          ${expandBtn}
+          ${expandIcon}
           <div class="cc-link-inv-line"><span class="cc-link-label">發票</span>${invText}</div>
           <span></span>
           <div class="cc-link-inv-line"><span class="cc-link-label">月度</span>${monthlyText}</div>
         </div>
-        ${hasItems ? `<div class="cc-link-items hidden">${itemsHtml}</div>` : ''}
+        ${hasItems ? `<div class="cc-link-items">${itemsHtml}</div>` : ''}
         ${warningHtml}
       `;
 
@@ -2351,16 +2351,6 @@ const Ledger = (() => {
         card.querySelector('.cc-link-monthly-text')?.addEventListener('click', e => {
           e.stopPropagation();
           _jumpToMonthly(monthly.rowIndex);
-        });
-      }
-      if (hasItems) {
-        const expandEl = card.querySelector('.cc-link-expand-btn');
-        const itemsEl  = card.querySelector('.cc-link-items');
-        expandEl.addEventListener('click', e => {
-          e.stopPropagation();
-          const open = !itemsEl.classList.contains('hidden');
-          itemsEl.classList.toggle('hidden', open);
-          expandEl.textContent = open ? '▼' : '▲';
         });
       }
     } catch (e) {

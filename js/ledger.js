@@ -32,7 +32,10 @@ const Ledger = (() => {
   let _invItemCounts   = new Map();
   let _ccRows          = [];
   let _ccSharedFilter  = new Set();
+  let _ccLinkedFilter  = 'all'; // 'all', 'yes', 'no'
+  let _ccPostedFilter  = 'all'; // 'all', 'yes', 'no'
   let _ccSearchQuery   = '';
+  let _invImportedFilter = 'all'; // 'all', 'yes', 'no'
   let _invoiceScrollRow = null;
   let _ccUnlinkRow      = null;
   let _ccUnlinkContext  = null;
@@ -2288,35 +2291,78 @@ const Ledger = (() => {
     host.insertAdjacentElement('afterend', card);
 
     try {
-      const ctx = await _getCCLinkContext(row);
+      const [ctx, allItems] = await Promise.all([
+        _getCCLinkContext(row),
+        _getItemCache(),
+      ]);
       const inv = ctx.invoice;
       const monthly = ctx.monthlyRows[0] || null;
       const modeLabel = ctx.mode === 'platform' ? '平台配對' : '重複防護';
       const modeText = ctx.mode === 'platform'
         ? '解除後會刪除配對產生的月度帳本，並讓發票回待處理。'
         : '解除後只恢復 CC，不刪除月度帳本。';
+
+      const invItems = inv ? allItems.filter(it => it.invNum === inv.invNum) : [];
+      const hasItems = invItems.length > 0;
+      const expandBtn = hasItems
+        ? `<button class="cc-link-expand-btn" title="展開品項">▼</button>`
+        : `<button class="cc-link-expand-btn cc-link-no-items" disabled title="無品項明細">✘</button>`;
+
+      const invText = inv
+        ? `<button class="cc-link-inv-text">${inv.invNum}</button> · ${inv.shop || '（未知）'} · $${inv.amount.toLocaleString('zh-TW')}`
+        : '找不到發票';
+      const monthlyText = monthly
+        ? `<button class="cc-link-monthly-text">${monthly.date}</button> · ${monthly.item || monthly.source} · $${monthly.amount.toLocaleString('zh-TW')}`
+        : '找不到月度帳本';
+
+      const showWarning = row.shared === 'x' && !monthly;
+      const warningHtml = showWarning
+        ? `<div class="cc-link-warning">⚠️ 此 CC 為平台商家，連結可能來自舊版自動配對，建議解除後重新透過待處理配對。</div>`
+        : '';
+
+      const itemsHtml = hasItems
+        ? invItems.map(it =>
+            `<div class="cc-link-item-row"><span>${it.itemName || '（未知品名）'}</span><span>$${it.itemAmount.toLocaleString('zh-TW')}</span></div>`
+          ).join('')
+        : '';
+
       card.innerHTML = `
         <div class="cc-link-card-head">
           <span class="badge-linked">${modeLabel}</span>
           <span class="cc-link-card-sub">${modeText}</span>
         </div>
         <div class="cc-link-grid">
-          <span>發票</span>
-          <strong>${inv ? `${inv.invNum} · ${inv.shop || '（未知）'} · $${inv.amount.toLocaleString('zh-TW')}` : '找不到發票'}</strong>
-          ${inv ? '<button class="cc-link-jump" data-jump="invoice" title="看發票">🧾</button>' : '<span></span>'}
-          <span>月度</span>
-          <strong>${monthly ? `${monthly.date} · ${monthly.item || monthly.source} · $${monthly.amount.toLocaleString('zh-TW')}` : '找不到月度帳本'}</strong>
-          ${monthly ? '<button class="cc-link-jump" data-jump="monthly" title="看月度帳本">📒</button>' : '<span></span>'}
+          ${expandBtn}
+          <div class="cc-link-inv-line"><span class="cc-link-label">發票</span>${invText}</div>
+          <span></span>
+          <div class="cc-link-inv-line"><span class="cc-link-label">月度</span>${monthlyText}</div>
         </div>
+        ${hasItems ? `<div class="cc-link-items hidden">${itemsHtml}</div>` : ''}
+        ${warningHtml}
       `;
-      card.querySelector('[data-jump="invoice"]')?.addEventListener('click', e => {
-        e.stopPropagation();
-        _jumpToInvoice(inv.rowIndex);
-      });
-      card.querySelector('[data-jump="monthly"]')?.addEventListener('click', e => {
-        e.stopPropagation();
-        _jumpToMonthly(monthly.rowIndex);
-      });
+
+      if (inv) {
+        card.querySelector('.cc-link-inv-text')?.addEventListener('click', e => {
+          e.stopPropagation();
+          _jumpToInvoice(inv.rowIndex);
+        });
+      }
+      if (monthly) {
+        card.querySelector('.cc-link-monthly-text')?.addEventListener('click', e => {
+          e.stopPropagation();
+          _jumpToMonthly(monthly.rowIndex);
+        });
+      }
+      if (hasItems) {
+        const expandEl = card.querySelector('.cc-link-expand-btn');
+        const itemsEl  = card.querySelector('.cc-link-items');
+        expandEl.addEventListener('click', e => {
+          e.stopPropagation();
+          const open = !itemsEl.classList.contains('hidden');
+          itemsEl.classList.toggle('hidden', open);
+          expandEl.textContent = open ? '▼' : '▲';
+        });
+      }
     } catch (e) {
       card.innerHTML = `<p class="add-error">連結資料讀取失敗：${e.message}</p>`;
     }
@@ -2464,6 +2510,8 @@ const Ledger = (() => {
     const q = _invSearchQuery.toLowerCase();
     let rows = _invRows;
     if (_invSharedFilter.size > 0) rows = rows.filter(r => _invSharedFilter.has(r.shared));
+    if (_invImportedFilter === 'yes') rows = rows.filter(r => r.imported);
+    else if (_invImportedFilter === 'no') rows = rows.filter(r => !r.imported);
     if (q) rows = rows.filter(r =>
       (r.shop || '').toLowerCase().includes(q) || (r.note || '').toLowerCase().includes(q)
     );
@@ -2537,6 +2585,10 @@ const Ledger = (() => {
     const q = _ccSearchQuery.toLowerCase();
     let rows = _ccRows;
     if (_ccSharedFilter.size > 0) rows = rows.filter(r => _ccSharedFilter.has(r.shared));
+    if (_ccLinkedFilter === 'yes') rows = rows.filter(r => r.matched);
+    else if (_ccLinkedFilter === 'no') rows = rows.filter(r => !r.matched);
+    if (_ccPostedFilter === 'yes') rows = rows.filter(r => r.posted);
+    else if (_ccPostedFilter === 'no') rows = rows.filter(r => !r.posted);
     if (q) rows = rows.filter(r =>
       (r.shop || '').toLowerCase().includes(q) || (r.note || '').toLowerCase().includes(q)
     );
@@ -2665,6 +2717,11 @@ const Ledger = (() => {
             <button class="chip" data-inv-shared="-">-</button>
             <button class="chip" data-inv-shared="x">x</button>
           </div>
+          <div class="chip-row" id="inv-imported-chips">
+            <button class="chip active" data-inv-imported="all">全部</button>
+            <button class="chip" data-inv-imported="yes">已匯入</button>
+            <button class="chip" data-inv-imported="no">未匯入</button>
+          </div>
           <span id="inv-count" class="ledger-count"></span>
         </div>
         <div class="card" id="inv-list"></div>
@@ -2686,6 +2743,16 @@ const Ledger = (() => {
             <button class="chip" data-cc-shared="否">否</button>
             <button class="chip" data-cc-shared="-">-</button>
             <button class="chip" data-cc-shared="x">x</button>
+          </div>
+          <div class="chip-row" id="cc-linked-chips">
+            <button class="chip active" data-cc-linked="all">全部</button>
+            <button class="chip" data-cc-linked="yes">已連結</button>
+            <button class="chip" data-cc-linked="no">未連結</button>
+          </div>
+          <div class="chip-row" id="cc-posted-chips">
+            <button class="chip active" data-cc-posted="all">全部</button>
+            <button class="chip" data-cc-posted="yes">已匯入</button>
+            <button class="chip" data-cc-posted="no">未匯入</button>
           </div>
           <span id="cc-count" class="ledger-count"></span>
         </div>
@@ -2748,6 +2815,15 @@ const Ledger = (() => {
         _renderInvoiceList();
       });
     });
+    // 發票明細 已匯入/未匯入（單選）
+    document.querySelectorAll('#inv-imported-chips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _invImportedFilter = btn.dataset.invImported;
+        document.querySelectorAll('#inv-imported-chips .chip')
+          .forEach(b => b.classList.toggle('active', b.dataset.invImported === _invImportedFilter));
+        _renderInvoiceList();
+      });
+    });
     document.getElementById('inv-search').addEventListener('input', e => {
       _invSearchQuery = e.target.value.trim();
       document.getElementById('inv-search-clear').classList.toggle('hidden', !_invSearchQuery);
@@ -2777,6 +2853,24 @@ const Ledger = (() => {
           chips.forEach(b => b.classList.toggle('active',
             b.dataset.ccShared !== 'all' && _ccSharedFilter.has(b.dataset.ccShared)));
         }
+        _renderCCList();
+      });
+    });
+    // CC 已連結/未連結（單選）
+    document.querySelectorAll('#cc-linked-chips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _ccLinkedFilter = btn.dataset.ccLinked;
+        document.querySelectorAll('#cc-linked-chips .chip')
+          .forEach(b => b.classList.toggle('active', b.dataset.ccLinked === _ccLinkedFilter));
+        _renderCCList();
+      });
+    });
+    // CC 已匯入/未匯入（單選）
+    document.querySelectorAll('#cc-posted-chips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _ccPostedFilter = btn.dataset.ccPosted;
+        document.querySelectorAll('#cc-posted-chips .chip')
+          .forEach(b => b.classList.toggle('active', b.dataset.ccPosted === _ccPostedFilter));
         _renderCCList();
       });
     });

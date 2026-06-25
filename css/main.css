@@ -121,6 +121,18 @@ main#content {
 .nav-item.active { color: var(--teal); }
 .nav-icon  { font-size: 20px; line-height: 1; }
 .nav-label { font-size: 10px; font-weight: 500; }
+#nav-version {
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: var(--text-sub);
+  opacity: 0.45;
+  pointer-events: none;
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
 
 /* ── Buttons ────────────────────────────────────── */
 .btn-primary {

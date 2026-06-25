@@ -70,6 +70,8 @@ window.AppMonth = (() => {
 document.addEventListener('DOMContentLoaded', () => {
   const verEl = document.getElementById('login-version');
   if (verEl) verEl.textContent = `v${CONFIG.APP_VERSION}`;
+  const navVerEl = document.getElementById('nav-version');
+  if (navVerEl) navVerEl.textContent = `v${CONFIG.APP_VERSION}`;
 
   document.getElementById('btn-clear-cache')?.addEventListener('click', async () => {
     if (confirm('確定清除所有快取？App 將重新載入。')) await Auth.clearCache();

@@ -225,11 +225,9 @@ const Home = (() => {
     if (!_isSin()) return;
     _buildPaymentModal();
 
-    // 預設為今天的上個月（通常是付上個月的款）
-    const today = new Date();
-    _payMonth = today.getMonth(); // getMonth() 回傳 0–11，剛好等於上個月的 1–12
-    _payYear  = today.getFullYear();
-    if (_payMonth === 0) { _payMonth = 12; _payYear--; }
+    // 預設為首頁當前顯示的月份
+    _payYear  = _year;
+    _payMonth = _month;
 
     const modal = document.getElementById('payment-modal');
     const body  = document.getElementById('payment-modal-body');

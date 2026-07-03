@@ -391,7 +391,8 @@ const Sheets = (() => {
   }
 
   // ── 發票來源匯入月度帳本 ────────────────────────────
-  // 只寫 A:F 與 I:L，保留 G/H 既有公式自動計算分攤。
+  // 有 invNum 時寫 VLOOKUP 公式（C/E/G/H），發票明細改動後月度帳本自動同步。
+  // 無 invNum 時寫靜態值，G/H 沿用 ensure_capacity 的 buffer 公式。
   async function appendMonthlyFromInvoice({ date, shop, amount, shared, category, note = '', invNum, invRowIndex, source = '發票', payer = '🌟 Star' }) {
     const now        = new Date();
     const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
@@ -402,11 +403,31 @@ const Sheets = (() => {
     const lastRow = (data.values || []).length;
     const nextRow = lastRow + 1;
     const tab     = CONFIG.TABS.MONTHLY;
+    const invSheet = CONFIG.TABS.INVOICE;
 
-    await _batchUpdate([
-      { range: `${tab}!A${nextRow}:F${nextRow}`, values: [[date, shop, amount, payer || '🌟 Star', shared, category]] },
-      { range: `${tab}!I${nextRow}:L${nextRow}`, values: [[note, source, sourceLink, importedAt]] },
-    ]);
+    const ccSheet  = CONFIG.TABS.CC;
+    const batchData = [];
+    if (invNum) {
+      // C：CC 金額 > 発票金額+1（外送費）→ 用 CC 金額，否則用発票金額
+      const cFormula = `=IFERROR(IF(ISNUMBER(MATCH(K${nextRow},'${ccSheet}'!$I:$I,0)),IF(INDEX('${ccSheet}'!$E:$E,MATCH(K${nextRow},'${ccSheet}'!$I:$I,0))>IFERROR(VLOOKUP(K${nextRow},'${invSheet}'!$C:$E,3,0),0)+1,INDEX('${ccSheet}'!$E:$E,MATCH(K${nextRow},'${ccSheet}'!$I:$I,0)),IFERROR(VLOOKUP(K${nextRow},'${invSheet}'!$C:$E,3,0),"")),IFERROR(VLOOKUP(K${nextRow},'${invSheet}'!$C:$E,3,0),"")),"")`;
+      const eFormula = `=IFERROR(VLOOKUP(K${nextRow},'${invSheet}'!$C:$H,6,0),"")`;
+      const gFormula = `=IFERROR(IF(C${nextRow}="","",C${nextRow}-H${nextRow}),"")`;
+      // H：依月度帳本 C（正確總金額）與 E（是否共用）計算
+      const hFormula = `=IFERROR(IF(E${nextRow}="是",ROUND(C${nextRow}/2,0),IF(E${nextRow}="否",C${nextRow},IF(E${nextRow}="-",0,IF(E${nextRow}="部分",IFERROR(VLOOKUP(K${nextRow},'${invSheet}'!$C:$K,9,0),0)+ROUND((C${nextRow}-IFERROR(VLOOKUP(K${nextRow},'${invSheet}'!$C:$E,3,0),0))/2,0),0)))),"")`;
+
+      batchData.push(
+        { range: `${tab}!A${nextRow}:F${nextRow}`, values: [[date, shop, cFormula, payer || '🌟 Star', eFormula, category]] },
+        { range: `${tab}!G${nextRow}:H${nextRow}`, values: [[gFormula, hFormula]] },
+      );
+    } else {
+      // 無發票號碼 → 靜態值，G/H 由 buffer 公式計算
+      batchData.push(
+        { range: `${tab}!A${nextRow}:F${nextRow}`, values: [[date, shop, amount, payer || '🌟 Star', shared, category]] },
+      );
+    }
+    batchData.push({ range: `${tab}!I${nextRow}:L${nextRow}`, values: [[note, source, sourceLink, importedAt]] });
+
+    await _batchUpdate(batchData);
 
     const ym = (date || '').slice(0, 7);
     if (ym) invalidateMonth(ym);

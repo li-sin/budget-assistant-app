@@ -764,7 +764,7 @@ const Pending = (() => {
   function _renderInvoicePending(item) {
     const inv = item.inv;
     const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
-    let selectedShared = '';
+    let selectedShared = inv.shared || '';
     let selectedCat = inv.category || '';
     const needCat = !inv.category;
     document.getElementById('pending-modal-title').textContent = `🟣 ${inv.shop}`;

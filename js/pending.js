@@ -104,9 +104,10 @@ const Pending = (() => {
       });
     });
 
-    // 🟣 發票待填：是否共用空 + status≠作廢 + 非空行
+    // 🟣 發票待填：shared 空，或 shared 已填但類別仍空（無法匯入月度帳本）
     invoices
-      .filter(inv => inv.shared === '' && inv.status !== '作廢' && inv.invNum !== '')
+      .filter(inv => (inv.shared === '' || (!inv.category && inv.imported !== 'TRUE' && inv.shared !== 'x'))
+                    && inv.status !== '作廢' && inv.invNum !== '')
       .forEach(inv => {
         result.push({
           type: 'inv_pending',
@@ -764,6 +765,8 @@ const Pending = (() => {
     const inv = item.inv;
     const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
     let selectedShared = '';
+    let selectedCat = inv.category || '';
+    const needCat = !inv.category;
     document.getElementById('pending-modal-title').textContent = `🟣 ${inv.shop}`;
 
     function _showStep1() {
@@ -775,10 +778,16 @@ const Pending = (() => {
               <span style="color:var(--text-sub);white-space:nowrap;margin-left:8px">${_fmt(parseFloat(it.itemAmount)||0)}</span>
             </div>`).join('')}
         </div>` : '';
+      const catHtml = needCat ? `
+        <label class="field-label">類別</label>
+        <div class="chip-row" id="inv-cat-chips" style="margin-bottom:12px">
+          ${CATEGORIES.map(c => `<button class="chip${selectedCat === c ? ' active' : ''}" data-cat="${c}">${c}</button>`).join('')}
+        </div>` : '';
       document.getElementById('pending-modal-body').innerHTML = `
         <p class="list-item-sub" style="margin-bottom:4px">${inv.date}　${_fmt(inv.amount)}</p>
         <p class="list-item-sub" style="margin-bottom:10px;font-size:11px;opacity:.7">${inv.carrier}　${inv.invNum}</p>
         ${itemsHtml}
+        ${catHtml}
         <label class="field-label">是否共用</label>
         <div class="chip-row" id="inv-shared-chips" style="margin-bottom:12px">
           ${SHARED_OPTS.map(opt => `<button class="chip${selectedShared === opt ? ' active' : ''}" data-opt="${opt}">${opt}</button>`).join('')}
@@ -789,6 +798,16 @@ const Pending = (() => {
         <button class="btn-secondary" id="inv-cancel">取消</button>
         <button class="btn-primary" id="inv-save">儲存</button>
       `;
+
+      if (needCat) {
+        document.querySelectorAll('#inv-cat-chips .chip').forEach(btn => {
+          btn.addEventListener('click', () => {
+            selectedCat = btn.dataset.cat;
+            document.querySelectorAll('#inv-cat-chips .chip')
+              .forEach(b => b.classList.toggle('active', b.dataset.cat === selectedCat));
+          });
+        });
+      }
 
       document.querySelectorAll('#inv-shared-chips .chip').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -801,6 +820,11 @@ const Pending = (() => {
       document.getElementById('inv-cancel').addEventListener('click', _closeDetail);
       document.getElementById('inv-save').addEventListener('click', async () => {
         const errEl = document.getElementById('inv-error');
+        if (needCat && !selectedCat) {
+          errEl.textContent = '請選擇類別';
+          errEl.classList.remove('hidden');
+          return;
+        }
         if (!selectedShared) {
           errEl.textContent = '請選擇是否共用';
           errEl.classList.remove('hidden');
@@ -814,7 +838,11 @@ const Pending = (() => {
         btn.disabled = true;
         btn.textContent = '儲存中…';
         try {
-          await Sheets.updateInvoiceShared(inv.rowIndex, selectedShared);
+          if (needCat) {
+            await Sheets.updateInvoiceFields(inv.rowIndex, { category: selectedCat, shared: selectedShared });
+          } else {
+            await Sheets.updateInvoiceShared(inv.rowIndex, selectedShared);
+          }
           _saveClose();
           await _reload();
         } catch (e) {
@@ -916,13 +944,14 @@ const Pending = (() => {
               isPartial ? (customAmountMap[i] || 0) : ''
             );
           }
-          await Sheets.updateInvoiceShared(inv.rowIndex, '部分');
+          const _finalCat = selectedCat || item.invItems[0]?.category || inv.category || '';
+          await Sheets.updateInvoiceFields(inv.rowIndex, { ...(needCat && _finalCat ? { category: _finalCat } : {}), shared: '部分' });
           await Sheets.appendMonthlyFromInvoice({
             date: inv.date,
             shop: inv.shop,
             amount: inv.amount,
             shared: '部分',
-            category: item.invItems[0]?.category || inv.category || '',
+            category: _finalCat,
             note: inv.note || '',
             invNum: inv.invNum,
             invRowIndex: inv.rowIndex,

@@ -624,6 +624,7 @@ const Sheets = (() => {
       const date = r[1].replace(/^'/, '').replace(/\//g, '-');
       if (r[5] === '作廢') continue;
       if (!['是','否','部分','-'].includes(r[7])) continue;
+      if (!r[6]) continue;
       if (r[9] === 'TRUE' || r[9] === 'True') continue;
       if (CONFIG.CC_PAY_KEYWORDS.some(kw => (r[8] || '').toLowerCase().includes(kw.toLowerCase()))) continue;
       if (!date.startsWith(ym)) continue;
@@ -996,10 +997,12 @@ const Sheets = (() => {
     for (const inv of newInvoices) {
       invLastRow++;
       invRowMap[inv.invNum] = invLastRow;
+      const _cat    = _invLookupCategory(inv.seller);
+      const _shared = (_cat && inv.shared === '') ? '-' : inv.shared;
       invRows.push([
         inv.carrier, "'" + inv.date, inv.invNum,
         inv.seller, inv.amount, inv.status,
-        _invLookupCategory(inv.seller), inv.shared, '', false,
+        _cat, _shared, '', false,
       ]);
     }
     const invStart = invLastRow - invRows.length + 1;

@@ -834,11 +834,11 @@ const Pending = (() => {
               <span style="color:var(--text-sub);white-space:nowrap;margin-left:8px">${_fmt(parseFloat(it.itemAmount)||0)}</span>
             </div>`).join('')}
         </div>` : '';
-      const catHtml = needCat ? `
+      const catHtml = `
         <label class="field-label">類別</label>
         <div class="chip-row" id="inv-cat-chips" style="margin-bottom:12px">
           ${CATEGORIES.map(c => `<button class="chip${selectedCat === c ? ' active' : ''}" data-cat="${c}">${c}</button>`).join('')}
-        </div>` : '';
+        </div>`;
       document.getElementById('pending-modal-body').innerHTML = `
         <p class="list-item-sub" style="margin-bottom:4px">${inv.date}　${_fmt(inv.amount)}</p>
         <p class="list-item-sub" style="margin-bottom:10px;font-size:11px;opacity:.7">${inv.carrier}　${inv.invNum}</p>
@@ -855,15 +855,13 @@ const Pending = (() => {
         <button class="btn-primary" id="inv-save">儲存</button>
       `;
 
-      if (needCat) {
-        document.querySelectorAll('#inv-cat-chips .chip').forEach(btn => {
-          btn.addEventListener('click', () => {
-            selectedCat = btn.dataset.cat;
-            document.querySelectorAll('#inv-cat-chips .chip')
-              .forEach(b => b.classList.toggle('active', b.dataset.cat === selectedCat));
-          });
+      document.querySelectorAll('#inv-cat-chips .chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          selectedCat = btn.dataset.cat;
+          document.querySelectorAll('#inv-cat-chips .chip')
+            .forEach(b => b.classList.toggle('active', b.dataset.cat === selectedCat));
         });
-      }
+      });
 
       document.querySelectorAll('#inv-shared-chips .chip').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -894,11 +892,7 @@ const Pending = (() => {
         btn.disabled = true;
         btn.textContent = '儲存中…';
         try {
-          if (needCat) {
-            await Sheets.updateInvoiceFields(inv.rowIndex, { category: selectedCat, shared: selectedShared });
-          } else {
-            await Sheets.updateInvoiceShared(inv.rowIndex, selectedShared);
-          }
+          await Sheets.updateInvoiceFields(inv.rowIndex, { category: selectedCat, shared: selectedShared });
           _saveClose();
           await _reload();
         } catch (e) {
@@ -1001,7 +995,7 @@ const Pending = (() => {
             );
           }
           const _finalCat = selectedCat || item.invItems[0]?.category || inv.category || '';
-          await Sheets.updateInvoiceFields(inv.rowIndex, { ...(needCat && _finalCat ? { category: _finalCat } : {}), shared: '部分' });
+          await Sheets.updateInvoiceFields(inv.rowIndex, { ...(_finalCat ? { category: _finalCat } : {}), shared: '部分' });
           await Sheets.appendMonthlyFromInvoice({
             date: inv.date,
             shop: inv.shop,

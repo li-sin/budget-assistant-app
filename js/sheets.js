@@ -998,11 +998,10 @@ const Sheets = (() => {
       invLastRow++;
       invRowMap[inv.invNum] = invLastRow;
       const _cat    = _invLookupCategory(inv.seller);
-      const _shared = (_cat && inv.shared === '') ? '-' : inv.shared;
       invRows.push([
         inv.carrier, "'" + inv.date, inv.invNum,
         inv.seller, inv.amount, inv.status,
-        _cat, _shared, '', false,
+        _cat, inv.shared, '', false,
       ]);
     }
     const invStart = invLastRow - invRows.length + 1;

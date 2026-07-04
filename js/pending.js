@@ -322,6 +322,7 @@ const Pending = (() => {
     } else {
       html += items.map((it, idx) => {
         let title, sub, amount;
+        let catIcon = '';
         if (it.type === 'untagged') {
           title  = it.shop;
           sub    = it.date;
@@ -334,6 +335,7 @@ const Pending = (() => {
           title  = it.inv.shop;
           sub    = it.inv.date;
           amount = it.inv.amount;
+          catIcon = `<span class="inv-cat-pickable list-item-icon cat-pickable" data-idx="${idx}">${it.inv.category || '✘'}</span>`;
         } else if (it.type === 'platform_unlinked') {
           title  = it.inv.shop || it.inv.invNum;
           sub    = `${it.inv.date}　[${it.platformKey}]　${it.candidates.length ? `${it.candidates.length} 筆候選 CC` : '等待 CC 到達'}`;
@@ -349,6 +351,7 @@ const Pending = (() => {
         }
         return `
           <div class="list-item pending-item" data-idx="${idx}" style="cursor:pointer">
+            ${catIcon}
             <span class="pending-badge" style="background:${it.color}22;color:${it.color}">${it.label}</span>
             <div class="list-item-body">
               <div class="list-item-title">${title}</div>
@@ -369,6 +372,59 @@ const Pending = (() => {
       row.addEventListener('click', () => {
         const idx = parseInt(row.dataset.idx, 10);
         _openDetail(items[idx]);
+      });
+    });
+
+    el.querySelectorAll('.inv-cat-pickable').forEach(icon => {
+      icon.addEventListener('click', e => {
+        e.stopPropagation();
+        const idx = parseInt(icon.dataset.idx, 10);
+        _invCatPicker(items[idx]);
+      });
+    });
+  }
+
+  // ── 發票類別快速選盤（點列表 emoji → 直接改發票明細 G 欄）────────
+
+  function _invCatPicker(item) {
+    const inv = item.inv;
+    const cur = inv.category || '';
+    const grid = CATEGORIES.map(c =>
+      `<button class="cat-pick-btn${cur === c ? ' active' : ''}" data-cat="${c}">${c}</button>`
+    ).join('');
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-sheet" style="max-height:50dvh;">
+        <div class="modal-header">
+          <span class="modal-title">選擇類別</span>
+          <button class="modal-close" id="inv-cat-pick-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size:13px;color:var(--text-sub);margin-bottom:4px;">${inv.shop || inv.invNum}</p>
+          <div class="cat-pick-grid">${grid}</div>
+          <p class="cat-pick-error add-error hidden"></p>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('#inv-cat-pick-close').addEventListener('click', close);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    overlay.querySelectorAll('.cat-pick-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const newCat = btn.dataset.cat;
+        if (newCat === cur) { close(); return; }
+        overlay.querySelectorAll('.cat-pick-btn').forEach(b => { b.disabled = true; });
+        try {
+          await Sheets.updateInvoiceFields(inv.rowIndex, { category: newCat });
+          close();
+          await _reload();
+        } catch (err) {
+          const errEl = overlay.querySelector('.cat-pick-error');
+          errEl.textContent = '儲存失敗：' + err.message;
+          errEl.classList.remove('hidden');
+          overlay.querySelectorAll('.cat-pick-btn').forEach(b => { b.disabled = false; });
+        }
       });
     });
   }

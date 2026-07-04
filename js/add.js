@@ -1,5 +1,5 @@
 const Add = (() => {
-  const CATEGORIES = ['🍴', '🛒', '🧋', '⛽', '📦', '🎬', '👗', '🏠', '💊', '📚'];
+  const CATEGORIES = ['🍴', '🛒', '🧋', '⛽', '📦', '🎬', '👗', '🏠', '💊', '📚', '🎁'];
 
   let _payer  = '🌟 Star';
   let _shared = '是';

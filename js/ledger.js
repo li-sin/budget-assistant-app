@@ -1,5 +1,5 @@
 const Ledger = (() => {
-  const CATEGORIES = ['🍴', '🛒', '🧋', '⛽', '📦', '🎬', '👗', '🏠', '💊', '📚'];
+  const CATEGORIES = ['🍴', '🛒', '🧋', '⛽', '📦', '🎬', '👗', '🏠', '💊', '📚', '🎁'];
   const UNCAT = '✘';   // 未分類的顯示標籤 + 篩選 sentinel（與統計 tab 一致；空 category 對應此值；深色 x，跟隨文字色）
   const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
   const ITEM_ATTR_OPTS = ['🌟 Sin', '🐨 Bear', '共用', '部分'];

@@ -6,7 +6,7 @@ const Pending = (() => {
   let _advanceIdx  = -1;   // reload 後自動開啟的清單索引（-1 = 不自動開啟）
   let _pendingMonth = null; // {year, month} 月份切換器選的月份；null = 尚未初始化（首次取最新有項目的月）
 
-  const CATEGORIES = ['🍴', '🛒', '🧋', '⛽', '📦', '🎬', '👗', '🏠', '💊', '📚'];
+  const CATEGORIES = ['🍴', '🛒', '🧋', '⛽', '📦', '🎬', '👗', '🏠', '💊', '📚', '🎁'];
   const APP_INVOICE_CARRIERS = new Set(['掃描發票', '手查發票']);
   const _isAppInvoiceCarrier = carrier => APP_INVOICE_CARRIERS.has(carrier);
   const _sourceFromCarrier = carrier => _isAppInvoiceCarrier(carrier) ? carrier : '發票';

@@ -113,14 +113,10 @@ const Gmail = (() => {
 
   const _AUTO_SKIP     = ['優食台灣'];
   const _AUTO_PERSONAL = ['優食'];
-  const _FEE_KEYWORDS  = ['外送費', '服務費', '優惠'];
 
-  function _autoShared(seller, status, itemNames) {
+  function _autoShared(seller, status, amount = 0) {
     if (status === '作廢') return 'x';
-    if (_AUTO_SKIP.some(k => seller.includes(k))) {
-      const hasFood = itemNames.length > 0 && itemNames.some(n => !_FEE_KEYWORDS.some(k => n.includes(k)));
-      return hasFood ? '' : 'x';
-    }
+    if (_AUTO_SKIP.some(k => seller.includes(k))) return amount < 60 ? 'x' : '';
     if (_AUTO_PERSONAL.some(k => seller.includes(k))) return '-';
     return '';
   }
@@ -182,7 +178,7 @@ const Gmail = (() => {
       (itemNamesMap[it.invNum] = itemNamesMap[it.invNum] || []).push(it.name);
     }
     for (const inv of allInvoices) {
-      inv.shared = _autoShared(inv.seller, inv.status, itemNamesMap[inv.invNum] || []);
+      inv.shared = _autoShared(inv.seller, inv.status, Number(inv.amount));
     }
 
     return { invoices: allInvoices, items: allItems };

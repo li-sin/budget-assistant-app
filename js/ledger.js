@@ -26,6 +26,8 @@ const Ledger = (() => {
   let _sharedDeleteBg   = null;
   let _lastDragEnd      = 0; // 最近一次橫向拖曳結束時間，避免拖曳後誤觸整列點擊
   let _activeSubTab    = 'monthly';
+  let _scope           = 'month'; // 'month' | 'year'（年檢視只作用於月度帳本 sub-tab）
+  let _loadedScope     = 'month'; // _allRows 目前裝的是哪種範圍的資料
   let _invRows         = [];
   let _invSharedFilter = new Set();
   let _invSearchQuery  = '';
@@ -102,8 +104,10 @@ const Ledger = (() => {
   }
 
   function _updateMonthLabel() {
-    document.getElementById('ledger-month').textContent =
-      `${_year} 年 ${String(_month).padStart(2, '0')} 月`;
+    const yearOnly = _scope === 'year' && _activeSubTab === 'monthly';
+    document.getElementById('ledger-month').textContent = yearOnly
+      ? `${_year} 年`
+      : `${_year} 年 ${String(_month).padStart(2, '0')} 月`;
   }
 
   function _filtered() {
@@ -655,7 +659,18 @@ const Ledger = (() => {
     document.getElementById('ledger-list').innerHTML = '<div class="spinner"></div>';
     document.getElementById('ledger-count').textContent = '';
     try {
-      _allRows = await Sheets.getMonthlyData(_year, _month);
+      if (_scope === 'year') {
+        // 仿統計 tab 本年模式：平行抓 12 個月（Sheets 層已逐月快取，編輯後只重抓被 invalidate 的月份）
+        const all = await Promise.all(
+          Array.from({ length: 12 }, (_, i) =>
+            Sheets.getMonthlyData(_year, i + 1).catch(() => [])
+          )
+        );
+        _allRows = all.flat();
+      } else {
+        _allRows = await Sheets.getMonthlyData(_year, _month);
+      }
+      _loadedScope = _scope;
       _refreshCatOptions();
       _renderList();
     } catch (e) {
@@ -727,7 +742,7 @@ const Ledger = (() => {
       _getInvoiceCache(),
       Sheets.getMonthlyData(_year, _month),
     ]);
-    _allRows = monthlyRows;
+    if (_scope === 'month') _allRows = monthlyRows; // 年檢視下不可用單月資料覆寫全年清單
     const invoice = allInvoices.find(inv => inv.invNum === invNum) || null;
     const linkedMonthly = monthlyRows.filter(r => r.sourceLink === invNum);
     const appMonthly = linkedMonthly.filter(r => r.source === '掃描發票' || r.source === '手查發票');
@@ -762,6 +777,13 @@ const Ledger = (() => {
     document.getElementById('monthly-section')?.classList.toggle('hidden', tab !== 'monthly');
     document.getElementById('inv-section')?.classList.toggle('hidden', tab !== 'invoice');
     document.getElementById('cc-section')?.classList.toggle('hidden', tab !== 'cc');
+    _updateMonthLabel(); // 發票/CC 永遠逐月；年檢視標題只在月度帳本 sub-tab 顯示
+  }
+
+  function _setScope(scope) {
+    _scope = scope;
+    document.querySelectorAll('#ledger-scope-chips .chip').forEach(b =>
+      b.classList.toggle('active', b.dataset.scope === _scope));
   }
 
   async function _jumpToInvoice(invRowIndex) {
@@ -2451,7 +2473,8 @@ const Ledger = (() => {
         }
       }
       _closeCCUnlinkModal();
-      _allRows = await Sheets.getMonthlyData(_year, _month);
+      if (_scope === 'year') await _load();
+      else _allRows = await Sheets.getMonthlyData(_year, _month);
       _ccRows = [];
       await _loadCCTab();
       window.Home?.reload();
@@ -2645,6 +2668,10 @@ const Ledger = (() => {
       <!-- 月度帳本 -->
       <div id="monthly-section">
         <div class="ledger-filters card">
+          <div class="chip-row" id="ledger-scope-chips">
+            <button class="chip${_scope === 'month' ? ' active' : ''}" data-scope="month">本月</button>
+            <button class="chip${_scope === 'year' ? ' active' : ''}" data-scope="year">本年</button>
+          </div>
           <div class="search-row">
             <div class="search-wrap">
               <input type="text" id="ledger-search" class="field-input" placeholder="搜尋項目或備註…">
@@ -2751,6 +2778,12 @@ const Ledger = (() => {
     `;
 
     document.getElementById('ledger-prev').addEventListener('click', () => {
+      if (_scope === 'year' && _activeSubTab === 'monthly') {
+        _year--;
+        _updateMonthLabel();
+        _load();
+        return;
+      }
       _month--;
       if (_month < 1) { _month = 12; _year--; }
       window.AppMonth.set(_year, _month);
@@ -2758,6 +2791,12 @@ const Ledger = (() => {
       _reloadActiveTab();
     });
     document.getElementById('ledger-next').addEventListener('click', () => {
+      if (_scope === 'year' && _activeSubTab === 'monthly') {
+        _year++;
+        _updateMonthLabel();
+        _load();
+        return;
+      }
       _month++;
       if (_month > 12) { _month = 1; _year++; }
       window.AppMonth.set(_year, _month);
@@ -2782,6 +2821,16 @@ const Ledger = (() => {
         _setSubTab(btn.dataset.subtab);
         if (_activeSubTab === 'invoice') _loadInvoiceTab();
         else if (_activeSubTab === 'cc') _loadCCTab();
+      });
+    });
+
+    // 月度帳本 月/年 範圍切換
+    document.querySelectorAll('#ledger-scope-chips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.scope === _scope) return;
+        _setScope(btn.dataset.scope);
+        _updateMonthLabel();
+        _load();
       });
     });
 
@@ -2951,10 +3000,20 @@ const Ledger = (() => {
 
     const pending = _pendingFilter;
     _pendingFilter = null;
+
+    if (_scope === 'year') {
+      // 年檢視與 AppMonth 月份脫鉤：套跳轉篩選後整年重載（逐月快取，成本低）
+      if (pending) { _resetFilters(); _applyFilter(pending); }
+      _updateMonthLabel();
+      _load();
+      return;
+    }
+
     const ym = `${year}-${String(month).padStart(2, '0')}`;
     const cacheExists = !!sessionStorage.getItem(`ba_monthly_${ym}`);
 
-    if (year !== _year || month !== _month) {
+    if (year !== _year || month !== _month || _loadedScope !== 'month') {
+      // _loadedScope 不符＝_allRows 還裝著年檢視資料，必須重載
       _year = year; _month = month;
       if (pending) { _resetFilters(); _applyFilter(pending); }
       _updateMonthLabel();
@@ -2974,7 +3033,7 @@ const Ledger = (() => {
     }
   }
 
-  function jumpTo({ member, category, shared, sharedValues, rowIndex } = {}) {
+  function jumpTo({ member, category, shared, sharedValues, rowIndex, scope, year } = {}) {
     // 確保切回月度帳本 sub-tab
     _activeSubTab = 'monthly';
     document.querySelectorAll('.sub-tab-btn').forEach(b =>
@@ -2982,6 +3041,10 @@ const Ledger = (() => {
     document.getElementById('monthly-section')?.classList.remove('hidden');
     document.getElementById('inv-section')?.classList.add('hidden');
     document.getElementById('cc-section')?.classList.add('hidden');
+
+    // 範圍跟著來源（統計本年→年檢視；統計本月→月檢視），要在 navigate 觸發 activate 前設好
+    if (scope) _setScope(scope);
+    if (year !== undefined) _year = year;
 
     _pendingFilter = {};
     if (member   !== undefined) _pendingFilter.member   = member;
@@ -2994,6 +3057,10 @@ const Ledger = (() => {
 
   function init() {
     _buildShell();
+    // 首次 init 若由 jumpTo 觸發（activate 不會跑），pending filter 要在這裡套
+    const pending = _pendingFilter;
+    _pendingFilter = null;
+    if (pending) _applyFilter(pending);
     _updateMonthLabel();
     _load();
   }

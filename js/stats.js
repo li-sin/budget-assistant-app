@@ -140,8 +140,10 @@ const Stats = (() => {
 
   function _bindCatClicks() {
     const sharedVals = [..._sharedSelected];
-    const jump = cat => window.Ledger?.jumpTo({ category: cat, member: _memberFilter, sharedValues: sharedVals });
-    const jumpTotal = () => window.Ledger?.jumpTo({ member: _memberFilter, sharedValues: sharedVals });
+    // 本年模式跳轉帶年檢視範圍（本年可 ◀▶ 切到別年，須帶 _year，不能只靠 AppMonth）
+    const scopeArgs = _mode === 'year' ? { scope: 'year', year: _year } : { scope: 'month' };
+    const jump = cat => window.Ledger?.jumpTo({ category: cat, member: _memberFilter, sharedValues: sharedVals, ...scopeArgs });
+    const jumpTotal = () => window.Ledger?.jumpTo({ member: _memberFilter, sharedValues: sharedVals, ...scopeArgs });
     document.querySelectorAll('#stats-chart .donut-slice').forEach(el => {
       el.addEventListener('click', () => jump(el.dataset.cat));
     });

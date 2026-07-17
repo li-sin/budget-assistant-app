@@ -161,6 +161,7 @@ const Sheets = (() => {
   }
 
   const CACHE_TTL = 5 * 60 * 1000;  // 5 分鐘
+  const _inflightMonthly = {};  // ym key → Promise；同月併發請求共享同一次 fetch（存入後 Home/Ledger 同時 reload 只打一次 API）
 
   async function getMonthlyData(year, month) {
     const ym  = `${year}-${String(month).padStart(2, '0')}`;
@@ -171,14 +172,24 @@ const Sheets = (() => {
       if (Date.now() - ts < CACHE_TTL) return data;
     }
 
-    const data = await _get(`${CONFIG.TABS.MONTHLY}!A:L`);
-    const rows = (data.values || []).slice(1);  // skip header
-    const filtered = rows
-      .map((r, i) => _parseRow(r, i + 2))  // rowIndex: header=1, data starts at 2
-      .filter(r => r.date.startsWith(ym));
+    if (_inflightMonthly[key]) return _inflightMonthly[key];
+    const p = (async () => {
+      try {
+        const data = await _get(`${CONFIG.TABS.MONTHLY}!A:L`);
+        const rows = (data.values || []).slice(1);  // skip header
+        const filtered = rows
+          .map((r, i) => _parseRow(r, i + 2))  // rowIndex: header=1, data starts at 2
+          .filter(r => r.date.startsWith(ym));
 
-    sessionStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: filtered }));
-    return filtered;
+        sessionStorage.setItem(key, JSON.stringify({ ts: Date.now(), data: filtered }));
+        return filtered;
+      } finally {
+        // 只清自己：invalidateMonth 作廢舊請求後可能已有新請求佔住這個 key
+        if (_inflightMonthly[key] === p) delete _inflightMonthly[key];
+      }
+    })();
+    _inflightMonthly[key] = p;
+    return p;
   }
 
   // ── 信用卡明細 ───────────────────────────────────────────────
@@ -202,6 +213,7 @@ const Sheets = (() => {
 
   function invalidateMonth(ym) {
     sessionStorage.removeItem(`ba_monthly_${ym}`);
+    delete _inflightMonthly[`ba_monthly_${ym}`];  // 飛行中的舊請求作廢，之後的呼叫重新 fetch
   }
 
   // ── Bear結算 ──────────────────────────────────────────────────

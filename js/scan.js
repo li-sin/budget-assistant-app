@@ -10,8 +10,6 @@ const Scan = (() => {
   let _right     = null;  // { items: [{name, amount}] }
   let _mode = 'idle'; // idle | scanning | confirm
   let _scanIntent = 'qr'; // qr | query
-  // 查詢明細記帳的發票資訊草稿：手動輸入與 OCR 預填共用，鏡頭往返時不遺失已填內容
-  let _queryInfoDraft = {};
 
   // ── QR 解析 ──────────────────────────────────────────────────
   // 左側 QR：[invNum10][date7][rand4][sales8][total8][buyId8][sellId8][verify(base64)]:*****:品項數:...
@@ -388,7 +386,9 @@ const Scan = (() => {
       }
     }
 
-    return { shopName, total };
+    // 發票號碼／日期／隨機碼借用發票資訊 OCR 的 regex（查詢明細頁文字通常也帶這三項）
+    const info = _parseInvoiceInfoText(text);
+    return { shopName, total, invNum: info.invNum, dateForSheet: info.dateForSheet, rand: info.rand };
   }
 
   function _loadImageForOcr(file) {
@@ -649,11 +649,11 @@ const Scan = (() => {
       <p id="scan-status" class="scan-status">對準發票，左右兩個 QR Code 都掃</p>
     `;
     document.body.appendChild(el);
-    document.getElementById('scan-close').addEventListener('click', () => {
-      // 查詢明細模式的鏡頭只是 OCR 預填，關掉鏡頭應回到手動輸入而非整個結束
+    document.getElementById('scan-close').addEventListener('click', async () => {
+      // 查詢明細模式的鏡頭只是 OCR 預填，關掉鏡頭應回到確認頁而非整個結束
       if (_scanIntent === 'query') {
         _stopCamera();
-        _showQueryInfoModal(_queryInfoDraft);
+        await _showConfirm();
         return;
       }
       stop();
@@ -700,14 +700,13 @@ const Scan = (() => {
   // 縮小至 640px 寬再解碼，降低 CPU 負擔提升 frame rate
   const DECODE_W = 640;
 
-  // 「用查詢明細記帳」：不拍任何東西，直接開手動輸入發票資訊（桌機無鏡頭也能用）
-  function _enterQueryMode() {
+  // 「用查詢明細記帳」：不拍任何東西，直接進確認頁（發票號碼/日期/隨機碼在該頁填即可，避免二次填寫）
+  async function _enterQueryMode() {
     _scanIntent = 'query';
-    _left = null;
-    _right = null;
-    _queryInfoDraft = {};
+    _left = _emptyQueryLeft();
+    _right = { items: [] };
     _stopCamera();
-    _showQueryInfoModal(_queryInfoDraft);
+    await _showConfirm();
   }
 
   function _enterQrMode() {
@@ -737,9 +736,10 @@ const Scan = (() => {
         if (statusEl) statusEl.textContent = status;
       });
       _stopCamera();
-      // OCR 只做預填，仍回手動輸入表單讓使用者確認後才進下一步
-      _queryInfoDraft = _mergeQueryInfo(_queryInfoDraft, info);
-      await _showQueryInfoModal(_queryInfoDraft);
+      // OCR 只做預填：合併回確認頁的發票資訊（OCR 沒讀到的欄位保留原值），已建立的品項留在 _right
+      _left = _emptyQueryLeft(_mergeQueryInfo(_left || {}, info));
+      _right = _right || { items: [] };
+      await _showConfirm();
     } catch (err) {
       if (statusEl) statusEl.textContent = `辨識失敗：${err.message}`;
     } finally {
@@ -850,133 +850,18 @@ const Scan = (() => {
     };
   }
 
-  // 讀取手動輸入表單目前的值（切去鏡頭 OCR 前先存起來，避免已填內容遺失）
-  function _readQueryInfoForm(info = {}) {
+  // 查詢明細記帳的 _left 初始值：發票號碼／日期／隨機碼全部選填，交給確認頁填或由貼上的明細自動解析
+  function _emptyQueryLeft(info = {}) {
     return {
-      invNum:       (document.getElementById('sqinfo-inv-num')?.value || '').toUpperCase().replace(/[^A-Z0-9]/g, ''),
-      dateForSheet: document.getElementById('sqinfo-date')?.value || '',
-      rand:         (document.getElementById('sqinfo-rand')?.value || '').replace(/\D/g, '').slice(0, 4),
-      sellerId:     (document.getElementById('sqinfo-seller')?.value || '').replace(/\D/g, '').slice(0, 8),
-      total:        Math.round(parseFloat(document.getElementById('sqinfo-total')?.value || '0')) || 0,
+      invNum:       (info.invNum || '').toUpperCase().replace(/[^A-Z0-9]/g, ''),
+      dateForSheet: info.dateForSheet || '',
+      rand:         String(info.rand || '').replace(/\D/g, '').slice(0, 4),
+      sellerId:     String(info.sellerId || '').replace(/\D/g, '').slice(0, 8),
+      total:        Math.round(parseFloat(info.total || '0')) || 0,
       shopName:     String(info.shopName || '').trim(),
-      rawText:      info.rawText || '',
+      leftItems:    [],
+      orderNote:    '',
     };
-  }
-
-  async function _showQueryInfoModal(info = {}) {
-    let el = document.getElementById('scan-query-info-modal');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'scan-query-info-modal';
-      el.className = 'modal-overlay hidden';
-      document.body.appendChild(el);
-    }
-
-    el.innerHTML = `
-      <div class="modal-sheet">
-        <div class="modal-header">
-          <span class="modal-title">查詢明細記帳</span>
-          <button class="modal-close" id="sqinfo-close">✕</button>
-        </div>
-        <div class="modal-body">
-          <p class="sconf-warning-text">請確認發票號碼、日期與隨機碼。下一步會開啟與 F22 相同的查詢明細流程，可貼上文字或截圖解析品項。</p>
-          <label class="field-label">發票號碼</label>
-          <input type="text" id="sqinfo-inv-num" class="field-input" maxlength="11" value="${_escapeHtml(info.invNum || '')}" placeholder="BL-12345678">
-
-          <label class="field-label">發票日期</label>
-          <input type="date" id="sqinfo-date" class="field-input" value="${_escapeHtml(info.dateForSheet || '')}">
-
-          <label class="field-label">隨機碼</label>
-          <input type="text" id="sqinfo-rand" class="field-input" maxlength="4" inputmode="numeric" value="${_escapeHtml(info.rand || '')}" placeholder="1234">
-
-          <label class="field-label">賣方統編（選填）</label>
-          <input type="text" id="sqinfo-seller" class="field-input" maxlength="8" inputmode="numeric" value="${_escapeHtml(info.sellerId || '')}" placeholder="可留空">
-
-          <label class="field-label">總金額（選填）</label>
-          <input type="number" id="sqinfo-total" class="field-input" min="1" step="1" inputmode="decimal" value="${info.total ? Number(info.total) : ''}" placeholder="可由查詢明細合計">
-
-          <div class="sconf-warning-actions sqinfo-actions">
-            ${_queryLaunchLinks().map(link => `
-              <a class="btn-secondary sconf-query-link" href="${_escapeHtml(link.href)}"${link.target ? ` target="${link.target}"` : ''}${link.rel ? ` rel="${link.rel}"` : ''}>${link.label}</a>
-            `).join('')}
-            <button class="btn-secondary sconf-share-btn" id="sqinfo-share-query" aria-label="分享查詢頁" title="分享查詢頁">📤</button>
-            <button class="btn-secondary" id="sqinfo-capture">📷 拍照辨識填入</button>
-          </div>
-
-          <details class="sqinfo-raw">
-            <summary>OCR 原文</summary>
-            <pre>${_escapeHtml(info.rawText || '尚無 OCR 原文')}</pre>
-          </details>
-
-          <p id="sqinfo-error" class="add-error hidden"></p>
-        </div>
-        <div class="modal-footer">
-          <button class="btn-secondary" id="sqinfo-cancel">取消</button>
-          <button class="btn-primary" id="sqinfo-next">下一步：貼上查詢明細</button>
-        </div>
-      </div>
-    `;
-    el.classList.remove('hidden');
-
-    const close = () => {
-      el.classList.add('hidden');
-      _mode = 'idle';
-      _scanIntent = 'qr';
-      _queryInfoDraft = {};
-      document.getElementById('scan-overlay')?.classList.add('hidden');
-    };
-
-    document.getElementById('sqinfo-close')?.addEventListener('click', close);
-    document.getElementById('sqinfo-cancel')?.addEventListener('click', close);
-    // 容器不會被 innerHTML 換掉，OCR 往返重新渲染時只掛一次背景點擊
-    if (!el.dataset.backdropBound) {
-      el.addEventListener('click', e => { if (e.target === el) el.querySelector('#sqinfo-cancel')?.click(); });
-      el.dataset.backdropBound = '1';
-    }
-
-    // 手機用：拿鏡頭拍發票資訊區做 OCR 預填，拍完回到這張表單確認
-    document.getElementById('sqinfo-capture')?.addEventListener('click', async () => {
-      _queryInfoDraft = _readQueryInfoForm(info);
-      el.classList.add('hidden');
-      await _launchCamera('query');
-    });
-    document.getElementById('sqinfo-share-query')?.addEventListener('click', async e => {
-      if (navigator.share) {
-        try {
-          await navigator.share({ title: '財政部電子發票查詢', url: INVOICE_QUERY_URL });
-          return;
-        } catch (err) {
-          if (err?.name === 'AbortError') return;
-        }
-      }
-      await _copyText(INVOICE_QUERY_URL, e.currentTarget);
-    });
-
-    document.getElementById('sqinfo-next')?.addEventListener('click', async () => {
-      const invNum = (document.getElementById('sqinfo-inv-num')?.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const dateForSheet = document.getElementById('sqinfo-date')?.value || '';
-      const rand = (document.getElementById('sqinfo-rand')?.value || '').replace(/\D/g, '').slice(0, 4);
-      const sellerId = (document.getElementById('sqinfo-seller')?.value || '').replace(/\D/g, '').slice(0, 8);
-      const total = Math.round(parseFloat(document.getElementById('sqinfo-total')?.value || '0'));
-      const errEl = document.getElementById('sqinfo-error');
-      errEl?.classList.add('hidden');
-
-      if (!/^[A-Z]{2}\d{8}$/.test(invNum) || !dateForSheet || rand.length !== 4) {
-        if (errEl) {
-          errEl.textContent = '請確認發票號碼、日期與隨機碼都正確';
-          errEl.classList.remove('hidden');
-        }
-        return;
-      }
-
-      _left = { invNum, dateForSheet, rand, sellerId, total, shopName: String(info.shopName || '').trim(), leftItems: [], orderNote: '' };
-      _right = { items: [] };
-      _queryInfoDraft = {};
-      el.classList.add('hidden');
-      // 查詢明細模式不打統編查商店（_showConfirm 內直接留空給使用者填），無需鏡頭 overlay
-      document.getElementById('scan-overlay')?.classList.add('hidden');
-      await _showConfirm();
-    });
   }
 
   // ── 確認 Modal ────────────────────────────────────────────────
@@ -991,6 +876,8 @@ const Scan = (() => {
     const orderNote = _left?.orderNote  || '';
     let payer       = _defaultPayer();
     const sourceName = isQueryDetailMode ? '手查發票' : '掃描發票';
+    // 查詢明細模式的發票號碼是選填，沒號碼時只寫月度帳本，按鈕不該說「寫入發票明細」
+    const submitLabel = isQueryDetailMode ? '寫入' : '寫入發票明細';
     // 用 OCR 店名優先；沒有時再用賣方統編查名稱；失敗則留空讓使用者手動填
     const shop = isQueryDetailMode ? '' : ((_left?.shopName || '') || await _fetchSellerName(sellerId) || '');
     // 合併左側品項（leftItems）與右側品項（_right.items），去除數量/單價均為 0 的標示列
@@ -1063,7 +950,7 @@ const Scan = (() => {
         </div>
         <div class="modal-footer">
           <button class="btn-secondary" id="sconf-cancel">取消</button>
-          <button class="btn-primary" id="sconf-submit">寫入發票明細</button>
+          <button class="btn-primary" id="sconf-submit">${submitLabel}</button>
         </div>
       </div>
     `;
@@ -1103,6 +990,23 @@ const Scan = (() => {
       if (meta.total > 0 && !(total > 0) && totalEl && !Number(totalEl.value || 0)) {
         total = meta.total;
         totalEl.value = String(meta.total);
+      }
+
+      // 發票號碼／日期／隨機碼：只補空欄位，不覆蓋使用者已填的值（避免二次填寫）
+      const invEl  = document.getElementById('sconf-inv-num');
+      const dateEl = document.getElementById('sconf-date');
+      const randEl = document.getElementById('sconf-rand');
+      if (meta.invNum && invEl && !invEl.value.trim()) {
+        invEl.value = meta.invNum;
+        invNum = meta.invNum;
+      }
+      if (meta.dateForSheet && dateEl && !dateEl.value) {
+        dateEl.value = meta.dateForSheet;
+        date = meta.dateForSheet;
+      }
+      if (meta.rand && randEl && !randEl.value.trim()) {
+        randEl.value = meta.rand;
+        rand = meta.rand;
       }
     }
 
@@ -1199,11 +1103,11 @@ const Scan = (() => {
               <span>${isQueryDetailMode ? '目前品項合計' : 'QR 品項合計'}</span><strong>$${itemTotal.toLocaleString('zh-TW')}</strong>
               <span>差額</span><strong class="amount-expense">${total > 0 ? `$${missing.toLocaleString('zh-TW')}` : '—'}</strong>
             </div>
-            <p class="sconf-warning-text">${isQueryDetailMode ? '請先開啟財政部查詢頁取得消費明細，再貼上文字或截圖解析品項。' : '若這張發票要做「部分」分帳，建議先查詢完整明細或補上差額品項，避免分帳金額錯誤。'}</p>
+            <p class="sconf-warning-text">${isQueryDetailMode ? '開啟財政部查詢頁取得消費明細後貼上文字或截圖；發票號碼／日期／隨機碼會盡量從貼上的內容自動帶入，都是選填。未填號碼時只寫月度帳本一筆（不寫發票／品項明細，也不能用「部分」）。' : '若這張發票要做「部分」分帳，建議先查詢完整明細或補上差額品項，避免分帳金額錯誤。'}</p>
             <div class="sconf-query-box">
               ${isQueryDetailMode ? `
                 <div class="sconf-copy-row">
-                  <span class="sconf-copy-label">發票號碼</span>
+                  <span class="sconf-copy-label">發票號碼（選填）</span>
                   <input type="text" id="sconf-inv-num" class="field-input sconf-copy-input" maxlength="11" value="${_escapeHtml(invNum)}" placeholder="BL-12345678">
                   <button class="btn-secondary sconf-copy-btn" data-copy-target="sconf-inv-num">複製</button>
                 </div>
@@ -1213,7 +1117,7 @@ const Scan = (() => {
                   <button class="btn-secondary sconf-copy-btn" data-copy-target="sconf-date" data-copy-format="date">複製</button>
                 </div>
                 <div class="sconf-copy-row">
-                  <span class="sconf-copy-label">隨機碼</span>
+                  <span class="sconf-copy-label">隨機碼（選填）</span>
                   <input type="text" id="sconf-rand" class="field-input sconf-copy-input" maxlength="4" inputmode="numeric" value="${_escapeHtml(rand || '')}" placeholder="6336">
                   <button class="btn-secondary sconf-copy-btn" data-copy-target="sconf-rand">複製</button>
                 </div>
@@ -1236,6 +1140,7 @@ const Scan = (() => {
                 <a class="btn-secondary sconf-query-link" href="${_escapeHtml(link.href)}"${link.target ? ` target="${link.target}"` : ''}${link.rel ? ` rel="${link.rel}"` : ''}>${link.label}</a>
               `).join('')}
               <button class="btn-secondary sconf-share-btn" id="sconf-share-query" aria-label="分享查詢頁" title="分享查詢頁">📤</button>
+              ${isQueryDetailMode ? `<button class="btn-secondary" id="sconf-capture-info">📷 拍照辨識</button>` : ''}
             </div>
             <div class="sconf-manual-add">
               <input type="text" id="sconf-manual-name" class="field-input" placeholder="缺漏品項名稱">
@@ -1306,6 +1211,21 @@ const Scan = (() => {
           }
         }
         await _copyText(INVOICE_QUERY_URL, e.currentTarget);
+      });
+
+      // 手機用：拍發票資訊區做 OCR 預填。先把目前欄位與已建立品項存回 _left/_right，回來才不會白填
+      document.getElementById('sconf-capture-info')?.addEventListener('click', async () => {
+        _left = _emptyQueryLeft({
+          invNum:       document.getElementById('sconf-inv-num')?.value || '',
+          dateForSheet: document.getElementById('sconf-date')?.value    || '',
+          rand:         document.getElementById('sconf-rand')?.value    || '',
+          sellerId:     _left?.sellerId || '',
+          total:        document.getElementById('sconf-total')?.value   || total || 0,
+          shopName:     document.getElementById('sconf-shop')?.value    || '',
+        });
+        _right = { items: items.slice() };
+        el.classList.add('hidden');
+        await _launchCamera('query', { preserveData: true });
       });
 
       document.getElementById('sconf-fill-missing')?.addEventListener('click', e => {
@@ -1481,14 +1401,14 @@ const Scan = (() => {
           errEl.textContent = '請確認日期';
           errEl.classList.remove('hidden');
           btn.disabled = false;
-          btn.textContent = '寫入發票明細';
+          btn.textContent = submitLabel;
           return;
         }
         if (isQueryDetailMode && !shopValue) {
           errEl.textContent = '請確認商店名稱';
           errEl.classList.remove('hidden');
           btn.disabled = false;
-          btn.textContent = '寫入發票明細';
+          btn.textContent = submitLabel;
           return;
         }
         if (!(effectiveTotal > 0)) {
@@ -1497,7 +1417,7 @@ const Scan = (() => {
             : '請貼上查詢明細解析品項，或手動輸入金額';
           errEl.classList.remove('hidden');
           btn.disabled = false;
-          btn.textContent = '寫入發票明細';
+          btn.textContent = submitLabel;
           return;
         }
         const missing = _missingAmount(total, items);
@@ -1507,7 +1427,50 @@ const Scan = (() => {
             : 'QR 品項合計仍小於發票總額；請先補齊品項或使用「補差額品項繼續」再做部分分帳';
           errEl.classList.remove('hidden');
           btn.disabled = false;
-          btn.textContent = '寫入發票明細';
+          btn.textContent = submitLabel;
+          return;
+        }
+
+        // 無發票號碼（選填，且貼上的明細也解析不到）→ 只寫月度帳本一筆，不寫發票／品項明細
+        // 發票號碼是發票明細 C 欄與品項明細 L 欄的主鍵，空值會讓 HYPERLINK/MATCH 變 #N/A
+        if (isQueryDetailMode && !/^[A-Z]{2}\d{8}$/.test(invNum)) {
+          if (_shared === '部分' || _shared === 'x') {
+            errEl.textContent = _shared === '部分'
+              ? '「部分」分帳需要品項明細，請補上發票號碼，或改選 是／否／- 個人'
+              : '「x 跳過」是等 CC 配對用的，需要發票號碼；請補上號碼或改選 是／否／- 個人';
+            errEl.classList.remove('hidden');
+            btn.disabled = false;
+            btn.textContent = submitLabel;
+            return;
+          }
+          btn.textContent = '寫入中…';
+          // G/H 必須自己算靜態值寫入：月度帳本沒有預鋪的 G/H buffer 公式，留空會被紅色條件格式標記且 Bear 結算漏算
+          // 分攤語義依 decisions.md「Bear + 否 語義」：「否」＝代墊，要看誰付款（與 add.js _calcShares 一致）
+          let sinShare, bearShare;
+          if (_shared === '是') {
+            sinShare  = Math.floor(effectiveTotal / 2);
+            bearShare = effectiveTotal - sinShare;
+          } else if (_shared === '否') {
+            // Star 付 → Sin 代墊、Bear 全欠；Bear 付 → Bear 代墊、Sin 全欠
+            sinShare  = payer === '🐨 Bear' ? effectiveTotal : 0;
+            bearShare = payer === '🐨 Bear' ? 0 : effectiveTotal;
+          } else {   // - 個人（部分與 x 已在上面擋掉）
+            sinShare  = effectiveTotal;
+            bearShare = 0;
+          }
+          const now = new Date();
+          const importedAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+            + ` ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+          // [A日期, B項目, C金額, D負責人, E是否共用, F類別, G Sin負擔, H Bear負擔, I備註, J來源, K來源連結(空), L匯入時間]
+          await Sheets.appendMonthlyRow([
+            date, shopValue, effectiveTotal, payer, _shared, category,
+            sinShare, bearShare, note, sourceName, '', importedAt,
+          ]);
+          _closeConfirm();
+          window.Add?.close();
+          window.Home?.reload();
+          window.Ledger?.reload();
+          alert(`✓ 已記入月度帳本 $${effectiveTotal.toLocaleString('zh-TW')}\n（無發票號碼，未寫入發票／品項明細）`);
           return;
         }
 
@@ -1519,7 +1482,7 @@ const Scan = (() => {
           const ok = window.confirm(`⚠️ 發票 ${invNum} 已有記錄：\n${dupInfo}\n\n確定繼續記錄？（備註將自動加入原始發票連結）`);
           if (!ok) {
             btn.disabled = false;
-            btn.textContent = '寫入發票明細';
+            btn.textContent = submitLabel;
             return;
           }
           // 備註加入第一筆重複記錄的 HYPERLINK
@@ -1552,7 +1515,7 @@ const Scan = (() => {
         errEl.textContent = '寫入失敗：' + e.message;
         errEl.classList.remove('hidden');
         btn.disabled = false;
-        btn.textContent = '寫入發票明細';
+        btn.textContent = submitLabel;
       }
     });
   }
@@ -1865,9 +1828,11 @@ const Scan = (() => {
   }
 
   // ── 鏡頭啟動（intent: qr = 掃 QR、query = 拍發票資訊做 OCR 預填）────
-  async function _launchCamera(intent) {
-    _left  = null;
-    _right = null;
+  async function _launchCamera(intent, { preserveData = false } = {}) {
+    if (!preserveData) {
+      _left  = null;
+      _right = null;
+    }
     _mode  = 'scanning';
     _scanIntent = intent;
 
@@ -1881,8 +1846,8 @@ const Scan = (() => {
     } catch (e) {
       // 不自動關閉 overlay：桌機沒鏡頭時仍要讓使用者按「用查詢明細記帳」手動輸入
       document.getElementById('scan-status').textContent = intent === 'query'
-        ? '無法開啟鏡頭，請按 ✕ 返回手動輸入'
-        : '無法開啟鏡頭，可改按下方「用查詢明細記帳」手動輸入';
+        ? '無法開啟鏡頭，請按 ✕ 返回確認頁手動填寫'
+        : '無法開啟鏡頭，可改按下方「用查詢明細記帳」直接記帳';
       return;
     }
 
@@ -1918,16 +1883,14 @@ const Scan = (() => {
     await _launchCamera('qr');
   }
 
-  // 「查詢明細記帳」直接入口：完全不碰鏡頭，適用桌機
+  // 「查詢明細記帳」直接入口：完全不碰鏡頭，一按就到確認頁（發票資訊在該頁填／自動解析）
   async function startQueryDetail() {
-    _left  = null;
-    _right = null;
-    _mode  = 'confirm';
     _scanIntent = 'query';
-    _queryInfoDraft = {};
-    _buildScanOverlay();   // 只建 DOM 不開鏡頭，供後續流程共用（保持 hidden）
+    _left  = _emptyQueryLeft();
+    _right = { items: [] };
+    _buildScanOverlay();   // 只建 DOM 不開鏡頭，供 📷 拍照辨識時共用（保持 hidden）
     document.getElementById('scan-overlay')?.classList.add('hidden');
-    await _showQueryInfoModal({});
+    await _showConfirm();
   }
 
   function stop() {

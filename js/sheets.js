@@ -408,7 +408,8 @@ const Sheets = (() => {
   async function appendMonthlyFromInvoice({ date, shop, amount, shared, category, note = '', invNum, invRowIndex, source = '發票', payer = '🌟 Star' }) {
     const now        = new Date();
     const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-    const sourceLink = _dynamicInvoiceLink(invNum);
+    // 無發票號碼時 K 欄留空：_dynamicInvoiceLink('') 會產生 MATCH("") → #N/A
+    const sourceLink = invNum ? _dynamicInvoiceLink(invNum) : '';
 
     // 讀 A 欄定位最後列
     const data   = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
@@ -443,7 +444,8 @@ const Sheets = (() => {
 
     const ym = (date || '').slice(0, 7);
     if (ym) invalidateMonth(ym);
-    await markInvoiceImported(invRowIndex);
+    // 無發票明細列（查詢明細記帳未填發票號碼）時沒有可勾選的 J 欄
+    if (invRowIndex) await markInvoiceImported(invRowIndex);
   }
 
   // ── 掃描發票直接匯入月度帳本 ────────────────────────────

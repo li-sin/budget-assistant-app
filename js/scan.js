@@ -10,6 +10,8 @@ const Scan = (() => {
   let _right     = null;  // { items: [{name, amount}] }
   let _mode = 'idle'; // idle | scanning | confirm
   let _scanIntent = 'qr'; // qr | query
+  // 查詢明細記帳的發票資訊草稿：手動輸入與 OCR 預填共用，鏡頭往返時不遺失已填內容
+  let _queryInfoDraft = {};
 
   // ── QR 解析 ──────────────────────────────────────────────────
   // 左側 QR：[invNum10][date7][rand4][sales8][total8][buyId8][sellId8][verify(base64)]:*****:品項數:...
@@ -647,7 +649,15 @@ const Scan = (() => {
       <p id="scan-status" class="scan-status">對準發票，左右兩個 QR Code 都掃</p>
     `;
     document.body.appendChild(el);
-    document.getElementById('scan-close').addEventListener('click', stop);
+    document.getElementById('scan-close').addEventListener('click', () => {
+      // 查詢明細模式的鏡頭只是 OCR 預填，關掉鏡頭應回到手動輸入而非整個結束
+      if (_scanIntent === 'query') {
+        _stopCamera();
+        _showQueryInfoModal(_queryInfoDraft);
+        return;
+      }
+      stop();
+    });
     document.getElementById('scan-query-mode').addEventListener('click', _enterQueryMode);
     document.getElementById('scan-qr-mode').addEventListener('click', _enterQrMode);
     document.getElementById('scan-capture-info').addEventListener('click', _captureQueryInfo);
@@ -690,11 +700,14 @@ const Scan = (() => {
   // 縮小至 640px 寬再解碼，降低 CPU 負擔提升 frame rate
   const DECODE_W = 640;
 
+  // 「用查詢明細記帳」：不拍任何東西，直接開手動輸入發票資訊（桌機無鏡頭也能用）
   function _enterQueryMode() {
     _scanIntent = 'query';
     _left = null;
     _right = null;
-    _updateProgress();
+    _queryInfoDraft = {};
+    _stopCamera();
+    _showQueryInfoModal(_queryInfoDraft);
   }
 
   function _enterQrMode() {
@@ -724,7 +737,9 @@ const Scan = (() => {
         if (statusEl) statusEl.textContent = status;
       });
       _stopCamera();
-      await _openQueryConfirmFromInfo(info);
+      // OCR 只做預填，仍回手動輸入表單讓使用者確認後才進下一步
+      _queryInfoDraft = _mergeQueryInfo(_queryInfoDraft, info);
+      await _showQueryInfoModal(_queryInfoDraft);
     } catch (err) {
       if (statusEl) statusEl.textContent = `辨識失敗：${err.message}`;
     } finally {
@@ -820,23 +835,32 @@ const Scan = (() => {
     }
   }
 
-  async function _openQueryConfirmFromInfo(info = {}) {
-    const invNum = (info.invNum || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const dateForSheet = info.dateForSheet || '';
-    const rand = String(info.rand || '').replace(/\D/g, '').slice(0, 4);
-    const sellerId = String(info.sellerId || '').replace(/\D/g, '').slice(0, 8);
-    const total = Math.round(parseFloat(info.total || '0')) || 0;
-    const shopName = String(info.shopName || '').trim();
+  // OCR 結果覆蓋草稿（OCR 沒讀到的欄位保留原本手動輸入的值）
+  function _mergeQueryInfo(base = {}, next = {}) {
+    const pick = (oldVal, newVal) =>
+      (newVal !== undefined && newVal !== null && newVal !== '' && newVal !== 0) ? newVal : (oldVal ?? '');
+    return {
+      invNum:       pick(base.invNum,       next.invNum),
+      dateForSheet: pick(base.dateForSheet, next.dateForSheet),
+      rand:         pick(base.rand,         next.rand),
+      sellerId:     pick(base.sellerId,     next.sellerId),
+      total:        pick(base.total,        next.total) || 0,
+      shopName:     pick(base.shopName,     next.shopName),
+      rawText:      next.rawText || base.rawText || '',
+    };
+  }
 
-    _left = { invNum, dateForSheet, rand, sellerId, total, shopName, leftItems: [], orderNote: '' };
-    _right = { items: [] };
-
-    const overlay = document.getElementById('scan-overlay');
-    overlay?.classList.remove('hidden');
-    const statusEl = document.getElementById('scan-status');
-    if (statusEl) statusEl.textContent = '準備確認發票資訊…';
-    await _showConfirm();
-    overlay?.classList.add('hidden');
+  // 讀取手動輸入表單目前的值（切去鏡頭 OCR 前先存起來，避免已填內容遺失）
+  function _readQueryInfoForm(info = {}) {
+    return {
+      invNum:       (document.getElementById('sqinfo-inv-num')?.value || '').toUpperCase().replace(/[^A-Z0-9]/g, ''),
+      dateForSheet: document.getElementById('sqinfo-date')?.value || '',
+      rand:         (document.getElementById('sqinfo-rand')?.value || '').replace(/\D/g, '').slice(0, 4),
+      sellerId:     (document.getElementById('sqinfo-seller')?.value || '').replace(/\D/g, '').slice(0, 8),
+      total:        Math.round(parseFloat(document.getElementById('sqinfo-total')?.value || '0')) || 0,
+      shopName:     String(info.shopName || '').trim(),
+      rawText:      info.rawText || '',
+    };
   }
 
   async function _showQueryInfoModal(info = {}) {
@@ -876,6 +900,7 @@ const Scan = (() => {
               <a class="btn-secondary sconf-query-link" href="${_escapeHtml(link.href)}"${link.target ? ` target="${link.target}"` : ''}${link.rel ? ` rel="${link.rel}"` : ''}>${link.label}</a>
             `).join('')}
             <button class="btn-secondary sconf-share-btn" id="sqinfo-share-query" aria-label="分享查詢頁" title="分享查詢頁">📤</button>
+            <button class="btn-secondary" id="sqinfo-capture">📷 拍照辨識填入</button>
           </div>
 
           <details class="sqinfo-raw">
@@ -897,11 +922,24 @@ const Scan = (() => {
       el.classList.add('hidden');
       _mode = 'idle';
       _scanIntent = 'qr';
+      _queryInfoDraft = {};
+      document.getElementById('scan-overlay')?.classList.add('hidden');
     };
 
     document.getElementById('sqinfo-close')?.addEventListener('click', close);
     document.getElementById('sqinfo-cancel')?.addEventListener('click', close);
-    el.addEventListener('click', e => { if (e.target === el) close(); });
+    // 容器不會被 innerHTML 換掉，OCR 往返重新渲染時只掛一次背景點擊
+    if (!el.dataset.backdropBound) {
+      el.addEventListener('click', e => { if (e.target === el) el.querySelector('#sqinfo-cancel')?.click(); });
+      el.dataset.backdropBound = '1';
+    }
+
+    // 手機用：拿鏡頭拍發票資訊區做 OCR 預填，拍完回到這張表單確認
+    document.getElementById('sqinfo-capture')?.addEventListener('click', async () => {
+      _queryInfoDraft = _readQueryInfoForm(info);
+      el.classList.add('hidden');
+      await _launchCamera('query');
+    });
     document.getElementById('sqinfo-share-query')?.addEventListener('click', async e => {
       if (navigator.share) {
         try {
@@ -933,13 +971,11 @@ const Scan = (() => {
 
       _left = { invNum, dateForSheet, rand, sellerId, total, shopName: String(info.shopName || '').trim(), leftItems: [], orderNote: '' };
       _right = { items: [] };
+      _queryInfoDraft = {};
       el.classList.add('hidden');
-      const overlay = document.getElementById('scan-overlay');
-      overlay?.classList.remove('hidden');
-      const statusEl = document.getElementById('scan-status');
-      if (statusEl) statusEl.textContent = '查詢商店資訊中…';
+      // 查詢明細模式不打統編查商店（_showConfirm 內直接留空給使用者填），無需鏡頭 overlay
+      document.getElementById('scan-overlay')?.classList.add('hidden');
       await _showConfirm();
-      overlay?.classList.add('hidden');
     });
   }
 
@@ -1719,6 +1755,7 @@ const Scan = (() => {
             }
           }
           _closeAttribution();
+          window.Add?.close();   // 收掉底下殘留的新增支出 modal（掃描/查詢明細是從那裡進來的）
           alert(`✓ 品項已儲存\n請至「待處理」頁面選擇對應 CC 明細後匯入帳本`);
           return;
         }
@@ -1756,6 +1793,7 @@ const Scan = (() => {
         await Sheets.appendMonthlyFromScan({ date, shop, amount: total, shared: currentShared, category, note, invNum, invRowIndex, payer: currentPayer, source, sinShare, bearShare });
 
         _closeAttribution();
+        window.Add?.close();   // 收掉底下殘留的新增支出 modal
         alert(`✓ 發票 ${invNum} 已匯入月度帳本`);
       } catch (e) {
         errEl.textContent = '匯入失敗：' + e.message;
@@ -1826,12 +1864,12 @@ const Scan = (() => {
     return bestStream;
   }
 
-  // ── 公開 API ──────────────────────────────────────────────────
-  async function start() {
+  // ── 鏡頭啟動（intent: qr = 掃 QR、query = 拍發票資訊做 OCR 預填）────
+  async function _launchCamera(intent) {
     _left  = null;
     _right = null;
     _mode  = 'scanning';
-    _scanIntent = 'qr';
+    _scanIntent = intent;
 
     _buildScanOverlay();
     const overlay = document.getElementById('scan-overlay');
@@ -1841,8 +1879,10 @@ const Scan = (() => {
     try {
       _stream = await _openBestBackCamera();
     } catch (e) {
-      document.getElementById('scan-status').textContent = '無法開啟鏡頭，請手動填寫';
-      setTimeout(stop, 2000);
+      // 不自動關閉 overlay：桌機沒鏡頭時仍要讓使用者按「用查詢明細記帳」手動輸入
+      document.getElementById('scan-status').textContent = intent === 'query'
+        ? '無法開啟鏡頭，請按 ✕ 返回手動輸入'
+        : '無法開啟鏡頭，可改按下方「用查詢明細記帳」手動輸入';
       return;
     }
 
@@ -1873,12 +1913,29 @@ const Scan = (() => {
     }, { once: true });
   }
 
+  // ── 公開 API ──────────────────────────────────────────────────
+  async function start() {
+    await _launchCamera('qr');
+  }
+
+  // 「查詢明細記帳」直接入口：完全不碰鏡頭，適用桌機
+  async function startQueryDetail() {
+    _left  = null;
+    _right = null;
+    _mode  = 'confirm';
+    _scanIntent = 'query';
+    _queryInfoDraft = {};
+    _buildScanOverlay();   // 只建 DOM 不開鏡頭，供後續流程共用（保持 hidden）
+    document.getElementById('scan-overlay')?.classList.add('hidden');
+    await _showQueryInfoModal({});
+  }
+
   function stop() {
     _stopCamera();
     _mode = 'idle';
   }
 
-  return { start, stop };
+  return { start, startQueryDetail, stop };
 })();
 
 window.Scan = Scan;

@@ -246,6 +246,7 @@
   cursor: pointer;
   font-family: var(--font);
   margin-right: 8px;
+  white-space: nowrap;   /* 新增支出 header 有兩顆按鈕（📷 掃描 / 🧾 查詢明細），窄螢幕不折行 */
 }
 
 .modal-body {

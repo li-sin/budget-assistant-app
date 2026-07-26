@@ -45,7 +45,8 @@ const Add = (() => {
       <div class="modal-sheet">
         <div class="modal-header">
           <span class="modal-title">新增支出</span>
-          <button class="btn-scan-header" id="add-scan">📷 掃描發票</button>
+          <button class="btn-scan-header" id="add-scan">📷 掃描</button>
+          <button class="btn-scan-header" id="add-query-detail">🧾 查詢明細</button>
           <button class="modal-close" id="add-close">✕</button>
         </div>
 
@@ -130,6 +131,10 @@ const Add = (() => {
     document.getElementById('add-submit').addEventListener('click', _submit);
     document.getElementById('add-scan').addEventListener('click', () => {
       Scan.start();
+    });
+    // 查詢明細記帳：不開鏡頭，直接手動輸入發票號碼後貼上財政部查詢明細（桌機可用）
+    document.getElementById('add-query-detail').addEventListener('click', () => {
+      Scan.startQueryDetail();
     });
   }
 

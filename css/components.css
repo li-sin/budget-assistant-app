@@ -668,6 +668,7 @@ select.field-input { height: 44px; }
   padding: 5px 0;
 }
 .sconf-copy-label { font-size: 12px; }
+.sconf-required { color: var(--salmon); font-weight: 700; }
 .sconf-copy-value {
   min-width: 0;
   overflow: hidden;

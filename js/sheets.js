@@ -426,7 +426,8 @@ const Sheets = (() => {
       const eFormula = `=IFERROR(VLOOKUP(K${nextRow},'${invSheet}'!$C:$H,6,0),"")`;
       const gFormula = `=IFERROR(IF(C${nextRow}="","",C${nextRow}-H${nextRow}),"")`;
       // H：依月度帳本 C（正確總金額）與 E（是否共用）計算
-      const hFormula = `=IFERROR(IF(E${nextRow}="是",ROUND(C${nextRow}/2,0),IF(E${nextRow}="否",C${nextRow},IF(E${nextRow}="-",0,IF(E${nextRow}="部分",IFERROR(VLOOKUP(K${nextRow},'${invSheet}'!$C:$K,9,0),0)+ROUND((C${nextRow}-IFERROR(VLOOKUP(K${nextRow},'${invSheet}'!$C:$E,3,0),0))/2,0),0)))),"")`;
+      // 「否」＝代墊，要看 D 欄付款人：Bear 付→Bear 代墊 Sin，H=0（與 ensure_capacity.py / add.js _calcShares 一致）
+      const hFormula = `=IFERROR(IF(E${nextRow}="是",ROUND(C${nextRow}/2,0),IF(E${nextRow}="否",IF(D${nextRow}="🐨 Bear",0,C${nextRow}),IF(E${nextRow}="-",0,IF(E${nextRow}="部分",IFERROR(VLOOKUP(K${nextRow},'${invSheet}'!$C:$K,9,0),0)+ROUND((C${nextRow}-IFERROR(VLOOKUP(K${nextRow},'${invSheet}'!$C:$E,3,0),0))/2,0),0)))),"")`;
 
       batchData.push(
         { range: `${tab}!A${nextRow}:F${nextRow}`, values: [[date, shop, cFormula, payer || '🌟 Star', eFormula, category]] },

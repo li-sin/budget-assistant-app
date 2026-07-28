@@ -850,7 +850,7 @@ const Scan = (() => {
     };
   }
 
-  // 查詢明細記帳的 _left 初始值：發票號碼／日期／隨機碼全部選填，交給確認頁填或由貼上的明細自動解析
+  // 查詢明細記帳的 _left 初始值：欄位一律留空，交給確認頁手填或由貼上的明細自動解析（號碼／隨機碼在確認頁必填）
   function _emptyQueryLeft(info = {}) {
     return {
       invNum:       (info.invNum || '').toUpperCase().replace(/[^A-Z0-9]/g, ''),
@@ -876,8 +876,8 @@ const Scan = (() => {
     const orderNote = _left?.orderNote  || '';
     let payer       = _defaultPayer();
     const sourceName = isQueryDetailMode ? '手查發票' : '掃描發票';
-    // 查詢明細模式的發票號碼是選填，沒號碼時只寫月度帳本，按鈕不該說「寫入發票明細」
-    const submitLabel = isQueryDetailMode ? '寫入' : '寫入發票明細';
+    // 兩種模式都必有發票號碼，一律寫發票明細
+    const submitLabel = '寫入發票明細';
     // 用 OCR 店名優先；沒有時再用賣方統編查名稱；失敗則留空讓使用者手動填
     const shop = isQueryDetailMode ? '' : ((_left?.shopName || '') || await _fetchSellerName(sellerId) || '');
     // 合併左側品項（leftItems）與右側品項（_right.items），去除數量/單價均為 0 的標示列
@@ -1103,11 +1103,11 @@ const Scan = (() => {
               <span>${isQueryDetailMode ? '目前品項合計' : 'QR 品項合計'}</span><strong>$${itemTotal.toLocaleString('zh-TW')}</strong>
               <span>差額</span><strong class="amount-expense">${total > 0 ? `$${missing.toLocaleString('zh-TW')}` : '—'}</strong>
             </div>
-            <p class="sconf-warning-text">${isQueryDetailMode ? '開啟財政部查詢頁取得消費明細後貼上文字或截圖；發票號碼／日期／隨機碼會盡量從貼上的內容自動帶入，都是選填。未填號碼時只寫月度帳本一筆（不寫發票／品項明細，也不能用「部分」）。' : '若這張發票要做「部分」分帳，建議先查詢完整明細或補上差額品項，避免分帳金額錯誤。'}</p>
+            <p class="sconf-warning-text">${isQueryDetailMode ? '先填發票號碼與隨機碼（都必填），用右側「複製」帶到財政部查詢頁貼上，免手打第二次；查到明細後回來貼上文字或截圖。號碼／日期／隨機碼也會盡量從貼上的內容自動帶入空欄位。' : '若這張發票要做「部分」分帳，建議先查詢完整明細或補上差額品項，避免分帳金額錯誤。'}</p>
             <div class="sconf-query-box">
               ${isQueryDetailMode ? `
                 <div class="sconf-copy-row">
-                  <span class="sconf-copy-label">發票號碼（選填）</span>
+                  <span class="sconf-copy-label">發票號碼 <span class="sconf-required">*</span></span>
                   <input type="text" id="sconf-inv-num" class="field-input sconf-copy-input" maxlength="11" value="${_escapeHtml(invNum)}" placeholder="BL-12345678">
                   <button class="btn-secondary sconf-copy-btn" data-copy-target="sconf-inv-num">複製</button>
                 </div>
@@ -1117,7 +1117,7 @@ const Scan = (() => {
                   <button class="btn-secondary sconf-copy-btn" data-copy-target="sconf-date" data-copy-format="date">複製</button>
                 </div>
                 <div class="sconf-copy-row">
-                  <span class="sconf-copy-label">隨機碼（選填）</span>
+                  <span class="sconf-copy-label">隨機碼 <span class="sconf-required">*</span></span>
                   <input type="text" id="sconf-rand" class="field-input sconf-copy-input" maxlength="4" inputmode="numeric" value="${_escapeHtml(rand || '')}" placeholder="6336">
                   <button class="btn-secondary sconf-copy-btn" data-copy-target="sconf-rand">複製</button>
                 </div>
@@ -1397,6 +1397,22 @@ const Scan = (() => {
         }
 
         const effectiveTotal = total > 0 ? total : _sumItems(items);
+        // 發票號碼是發票明細 C 欄與品項明細 L 欄的主鍵，缺號碼寫不進兩張明細表；
+        // 隨機碼是財政部查詢頁的必要欄位，填了才能用旁邊的「複製」免手打第二次
+        if (isQueryDetailMode && !/^[A-Z]{2}\d{8}$/.test(invNum)) {
+          errEl.textContent = '請填發票號碼（2 個英文字母 + 8 位數字，如 BL12345678）';
+          errEl.classList.remove('hidden');
+          btn.disabled = false;
+          btn.textContent = submitLabel;
+          return;
+        }
+        if (isQueryDetailMode && !/^\d{4}$/.test(rand)) {
+          errEl.textContent = '請填隨機碼（4 位數字）';
+          errEl.classList.remove('hidden');
+          btn.disabled = false;
+          btn.textContent = submitLabel;
+          return;
+        }
         if (isQueryDetailMode && !date) {
           errEl.textContent = '請確認日期';
           errEl.classList.remove('hidden');
@@ -1428,49 +1444,6 @@ const Scan = (() => {
           errEl.classList.remove('hidden');
           btn.disabled = false;
           btn.textContent = submitLabel;
-          return;
-        }
-
-        // 無發票號碼（選填，且貼上的明細也解析不到）→ 只寫月度帳本一筆，不寫發票／品項明細
-        // 發票號碼是發票明細 C 欄與品項明細 L 欄的主鍵，空值會讓 HYPERLINK/MATCH 變 #N/A
-        if (isQueryDetailMode && !/^[A-Z]{2}\d{8}$/.test(invNum)) {
-          if (_shared === '部分' || _shared === 'x') {
-            errEl.textContent = _shared === '部分'
-              ? '「部分」分帳需要品項明細，請補上發票號碼，或改選 是／否／- 個人'
-              : '「x 跳過」是等 CC 配對用的，需要發票號碼；請補上號碼或改選 是／否／- 個人';
-            errEl.classList.remove('hidden');
-            btn.disabled = false;
-            btn.textContent = submitLabel;
-            return;
-          }
-          btn.textContent = '寫入中…';
-          // G/H 必須自己算靜態值寫入：月度帳本沒有預鋪的 G/H buffer 公式，留空會被紅色條件格式標記且 Bear 結算漏算
-          // 分攤語義依 decisions.md「Bear + 否 語義」：「否」＝代墊，要看誰付款（與 add.js _calcShares 一致）
-          let sinShare, bearShare;
-          if (_shared === '是') {
-            sinShare  = Math.floor(effectiveTotal / 2);
-            bearShare = effectiveTotal - sinShare;
-          } else if (_shared === '否') {
-            // Star 付 → Sin 代墊、Bear 全欠；Bear 付 → Bear 代墊、Sin 全欠
-            sinShare  = payer === '🐨 Bear' ? effectiveTotal : 0;
-            bearShare = payer === '🐨 Bear' ? 0 : effectiveTotal;
-          } else {   // - 個人（部分與 x 已在上面擋掉）
-            sinShare  = effectiveTotal;
-            bearShare = 0;
-          }
-          const now = new Date();
-          const importedAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-            + ` ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-          // [A日期, B項目, C金額, D負責人, E是否共用, F類別, G Sin負擔, H Bear負擔, I備註, J來源, K來源連結(空), L匯入時間]
-          await Sheets.appendMonthlyRow([
-            date, shopValue, effectiveTotal, payer, _shared, category,
-            sinShare, bearShare, note, sourceName, '', importedAt,
-          ]);
-          _closeConfirm();
-          window.Add?.close();
-          window.Home?.reload();
-          window.Ledger?.reload();
-          alert(`✓ 已記入月度帳本 $${effectiveTotal.toLocaleString('zh-TW')}\n（無發票號碼，未寫入發票／品項明細）`);
           return;
         }
 

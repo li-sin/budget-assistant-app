@@ -103,5 +103,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // 初始化首頁
     tabModules.home.init();
     inited.add('home');
+
+    // 每月固定項目（房租／交通費）：當月第一次開 App 時補建
+    //   PWA 無背景排程，只能在開啟時觸發；localStorage 記已檢查月份避免每次開都打 API，
+    //   Sheets 端本身幂等，換裝置或清快取重跑也不會重複新增。
+    (async () => {
+      const { year, month } = window.AppMonth.get();
+      const ym  = `${year}-${String(month).padStart(2, '0')}`;
+      const KEY = 'budget_recurring_checked';
+      if (localStorage.getItem(KEY) === ym) return;
+      try {
+        const created = await Sheets.ensureMonthlyPlaceholders(year, month);
+        localStorage.setItem(KEY, ym);
+        if (created.length) Home.reload();
+      } catch { /* 沒網路或權限不足就下次開 App 再試，不擋啟動 */ }
+    })();
   });
 });

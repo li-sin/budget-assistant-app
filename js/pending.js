@@ -12,6 +12,57 @@ const Pending = (() => {
   const _sourceFromCarrier = carrier => _isAppInvoiceCarrier(carrier) ? carrier : '發票';
   const _carrierLabel = carrier => carrier === '手查發票' ? '手查發票' : carrier === '掃描發票' ? '掃描發票' : '發票';
 
+  // 日期 → 天序號（UTC），供單向日期比較；支援 YYYYMMDD / YYYY-MM-DD / YYYY/MM/DD
+  function _dayNum(dateStr) {
+    const s = String(dateStr || '').replace(/^'/, '').trim();
+    let m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
+    if (!m) m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (!m) return null;
+    return Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000;
+  }
+
+  // 🔵 信用卡待填 → 可連結的現有發票候選（CC 驅動，與 scan_cc_dup 反向）
+  //   發票須已匯入月度帳本、未被其他 CC 連走（linkedInvNums 去重，一張發票只能連一次）
+  //   日期單向：發票日 ≤ CC 日 ≤ 發票日+3（帳單不會比發票早到）
+  //   平台發票（備註含平台關鍵字）不比金額（CC 含運費/服務費），改比平台商家名
+  //   非平台發票要求金額完全一致；載具來源不限，財政部彙整發票也可連
+  function _invCandidatesForCC(cc, invoices, linkedInvNums, platformMap) {
+    const ccDay = _dayNum(cc.txDate);
+    if (ccDay === null) return [];
+
+    const out = invoices.filter(inv => {
+      if (inv.imported !== 'TRUE' || !inv.invNum) return false;
+      if (inv.status === '作廢') return false;
+      if (!inv.shared || inv.shared === 'x') return false;
+      if (linkedInvNums.has(inv.invNum)) return false;
+
+      const invDay = _dayNum(inv.date);
+      if (invDay === null) return false;
+      const diff = ccDay - invDay;
+      if (diff < 0 || diff > 3) return false;
+
+      const platformKey = Object.keys(platformMap).find(
+        p => inv.note.toLowerCase().includes(p.toLowerCase())
+      ) || CONFIG.CC_PAY_KEYWORDS.find(
+        kw => inv.note.toLowerCase().includes(kw.toLowerCase())
+      ) || '';
+
+      if (platformKey) {
+        const merchants = platformMap[platformKey] || [];
+        return merchants.some(m => cc.shop.includes(m));
+      }
+      return cc.amount === inv.amount;
+    });
+
+    // 日期最近排前 → 金額接近排前
+    return out.sort((a, b) => {
+      const da = ccDay - _dayNum(a.date);
+      const db = ccDay - _dayNum(b.date);
+      if (da !== db) return da - db;
+      return Math.abs(cc.amount - a.amount) - Math.abs(cc.amount - b.amount);
+    });
+  }
+
   function _fmt(n) {
     return '$' + Math.abs(n).toLocaleString('zh-TW');
   }
@@ -41,6 +92,10 @@ const Pending = (() => {
     ]);
 
     const result = [];
+
+    // CC I 欄已連結的發票號碼；cc_pending 候選與 scan_cc_dup 共用同一份，
+    //   確保一張發票不會被兩筆 CC 連走（2026-06-16 誤配事故的根治條件之一）
+    const linkedInvNums = new Set(ccAllRows.map(cc => cc.matched).filter(Boolean));
 
     // 🟡 未標記：發票明細 is_shared=部分共用，且品項明細有空白歸屬
     const partialInvNums = new Set(
@@ -101,6 +156,7 @@ const Pending = (() => {
         label: '信用卡待填',
         color: '#4B9FE1',
         cc,
+        invCandidates: _invCandidatesForCC(cc, invoices, linkedInvNums, platformMap),
       });
     });
 
@@ -160,7 +216,7 @@ const Pending = (() => {
     //   發票已被某 CC 連結（已配對完成）→ 排除，不再偵測
     //   平台發票（備註含平台關鍵字）：平台商店 mapping + 日期範圍（金額不等，不用金額）
     //   非平台發票：金額完全一致 + 日期 ±3
-    const linkedInvNums = new Set(ccAllRows.map(cc => cc.matched).filter(Boolean));
+    //   （linkedInvNums 已於本函式開頭建立，與 cc_pending 候選共用）
     invoices
       .filter(inv =>
         _isAppInvoiceCarrier(inv.carrier) &&
@@ -717,6 +773,8 @@ const Pending = (() => {
 
   function _renderCCPending(item) {
     const cc = item.cc;
+    const cands = item.invCandidates || [];   // 可連結的現有發票（CC 驅動）
+    let selectedInv = null;
     const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
     let selectedShared = cc.shared || '';          // CC 下載時若已自動填，預選供 double check
     let selectedCat    = cc.category || '';        // 類別：下載時 _lookupCategory 可能已自動填
@@ -729,31 +787,102 @@ const Pending = (() => {
 
     document.getElementById('pending-modal-body').innerHTML = `
       <p class="list-item-sub" style="margin-bottom:8px">${cc.bank}　${cc.txDate}　${_fmt(cc.amount)}</p>
-      ${prefillHint}
-      <label class="field-label">類別</label>
-      <div class="chip-row" id="cc-cat-chips" style="margin-bottom:12px">
-        ${CATEGORIES.map(c => `<button class="chip${selectedCat === c ? ' active' : ''}" data-cat="${c}">${c}</button>`).join('')}
+      ${cands.length ? `
+      <div class="chip-row" id="cc-mode-chips" style="margin-bottom:12px">
+        <button class="chip active" data-mode="fill">✍️ 自己填</button>
+        <button class="chip" data-mode="link">🔗 連結發票 (${cands.length})</button>
+      </div>` : ''}
+      <div id="cc-fill-pane">
+        ${prefillHint}
+        <label class="field-label">類別</label>
+        <div class="chip-row" id="cc-cat-chips" style="margin-bottom:12px">
+          ${CATEGORIES.map(c => `<button class="chip${selectedCat === c ? ' active' : ''}" data-cat="${c}">${c}</button>`).join('')}
+        </div>
+        <label class="field-label">是否共用</label>
+        <div class="chip-row" id="cc-shared-chips" style="margin-bottom:12px">
+          ${SHARED_OPTS.map(opt => `<button class="chip${selectedShared === opt ? ' active' : ''}" data-opt="${opt}">${opt}</button>`).join('')}
+        </div>
+        <div id="cc-note-row">
+          <label class="field-label">備注</label>
+          <input type="text" id="cc-note" class="field-input" value="${cc.note}" placeholder="選填">
+        </div>
+        <div id="cc-bear-row" class="hidden">
+          <label class="field-label">Bear 負擔金額</label>
+          <input type="number" id="cc-bear" class="field-input" inputmode="decimal" placeholder="Bear 負擔多少（總額 ${cc.amount}）">
+        </div>
       </div>
-      <label class="field-label">是否共用</label>
-      <div class="chip-row" id="cc-shared-chips" style="margin-bottom:12px">
-        ${SHARED_OPTS.map(opt => `<button class="chip${selectedShared === opt ? ' active' : ''}" data-opt="${opt}">${opt}</button>`).join('')}
-      </div>
-      <div id="cc-note-row">
-        <label class="field-label">備注</label>
-        <input type="text" id="cc-note" class="field-input" value="${cc.note}" placeholder="選填">
-      </div>
-      <div id="cc-bear-row" class="hidden">
-        <label class="field-label">Bear 負擔金額</label>
-        <input type="number" id="cc-bear" class="field-input" inputmode="decimal" placeholder="Bear 負擔多少（總額 ${cc.amount}）">
+      <div id="cc-link-pane" class="hidden">
+        <p class="list-item-sub" style="margin:0 0 8px;font-size:12px;opacity:.75">
+          這筆刷卡對應下面哪張發票？外送／蝦皮的金額本來就會差運費，照商家與日期認即可。
+        </p>
+        <div id="cc-inv-list">
+          ${cands.map((inv, i) => `
+            <div class="list-item cc-inv-item" data-i="${i}" style="cursor:pointer;border-radius:8px;margin-bottom:4px">
+              <div class="list-item-body">
+                <div class="list-item-title">${inv.shop || inv.invNum}</div>
+                <div class="list-item-sub">${inv.date}　${inv.invNum}　${_carrierLabel(inv.carrier)}</div>
+              </div>
+              <div class="list-item-right amount-expense">${_fmt(inv.amount)}</div>
+            </div>`).join('')}
+        </div>
+        <p style="color:#8E8E93;font-size:13px;margin-top:8px">
+          連結後這筆刷卡標為「x 跳過」並記下發票號碼，月度帳本不會多一列。
+        </p>
       </div>
       <p id="cc-error" class="add-error hidden"></p>
     `;
     document.getElementById('pending-modal-footer').innerHTML = `
       <button class="btn-secondary" id="cc-cancel">取消</button>
       <button class="btn-primary" id="cc-save">儲存</button>
+      <button class="btn-primary hidden" id="cc-link-confirm" disabled>確認連結</button>
     `;
 
     NoteChips.render('cc-note');
+
+    // 模式切換：✍️ 自己填 ↔ 🔗 連結發票（無候選時整組不渲染）
+    document.querySelectorAll('#cc-mode-chips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const isLink = btn.dataset.mode === 'link';
+        document.querySelectorAll('#cc-mode-chips .chip')
+          .forEach(b => b.classList.toggle('active', b === btn));
+        document.getElementById('cc-fill-pane').classList.toggle('hidden', isLink);
+        document.getElementById('cc-link-pane').classList.toggle('hidden', !isLink);
+        document.getElementById('cc-save').classList.toggle('hidden', isLink);
+        document.getElementById('cc-link-confirm').classList.toggle('hidden', !isLink);
+        document.getElementById('cc-error').classList.add('hidden');
+      });
+    });
+
+    document.querySelectorAll('.cc-inv-item').forEach(row => {
+      row.addEventListener('click', () => {
+        document.querySelectorAll('.cc-inv-item').forEach(r => r.classList.remove('active'));
+        row.classList.add('active');
+        selectedInv = cands[parseInt(row.dataset.i)];
+        document.getElementById('cc-link-confirm').disabled = false;
+      });
+    });
+
+    document.getElementById('cc-link-confirm').addEventListener('click', async () => {
+      const errEl = document.getElementById('cc-error');
+      if (!selectedInv) {
+        errEl.textContent = '請先選擇對應的發票';
+        errEl.classList.remove('hidden');
+        return;
+      }
+      const btn = document.getElementById('cc-link-confirm');
+      btn.disabled = true;
+      btn.textContent = '連結中…';
+      try {
+        await Sheets.linkCCToInvoice(cc.rowIndex, selectedInv.invNum, selectedInv.rowIndex);
+        _saveClose();
+        await _reload();
+      } catch (e) {
+        errEl.textContent = '連結失敗：' + e.message;
+        errEl.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = '確認連結';
+      }
+    });
 
     document.querySelectorAll('#cc-cat-chips .chip').forEach(btn => {
       btn.addEventListener('click', () => {

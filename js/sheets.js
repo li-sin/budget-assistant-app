@@ -608,6 +608,56 @@ const Sheets = (() => {
     return _sheetIdCache;
   }
 
+  // ── 每月固定項目：缺就補（幂等；匯入流程與 App 啟動都會呼叫）──────
+  //   房租底價固定 16,500（2026-03 起連續驗證）。電費台電雙月一期，房仲轉來後由 Sin
+  //   併進房租總額當作實付金額，故偶數月備註預先起頭，提示補上總額與電費金額。
+  //   交通費金額每月不同，只建當月最後一天的待填提醒列，不預填金額。
+  //   項目比對用 includes 而非完全相等：使用者改過項目名稱（如「房租+電費」）時
+  //   仍視為已存在，寧可略過也不要重複新增。
+  const RENT_BASE = '16500';
+  async function ensureMonthlyPlaceholders(year, month, onProgress) {
+    const log = onProgress || (() => {});
+    const ym  = `${year}-${String(month).padStart(2, '0')}`;
+
+    const abRaw = await _get(`${CONFIG.TABS.MONTHLY}!A:B`);
+    const monthItems = (abRaw.values || []).slice(1)
+      .filter(r => (r[0] || '').startsWith(ym))
+      .map(r => r[1] || '');
+    const has = name => monthItems.some(it => it.includes(name));
+
+    const now = new Date();
+    const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
+    const rows = [], created = [];
+
+    if (has('房租')) {
+      log('[固定項目] 房租已存在，略過');
+    } else {
+      const [sin, bear] = _calcShares(RENT_BASE, '是');
+      const note = month % 2 === 0 ? '⚡ 本期含電費，收到後補上總額（電費 ）' : '';
+      rows.push([`${ym}-01`, '房租', RENT_BASE, '🌟 Star', '是', '🏠', sin, bear, note, '手動記帳', '', stamp]);
+      created.push('房租');
+    }
+
+    const transportKey = `交通費 ${ym}`;
+    if (has(transportKey)) {
+      log('[固定項目] 交通費已存在，略過');
+    } else {
+      const lastDay = new Date(year, month, 0).getDate();
+      rows.push([`${ym}-${lastDay}`, `[待填] ${transportKey}`, '', '🌟 Star', '-', '⛽', '', '0', '悠遊卡', '手動記帳', '', '']);
+      created.push('交通費');
+    }
+
+    if (rows.length) {
+      const colA = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
+      const next = (colA.values || []).length + 1;
+      await _update(`${CONFIG.TABS.MONTHLY}!A${next}:L${next + rows.length - 1}`, rows);
+      invalidateMonth(ym);
+      created.forEach(n => log(`[固定項目] 新增 ${n}`));
+    }
+    return created;
+  }
+
   async function importToMonthly(year, month, onProgress) {
     const ym  = `${year}-${String(month).padStart(2, '0')}`;
     const now = new Date();
@@ -734,40 +784,9 @@ const Sheets = (() => {
     }
     log(`[Step 2] 完成，匯入 CC ${ccMonthlyRows.length} 筆`);
 
-    // ── Step 3: 固定月費（房租）────────────────────────────────
-    log('[Step 3] 固定月費…');
-    const abRaw = await _get(`${CONFIG.TABS.MONTHLY}!A:B`);
-    const monthItems = new Set(
-      (abRaw.values||[]).slice(1).filter(r=>(r[0]||'').startsWith(ym)).map(r=>r[1]||'')
-    );
-    const RECURRING = [
-      { day:1, item:'房租', amount:'16500', payer:'🌟 Star', shared:'是', category:'🏠', note:'' },
-    ];
-    for (const e of RECURRING) {
-      if (monthItems.has(e.item)) { log(`[Step 3] ${e.item} 已存在，略過`); continue; }
-      const [sin, bear] = _calcShares(e.amount, e.shared);
-      const date = `${ym}-${String(e.day).padStart(2,'0')}`;
-      const colA = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
-      await _update(`${CONFIG.TABS.MONTHLY}!A${(colA.values||[]).length+1}:L${(colA.values||[]).length+1}`,
-        [[date, e.item, e.amount, e.payer, e.shared, e.category, sin, bear, e.note, '手動記帳', '', importedAt]]);
-      invalidateMonth(ym);
-      log(`[Step 3] 新增 ${e.item}`);
-    }
-
-    // ── Step 4: 交通費提醒列 ─────────────────────────────────
-    log('[Step 4] 交通費提醒列…');
-    const bRaw = await _get(`${CONFIG.TABS.MONTHLY}!B:B`);
-    const transportKey = `交通費 ${ym}`;
-    if (!(bRaw.values||[]).slice(1).some(r=>(r[0]||'').includes(transportKey))) {
-      const lastDay = new Date(year, month, 0).getDate();
-      const colA    = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
-      await _update(`${CONFIG.TABS.MONTHLY}!A${(colA.values||[]).length+1}:L${(colA.values||[]).length+1}`,
-        [[`${ym}-${lastDay}`, `[待填] ${transportKey}`, '', '🌟 Star', '-', '⛽', '', '0', '悠遊卡', '手動記帳', '', '']]);
-      invalidateMonth(ym);
-      log(`[Step 4] 新增 [待填] ${transportKey}`);
-    } else {
-      log('[Step 4] 交通費已存在，略過');
-    }
+    // ── Step 3: 每月固定項目（房租／交通費）──────────────────────
+    log('[Step 3] 固定項目…');
+    await ensureMonthlyPlaceholders(year, month, log);
 
     return { invoices: invMonthlyRows.length, cc: ccMonthlyRows.length, skippedCC: skippedInv };
   }
@@ -1220,7 +1239,7 @@ const Sheets = (() => {
     getCCPendingData, updateCCShared, updateInvoiceShared,
     getCCAllData, linkCCToInvoice,
     getRulesData, linkPlatformToCC,
-    importToMonthly,
+    importToMonthly, ensureMonthlyPlaceholders,
     countRawInvoicesForMonth, writeInvoicesFromGmail, matchCCWithInvoices,
     deleteInvoiceRow, deleteItemRows,
     updateInvoiceFields, updateItemFields, updateMonthlyFields,

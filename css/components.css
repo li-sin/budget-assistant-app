@@ -496,8 +496,10 @@ select.field-input { height: 44px; }
 @media (pointer: fine) {
   .list-item-editable:active { background: transparent; border-radius: 0; }
 }
+/* 待處理頁「列候選讓使用者單選」的共用選取樣式：平台待配對 / 掃描CC配對 / CC待填連結發票 */
 .platform-cc-item.active,
-.scd-cc-item.active { background: rgba(0,201,167,0.15); border: 1px solid var(--teal); border-radius: 8px; }
+.scd-cc-item.active,
+.cc-inv-item.active { background: rgba(0,201,167,0.15); border: 1px solid var(--teal); border-radius: 8px; }
 
 /* ── Empty State ────────────────────────────────── */
 .empty-state {

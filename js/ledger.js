@@ -2523,8 +2523,10 @@ const Ledger = (() => {
     const q = _invSearchQuery.toLowerCase();
     let rows = _invRows;
     if (_invSharedFilter.size > 0) rows = rows.filter(r => _invSharedFilter.has(r.shared));
-    if (_invImportedFilter === 'yes') rows = rows.filter(r => r.imported);
-    else if (_invImportedFilter === 'no') rows = rows.filter(r => !r.imported);
+    // imported 是字串（'TRUE'/'FALSE'），必須等值比較——Python 寫的是字面 'FALSE'，
+    //   truthy 判定會把未匯入的列全算成已匯入（4273 筆 FALSE 全被誤標）
+    if (_invImportedFilter === 'yes') rows = rows.filter(r => r.imported === 'TRUE');
+    else if (_invImportedFilter === 'no') rows = rows.filter(r => r.imported !== 'TRUE');
     if (q) rows = rows.filter(r =>
       (r.shop || '').toLowerCase().includes(q) || (r.note || '').toLowerCase().includes(q)
     );
@@ -2539,7 +2541,7 @@ const Ledger = (() => {
       const sharedLabel    = r.shared  ? `<span class="tag-shared">${r.shared}</span>` : '';
       const voidStyle      = r.status === '作廢' ? 'style="color:var(--salmon)"' : '';
       const voidBadge      = r.status === '作廢' ? '<span class="raw-badge">作廢</span>' : '';
-      const importedBadge  = r.imported ? '<span class="badge-imported">已匯入</span>' : '';
+      const importedBadge  = r.imported === 'TRUE' ? '<span class="badge-imported">已匯入</span>' : '';
       const hasItems       = (_invItemCounts.get(r.invNum) || 0) > 0;
       return `
         <div class="list-item${isSin ? ' list-item-editable' : ''}" data-row="${r.rowIndex}">

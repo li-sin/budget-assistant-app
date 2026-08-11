@@ -21,11 +21,30 @@ const Pending = (() => {
     return Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000;
   }
 
+  // 平台判定（_invCandidatesForCC 與 scan_cc_dup 共用，避免兩套規則各自漂移）
+  //   備註「或」商店名任一命中即算平台訂單。原本只看備註，但「新加坡商蝦皮娛樂電商」
+  //   那類發票備註是空的、只有商店名帶「蝦皮」，會被誤判成一般消費而套錯規則。
+  //   商店名也比對 merchants（優食／優步 同時是 CC 商店字串與發票商店名）。
+  function _platformKeyOf(inv, platformMap) {
+    const hay = `${inv.note || ''} ${inv.shop || ''}`.toLowerCase();
+    for (const [p, merchants] of Object.entries(platformMap)) {
+      if (hay.includes(p.toLowerCase())) return p;
+      if ((merchants || []).some(m => hay.includes(m.toLowerCase()))) return p;
+    }
+    return CONFIG.CC_PAY_KEYWORDS.find(kw => hay.includes(kw.toLowerCase())) || '';
+  }
+
+  // 平台的日期容差：蝦皮出貨慢，沿用既有決策「蝦皮發票日期容許範圍 10 天」
+  const _platformDayRange = key => key.includes('蝦皮') ? 10 : 3;
+
   // 🔵 信用卡待填 → 可連結的現有發票候選（CC 驅動，與 scan_cc_dup 反向）
   //   發票須已匯入月度帳本、未被其他 CC 連走（linkedInvNums 去重，一張發票只能連一次）
-  //   日期單向：發票日 ≤ CC 日 ≤ 發票日+3（帳單不會比發票早到）
-  //   平台發票（備註含平台關鍵字）不比金額（CC 含運費/服務費），改比平台商家名
-  //   非平台發票要求金額完全一致；載具來源不限，財政部彙整發票也可連
+  //   日期分兩種：
+  //     · 實體店（非平台）＝單向 0~+3 天，發票在消費當下開立，帳單不會比發票早到
+  //     · 電商平台＝雙向 ±3（蝦皮 ±10），下單就扣款、出貨才開票，發票常晚於刷卡
+  //       （實例：CC 07/21 樂購蝦皮 $215 對應發票 07-27 開立，晚 6 天）
+  //   金額：平台不比（CC 含運費/服務費）改比平台商家名；非平台要求完全一致
+  //   載具來源不限，財政部彙整發票也可連
   function _invCandidatesForCC(cc, invoices, linkedInvNums, platformMap) {
     const ccDay = _dayNum(cc.txDate);
     if (ccDay === null) return [];
@@ -39,25 +58,21 @@ const Pending = (() => {
       const invDay = _dayNum(inv.date);
       if (invDay === null) return false;
       const diff = ccDay - invDay;
-      if (diff < 0 || diff > 3) return false;
 
-      const platformKey = Object.keys(platformMap).find(
-        p => inv.note.toLowerCase().includes(p.toLowerCase())
-      ) || CONFIG.CC_PAY_KEYWORDS.find(
-        kw => inv.note.toLowerCase().includes(kw.toLowerCase())
-      ) || '';
-
+      const platformKey = _platformKeyOf(inv, platformMap);
       if (platformKey) {
+        if (Math.abs(diff) > _platformDayRange(platformKey)) return false;
         const merchants = platformMap[platformKey] || [];
         return merchants.some(m => cc.shop.includes(m));
       }
+      if (diff < 0 || diff > 3) return false;
       return cc.amount === inv.amount;
     });
 
-    // 日期最近排前 → 金額接近排前
+    // 日期最接近排前（平台可能為負，取絕對值）→ 金額接近排前
     return out.sort((a, b) => {
-      const da = ccDay - _dayNum(a.date);
-      const db = ccDay - _dayNum(b.date);
+      const da = Math.abs(ccDay - _dayNum(a.date));
+      const db = Math.abs(ccDay - _dayNum(b.date));
       if (da !== db) return da - db;
       return Math.abs(cc.amount - a.amount) - Math.abs(cc.amount - b.amount);
     });
@@ -225,18 +240,13 @@ const Pending = (() => {
         !linkedInvNums.has(inv.invNum)
       )
       .forEach(inv => {
-        const invDate    = new Date(inv.date);
-        const isPlatform = CONFIG.CC_PAY_KEYWORDS.some(kw => inv.note.toLowerCase().includes(kw.toLowerCase()));
+        const invDate     = new Date(inv.date);
+        const platformKey = _platformKeyOf(inv, platformMap);   // 與 cc_pending 候選共用同一套判定
 
         let candidates;
-        if (isPlatform) {
-          const platformKey = Object.keys(platformMap).find(
-            p => inv.note.toLowerCase().includes(p.toLowerCase())
-          ) || CONFIG.CC_PAY_KEYWORDS.find(
-            kw => inv.note.toLowerCase().includes(kw.toLowerCase())
-          ) || '';
+        if (platformKey) {
           const merchants = platformMap[platformKey] || [];
-          const dayRange  = inv.note.toLowerCase().includes('蝦皮') ? 10 : 3;
+          const dayRange  = _platformDayRange(platformKey);
           candidates = ccAllRows.filter(cc => {
             if (cc.shared === 'x' || cc.matched) return false;
             const diff = Math.abs((invDate - new Date(cc.txDate)) / 86400000);

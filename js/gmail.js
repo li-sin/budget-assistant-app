@@ -216,17 +216,27 @@ const Gmail = (() => {
     return null;
   }
 
+  // 商店名折行的續行要黏回前一筆交易，但「卡別小計 / 說明」行不是續行——
+  // 星展帳單的「以下為…新增消費小計 63,385」若黏進前一筆，該筆金額會被換成小計（見 log 2026-08-12）。
+  const _BREAK_RE = /^以下為|新增消費小計/;
+
   function _mergeContinuationLines(lines) {
     const dateRe = /^\d{2,4}\//;
     const merged = [];
     for (const line of lines) {
       const t = line.trim();
       if (!t) continue;
-      if (dateRe.test(t)) { merged.push(t); }
+      if (dateRe.test(t) || _BREAK_RE.test(t)) { merged.push(t); }
       else if (merged.length) { merged[merged.length - 1] += ' ' + t; }
     }
     return merged;
   }
+
+  // 金額後面可能還跟著「消費地／城市／國別」（TAIPEI、US、NEW TAIPEI CITY）。
+  // PDF.js 依座標抽字，商店名太長時消費地會折到下一行、金額反而留在原行，
+  // 合併後變成「… 59 TAIPEI」——金額不在行尾，regex 收不到就整筆消失。
+  // 尾段限定 ASCII 英文字母開頭且不含數字，確保不會誤吃到真正的金額。
+  const TAIL = '(?:\\s+[A-Za-z][A-Za-z.\\-\\s]*)?$';
 
   async function _extractPdfText(pdfBytes, password) {
     if (typeof pdfjsLib === 'undefined') throw new Error('PDF.js 未載入');
@@ -281,7 +291,8 @@ const Gmail = (() => {
     const section  = ei !== -1 ? allText.slice(si, ei) : allText.slice(si);
     const lines    = _mergeContinuationLines(section.split('\n'));
     const pForeign = /^(\d{3}\/\d{2}\/\d{2})\s+(\d{3}\/\d{2}\/\d{2})\s+(.+)\s+(-?\d+(?:\.\d+)?)\s+([A-Z]{2,3})$/;
-    const pTwd     = /^(\d{3}\/\d{2}\/\d{2})\s+(\d{3}\/\d{2}\/\d{2})\s+(.+)\s+(-?\d{1,3}(?:,\d{3})*)$/;
+    const pTwd     = new RegExp(
+      '^(\\d{3}/\\d{2}/\\d{2})\\s+(\\d{3}/\\d{2}/\\d{2})\\s+(.+)\\s+(-?\\d{1,3}(?:,\\d{3})*)' + TAIL);
     const txns = [];
     for (const line of lines) {
       if (line.replace(/\s+/g, '').includes('自動轉帳扣繳')) continue;
@@ -304,11 +315,15 @@ const Gmail = (() => {
     if (si === -1) return [];
     const section = ei !== -1 ? allText.slice(si, ei) : allText.slice(si);
     const lines   = _mergeContinuationLines(section.split('\n'));
-    const p       = /^(\d{4}\/\d{2}\/\d{2})\s+(\d{4}\/\d{2}\/\d{2})\s+(.+?)\s+(-?\d{1,3}(?:,\d{3})*)$/;
+    const p       = new RegExp(
+      '^(\\d{4}/\\d{2}/\\d{2})\\s+(\\d{4}/\\d{2}/\\d{2})\\s+(.+?)\\s+(-?\\d{1,3}(?:,\\d{3})*)' + TAIL);
+    // 繳款入帳不是消費，與富邦「自動扣繳」、永豐「自扣」一致略過
+    const SKIP    = ['網路繳款', '本行帳戶繳款', '自動扣繳'];
     const txns = [];
     for (const line of lines) {
       const m = line.match(p);
       if (!m) continue;
+      if (SKIP.some(k => m[3].includes(k))) continue;
       const shop = m[3].trim()
         .replace(/\s*\/\s*[A-Z]{2}\s+\S+$/, '')
         .replace(/\s*\/\s*[A-Z]{2}.*$/, '')
@@ -329,7 +344,8 @@ const Gmail = (() => {
     const section = ei !== -1 ? allText.slice(0, ei) : allText;
     const lines   = _mergeContinuationLines(section.split('\n'));
     const SKIP    = ['豐點', '回饋', '折抵', '自扣', '點數'];
-    const p = /^(\d{2}\/\d{2})\s+(\d{2}\/\d{2})\s+(\d{4})\s+(?:[A-Z]{1,3}-\s+)?(.+?)\s+(-?\d{1,3}(?:,\d{3})*)$/;
+    const p = new RegExp(
+      '^(\\d{2}/\\d{2})\\s+(\\d{2}/\\d{2})\\s+(\\d{4})\\s+(?:[A-Z]{1,3}-\\s+)?(.+?)\\s+(-?\\d{1,3}(?:,\\d{3})*)' + TAIL);
     const txns = [];
     for (const line of lines) {
       const m = line.match(p);
@@ -353,7 +369,9 @@ const Gmail = (() => {
     const section = ei !== -1 ? allText.slice(0, ei) : allText;
     const lines   = _mergeContinuationLines(section.split('\n'));
     const SKIP    = ['前期應繳', '本期應繳', '自動扣繳', '退款', '上期'];
-    const p = /^(\d{3}\/\d{2}\/\d{2})\s+(.+?)\s+(\d{3}\/\d{2}\/\d{2})(?:\s+\S+\/\S+\s+\S+)?(?:\s+[A-Z]{2,3})?\s+(-?\d{1,3}(?:,\d{3})*)$/;
+    const p = new RegExp(
+      '^(\\d{3}/\\d{2}/\\d{2})\\s+(.+?)\\s+(\\d{3}/\\d{2}/\\d{2})' +
+      '(?:\\s+\\S+/\\S+\\s+\\S+)?(?:\\s+[A-Z]{2,3})?\\s+(-?\\d{1,3}(?:,\\d{3})*)' + TAIL);
     const txns = [];
     for (const line of lines) {
       const m = line.match(p);

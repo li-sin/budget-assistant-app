@@ -187,17 +187,18 @@ const Gmail = (() => {
   // ── CC 帳單 Gmail 下載 + PDF 解析 ───────────────────────────────
 
   // 帳單信的認定以 Sin 的 Gmail 標籤 Life/Bill 為準（2026-08-12 起）。
-  // 保留原本的標題條件當 OR 後備，新帳單還沒來得及標時仍抓得到。
+  // 標籤由 Gmail 篩選器自動加，不靠手動，所以不需要標題條件當後備。
+  // 巢狀標籤查詢要寫 label:Life/Bill，不是 label:Bill。
   // from: 不能省——要靠它判斷是哪一家、套哪個 parser 與密碼。
   // 絕不可只留 from:：永豐的 ebillservice 同時寄「信用卡電子帳單通知」與
   // 「電子綜合對帳單」（存款帳戶），抓到後者餵信用卡 parser 就是 0 筆。
   // 與 Python download_bills.py 的 BANK_CONFIGS 保持一致。
   const _BILL_LABEL = 'label:Life/Bill';
   const _CC_BANKS = [
-    { bank: '台新', pwdKey: 'taishin', q: `from:webmaster@bhurecv.taishinbank.com.tw (${_BILL_LABEL} OR subject:台新信用卡電子帳單)` },
-    { bank: '星展', pwdKey: 'dbs',     q: `from:eservicetw@dbs.com (${_BILL_LABEL} OR subject:信用卡電子對帳單)` },
-    { bank: '永豐', pwdKey: 'sinopac', q: `from:ebillservice@newebill.banksinopac.com.tw (${_BILL_LABEL} OR (subject:永豐銀行信用卡 subject:電子帳單通知))` },
-    { bank: '富邦', pwdKey: 'fubon',   q: `from:rs@cf.taipeifubon.com.tw (${_BILL_LABEL} OR subject:信用卡帳單) has:attachment` },
+    { bank: '台新', pwdKey: 'taishin', q: `from:webmaster@bhurecv.taishinbank.com.tw ${_BILL_LABEL}` },
+    { bank: '星展', pwdKey: 'dbs',     q: `from:eservicetw@dbs.com ${_BILL_LABEL}` },
+    { bank: '永豐', pwdKey: 'sinopac', q: `from:ebillservice@newebill.banksinopac.com.tw ${_BILL_LABEL}` },
+    { bank: '富邦', pwdKey: 'fubon',   q: `from:rs@cf.taipeifubon.com.tw ${_BILL_LABEL} has:attachment` },
   ];
 
   function _findPdfPart(parts) {

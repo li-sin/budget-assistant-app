@@ -114,9 +114,22 @@ const Gmail = (() => {
   const _AUTO_SKIP     = ['優食台灣'];
   const _AUTO_PERSONAL = ['優食'];
 
-  function _autoShared(seller, status, amount = 0) {
+  // 優食台灣發票的品項若「全是費用」→ 是否共用填 'x'（CC 帳單已含此金額）；
+  // 含非費用品項（食物等）→ 留空由人工判斷。與 Python fetch_invoices.py 同規則。
+  // 折扣類品項名稱 UberEats 會換（如 Discount on Multi Restaurant Ordering），
+  // 故除了已知字串，再放寬成「含『優惠』或以 Discount 開頭」都算費用面。
+  const _FEE_KEYWORDS = ['外送費', '服務費和其他費用', '服務費優惠', '送餐優惠'];
+  function _isFeeItem(name) {
+    const n = String(name || '').trim();
+    return _FEE_KEYWORDS.some(k => n.includes(k)) || n.includes('優惠') || /^discount/i.test(n);
+  }
+
+  function _autoShared(seller, status, itemNames = []) {
     if (status === '作廢') return 'x';
-    if (_AUTO_SKIP.some(k => seller.includes(k))) return amount < 60 ? 'x' : '';
+    if (_AUTO_SKIP.some(k => seller.includes(k))) {
+      const hasFood = itemNames.length > 0 && itemNames.some(n => !_isFeeItem(n));
+      return hasFood ? '' : 'x';
+    }
     if (_AUTO_PERSONAL.some(k => seller.includes(k))) return '-';
     return '';
   }
@@ -178,7 +191,7 @@ const Gmail = (() => {
       (itemNamesMap[it.invNum] = itemNamesMap[it.invNum] || []).push(it.name);
     }
     for (const inv of allInvoices) {
-      inv.shared = _autoShared(inv.seller, inv.status, Number(inv.amount));
+      inv.shared = _autoShared(inv.seller, inv.status, itemNamesMap[inv.invNum] || []);
     }
 
     return { invoices: allInvoices, items: allItems };

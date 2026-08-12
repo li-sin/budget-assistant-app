@@ -236,7 +236,8 @@ const Gmail = (() => {
   // PDF.js 依座標抽字，商店名太長時消費地會折到下一行、金額反而留在原行，
   // 合併後變成「… 59 TAIPEI」——金額不在行尾，regex 收不到就整筆消失。
   // 尾段限定 ASCII 英文字母開頭且不含數字，確保不會誤吃到真正的金額。
-  const TAIL = '(?:\\s+[A-Za-z][A-Za-z.\\-\\s]*)?$';
+  // 外幣交易在台幣金額後面還多兩欄：折算日 MM/DD 與 幣別＋外幣金額（USD20.00、PHP1,031.25）。
+  const TAIL = '(?:\\s+\\d{2}/\\d{2}\\s+[A-Z]{3}[\\d.,]+)?(?:\\s+[A-Za-z][A-Za-z.\\-\\s]*)?$';
 
   async function _extractPdfText(pdfBytes, password) {
     if (typeof pdfjsLib === 'undefined') throw new Error('PDF.js 未載入');
@@ -249,17 +250,19 @@ const Gmail = (() => {
       const content = await page.getTextContent();
       const items   = content.items.filter(i => i.str && i.str.trim());
       if (!items.length) continue;
-      // Sort top-to-bottom (Y descending in PDF coords), then left-to-right
-      items.sort((a, b) => {
-        const dy = b.transform[5] - a.transform[5];
-        return Math.abs(dy) > 5 ? dy : a.transform[4] - b.transform[4];
-      });
-      // Group into lines with Y tolerance 5
+      // Sort top-to-bottom (Y descending in PDF coords), then left-to-right。
+      // 原本的比較器在 |dy| <= 5 時改比 x，非遞移（a≈b、b≈c 但 a≉c），排序結果不穩定。
+      items.sort((a, b) => (b.transform[5] - a.transform[5]) || (a.transform[4] - b.transform[4]));
+      // 一筆交易可能橫跨多個 Y 帶：永豐外幣交易的商店名拆成上下兩行（各距中線 6.3），
+      // 日期／卡號／金額在中間那行。實測交易列與列最小間距 12.6，故容差取 8：
+      // 子行併得回本列，相鄰兩列不會黏在一起。比較對象是「群組最後加入的 item」而非
+      // 群組第一個 item——上半行到下半行差 12.6，用第一個當基準會把下半行漏掉。
+      const ROW_TOL = 8;
       const groups = [];
       for (const item of items) {
         const y    = item.transform[5];
         const last = groups[groups.length - 1];
-        if (last && Math.abs(y - last.y) <= 5) { last.items.push(item); }
+        if (last && Math.abs(y - last.y) <= ROW_TOL) { last.items.push(item); last.y = y; }
         else { groups.push({ y, items: [item] }); }
       }
       for (const g of groups) {
@@ -271,7 +274,8 @@ const Gmail = (() => {
           if (i > 0) {
             const prev    = g.items[i - 1];
             const prevEnd = prev.transform[4] + (prev.width || 0);
-            if (cur.transform[4] - prevEnd > 1) line += ' ';
+            // 跨子行時 x 會倒退（下半行從最左重新開始），間距判斷失效 → 一律補空格
+            if (cur.transform[5] !== prev.transform[5] || cur.transform[4] - prevEnd > 1) line += ' ';
           }
           line += cur.str;
         }

@@ -186,11 +186,15 @@ const Gmail = (() => {
 
   // ── CC 帳單 Gmail 下載 + PDF 解析 ───────────────────────────────
 
+  // 查詢一定要帶標題條件：同一個寄件者不只寄信用卡帳單。永豐的
+  // ebillservice 同時寄「信用卡電子帳單通知」與「電子綜合對帳單」（存款帳戶），
+  // 只用 from: 會先撈到綜合對帳單、拿去餵信用卡 parser 就是 0 筆（2026-08-12）。
+  // 與 Python download_bills.py 的 BANK_CONFIGS 保持一致。
   const _CC_BANKS = [
-    { bank: '台新', pwdKey: 'taishin', q: 'from:webmaster@bhurecv.taishinbank.com.tw' },
-    { bank: '星展', pwdKey: 'dbs',     q: 'from:eservicetw@dbs.com' },
-    { bank: '永豐', pwdKey: 'sinopac', q: 'from:ebillservice@newebill.banksinopac.com.tw' },
-    { bank: '富邦', pwdKey: 'fubon',   q: 'from:rs@cf.taipeifubon.com.tw has:attachment' },
+    { bank: '台新', pwdKey: 'taishin', q: 'from:webmaster@bhurecv.taishinbank.com.tw subject:台新信用卡電子帳單' },
+    { bank: '星展', pwdKey: 'dbs',     q: 'from:eservicetw@dbs.com subject:信用卡電子對帳單' },
+    { bank: '永豐', pwdKey: 'sinopac', q: 'from:ebillservice@newebill.banksinopac.com.tw subject:永豐銀行信用卡 subject:電子帳單通知' },
+    { bank: '富邦', pwdKey: 'fubon',   q: 'from:rs@cf.taipeifubon.com.tw subject:信用卡帳單 has:attachment' },
   ];
 
   function _findPdfPart(parts) {
@@ -453,7 +457,8 @@ const Gmail = (() => {
       else                               txns = _parseFubon(allText);
 
       txns.forEach(t => { t.billingMonth = billingM; });
-      log(`  ✓ ${cfg.bank}：解析 ${txns.length} 筆`);
+      // 0 筆代表抓到的 PDF 不是這家的信用卡帳單（或格式變了），標成警告免得被當正常
+      log(`  ${txns.length ? '✓' : '⚠'} ${cfg.bank}：解析 ${txns.length} 筆`);
       allTxns.push(...txns);
     }
     return allTxns;

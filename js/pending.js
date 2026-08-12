@@ -936,7 +936,8 @@ const Pending = (() => {
           ${cands.map((inv, i) => `
             <div class="list-item cc-inv-item" data-i="${i}" style="cursor:pointer;border-radius:8px;margin-bottom:4px">
               <div class="list-item-body">
-                <div class="list-item-title">${inv.shop || inv.invNum}</div>
+                <div class="list-item-title">${inv.shop || inv.invNum}${
+                  inv.shared ? ` <span class="tag-shared">${inv.shared}</span>` : ''}</div>
                 <div class="list-item-sub">${inv.date}　${inv.invNum}　${_carrierLabel(inv.carrier)}</div>
               </div>
               <div class="list-item-right amount-expense">${_fmt(inv.amount)}</div>

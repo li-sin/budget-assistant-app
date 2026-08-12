@@ -519,6 +519,12 @@ const Sheets = (() => {
     await _update(`${CONFIG.TABS.INVOICE}!H${rowIndex}`, [[shared]]);
   }
 
+  // 發票明細 J 欄（已匯入 checkbox）。解除匯入時務必連同月度帳本那列一起刪，
+  // 只把旗標改回 FALSE 會讓同一筆被重複匯入（Python patch_undo_import.py 同樣是兩件一起做）。
+  async function updateInvoiceImported(rowIndex, value) {
+    await _update(`${CONFIG.TABS.INVOICE}!J${rowIndex}`, [[!!value]]);
+  }
+
   // ── 取得全部信用卡明細（掃描/CC 配對用）────────────────────────
   async function getCCAllData() {
     const data = await _get(`${CONFIG.TABS.CC}!A:J`);
@@ -1366,7 +1372,7 @@ const Sheets = (() => {
     checkDuplicateInvoice, appendInvoiceRow, appendItemRows, appendSyntheticItemRow,
     markInvoiceImported, setInvoiceImported, appendMonthlyFromInvoice, appendMonthlyFromScan,
     upsertRepayment,
-    getCCPendingData, updateCCShared, updateInvoiceShared,
+    getCCPendingData, updateCCShared, updateInvoiceShared, updateInvoiceImported,
     getCCAllData, linkCCToInvoice,
     getRefundPairs, matchCCRefunds, applyRefundPair,
     getRulesData, linkPlatformToCC,

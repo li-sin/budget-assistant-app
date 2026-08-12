@@ -2380,6 +2380,140 @@ const Ledger = (() => {
     }
   }
 
+  // ── 發票「已匯入」展開卡片 + 解除匯入（比照 CC 的「已連結」）─────────
+  //  解除匯入必須「刪月度帳本列 + 發票 J 改 FALSE」兩件一起做，只改旗標會重複記帳。
+  //  找不到月度帳本列時照樣改旗標，但要明講找到 0 筆，不靜默處理。
+
+  async function _toggleInvImportedCard(inv, triggerEl) {
+    const existing = document.getElementById(`inv-imported-card-${inv.rowIndex}`);
+    if (existing) { existing.remove(); return; }
+    document.querySelectorAll('.cc-link-card').forEach(el => el.remove());
+
+    const host = triggerEl.closest('.swipe-container') || triggerEl.closest('.list-item');
+    if (!host) return;
+    const card = document.createElement('div');
+    card.id = `inv-imported-card-${inv.rowIndex}`;
+    card.className = 'cc-link-card';
+    card.innerHTML = '<div class="spinner"></div>';
+    host.insertAdjacentElement('afterend', card);
+
+    try {
+      const monthlyRows = await _monthlyRowsForInvoice(inv);
+      const linesHtml = monthlyRows.length
+        ? monthlyRows.map(m => `
+            <div class="cc-link-inv-line">
+              <span class="cc-link-label">月度</span>
+              <button class="inv-imported-monthly-text" data-row="${m.rowIndex}">${m.date}</button>
+              · ${m.item || m.source} · $${m.amount.toLocaleString('zh-TW')}
+            </div>`).join('')
+        : `<div class="cc-link-warning">⚠️ 找不到由這張發票匯入的月度帳本列（可能已被手動刪除）。解除後只會把「已匯入」改回未匯入。</div>`;
+
+      card.innerHTML = `
+        <div class="cc-link-card-head">
+          <span class="badge-imported">已匯入</span>
+          <span class="cc-link-card-sub">解除後會刪除下列月度帳本，發票回到未匯入、可重新匯入。</span>
+        </div>
+        <div class="cc-link-lines">${linesHtml}</div>
+        <div class="cc-link-actions">
+          <button class="btn-secondary inv-unimport-btn">解除匯入</button>
+        </div>`;
+
+      card.querySelectorAll('.inv-imported-monthly-text').forEach(b => {
+        b.addEventListener('click', e => {
+          e.stopPropagation();
+          _jumpToMonthly(parseInt(b.dataset.row, 10));
+        });
+      });
+      card.querySelector('.inv-unimport-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        _openInvUnimportModal(inv, monthlyRows);
+      });
+    } catch (e) {
+      card.innerHTML = `<p class="add-error">讀取失敗：${e.message}</p>`;
+    }
+  }
+
+  // 月度帳本的 sourceLink 存的就是發票號碼（appendMonthlyFromInvoice / importToMonthly 都這樣寫）
+  async function _monthlyRowsForInvoice(inv) {
+    const monthlyRows = await Sheets.getMonthlyData(_year, _month);
+    if (_scope === 'month') _allRows = monthlyRows;
+    return monthlyRows.filter(r => r.sourceLink === inv.invNum);
+  }
+
+  function _buildInvUnimportModal() {
+    if (document.getElementById('inv-unimport-modal')) return;
+    const el = document.createElement('div');
+    el.id = 'inv-unimport-modal';
+    el.className = 'modal-overlay hidden';
+    el.innerHTML = `
+      <div class="modal-sheet">
+        <div class="modal-header">
+          <span class="modal-title">解除匯入</span>
+          <button class="modal-close" id="inv-unimport-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div id="inv-unimport-info" class="cc-unlink-info"></div>
+          <div class="del-section" style="margin-top:12px">
+            <div class="del-section-header">
+              <input type="checkbox" id="inv-unimport-chk-cc">
+              <label for="inv-unimport-chk-cc" class="del-section-label">一併解除信用卡連結</label>
+            </div>
+          </div>
+          <p id="inv-unimport-error" class="add-error hidden" style="margin-top:12px;"></p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="inv-unimport-cancel">取消</button>
+          <button class="btn-primary" id="inv-unimport-confirm">確認解除</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    const close = () => el.classList.add('hidden');
+    document.getElementById('inv-unimport-close').addEventListener('click', close);
+    document.getElementById('inv-unimport-cancel').addEventListener('click', close);
+    el.addEventListener('click', e => { if (e.target === el) close(); });
+  }
+
+  function _openInvUnimportModal(inv, monthlyRows) {
+    _buildInvUnimportModal();
+    const el  = document.getElementById('inv-unimport-modal');
+    const err = document.getElementById('inv-unimport-error');
+    err.classList.add('hidden');
+    document.getElementById('inv-unimport-chk-cc').checked = false;  // 預設不動 CC 連結
+    document.getElementById('inv-unimport-info').innerHTML = `
+      <p style="font-size:13px;color:var(--text-sub);margin-bottom:8px">
+        ${inv.shop || inv.invNum}　$${inv.amount.toLocaleString('zh-TW')}
+      </p>
+      <p style="font-size:13px;margin-bottom:4px">將刪除 <b>${monthlyRows.length}</b> 筆月度帳本列，並把發票改回未匯入：</p>
+      ${monthlyRows.map(m => `<div class="cc-link-item-row"><span>${m.date}　${m.item || m.source}</span><span>$${m.amount.toLocaleString('zh-TW')}</span></div>`).join('')
+        || '<div class="cc-link-warning">找不到對應的月度帳本列，只會改旗標。</div>'}`;
+    el.classList.remove('hidden');
+
+    const btn = document.getElementById('inv-unimport-confirm');
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = '解除中...';
+      try {
+        // 先刪月度（降序，避免刪一列後後面的 rowIndex 位移）
+        for (const m of [...monthlyRows].sort((a, b) => b.rowIndex - a.rowIndex)) {
+          await Sheets.deleteMonthlyRow(m.rowIndex, m.date.slice(0, 7));
+        }
+        if (document.getElementById('inv-unimport-chk-cc').checked) {
+          const ccRows = await Sheets.getCCForInvoice(inv.invNum);
+          for (const cc of ccRows) await Sheets.unlinkCC(cc.rowIndex);
+        }
+        await Sheets.updateInvoiceImported(inv.rowIndex, false);
+        el.classList.add('hidden');
+        _clearInvoiceCache();
+        _invRows = [];
+        await _loadInvoiceTab();
+      } catch (e) {
+        err.textContent = `解除失敗：${e.message}`;
+        err.classList.remove('hidden');
+      } finally {
+        btn.disabled = false; btn.textContent = '確認解除';
+      }
+    };
+  }
+
   function _buildCCUnlinkModal() {
     if (document.getElementById('cc-unlink-modal')) return;
     const el = document.createElement('div');
@@ -2541,7 +2675,10 @@ const Ledger = (() => {
       const sharedLabel    = r.shared  ? `<span class="tag-shared">${r.shared}</span>` : '';
       const voidStyle      = r.status === '作廢' ? 'style="color:var(--salmon)"' : '';
       const voidBadge      = r.status === '作廢' ? '<span class="raw-badge">作廢</span>' : '';
-      const importedBadge  = r.imported === 'TRUE' ? '<span class="badge-imported">已匯入</span>' : '';
+      // 已匯入做成可點的按鈕（比照 CC 的「已連結」）：展開後看得到匯入的月度帳本列，並可解除
+      const importedBadge  = r.imported === 'TRUE'
+        ? `<button type="button" class="badge-imported inv-imported-toggle" data-row="${r.rowIndex}" title="顯示匯入的月度帳本">已匯入</button>`
+        : '';
       const hasItems       = (_invItemCounts.get(r.invNum) || 0) > 0;
       return `
         <div class="list-item${isSin ? ' list-item-editable' : ''}" data-row="${r.rowIndex}">
@@ -2562,6 +2699,13 @@ const Ledger = (() => {
         e.stopPropagation();
         const row = _invRows.find(r => r.rowIndex === parseInt(btn.dataset.row, 10));
         if (row) _toggleInvoiceItemDetail(row, btn);
+      });
+    });
+    el.querySelectorAll('.inv-imported-toggle').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const row = _invRows.find(r => r.rowIndex === parseInt(btn.dataset.row, 10));
+        if (row) _toggleInvImportedCard(row, btn);
       });
     });
     if (isSin) {

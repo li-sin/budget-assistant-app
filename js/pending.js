@@ -81,6 +81,8 @@ const Pending = (() => {
   function _fmt(n) {
     return '$' + Math.abs(n).toLocaleString('zh-TW');
   }
+  // 刷退是負數，_fmt 取絕對值會把負號吃掉；不動 _fmt（其他呼叫端都靠它去號）
+  function _fmtSigned(n) { return (n < 0 ? '−' : '') + _fmt(n); }
 
   function _normalizeItemAttribution(value) {
     if (value === 'Sin') return '🌟 Sin';
@@ -97,13 +99,14 @@ const Pending = (() => {
   // ── 資料收集 ──────────────────────────────────────────────────
 
   async function _collect() {
-    const [monthlyRaw, invoices, items, ccPendingRows, ccAllRows, platformMap] = await Promise.all([
+    const [monthlyRaw, invoices, items, ccPendingRows, ccAllRows, platformMap, refundPairs] = await Promise.all([
       _getAllMonthly(),
       Sheets.getInvoiceData(),
       Sheets.getItemData(),
       Sheets.getCCPendingData(),
       Sheets.getCCAllData(),
       Sheets.getRulesData(),
+      Sheets.getRefundPairs(),
     ]);
 
     const result = [];
@@ -161,6 +164,23 @@ const Pending = (() => {
         label: '疑似重複',
         color: '#FF9F43',
         row: r,
+      });
+    });
+
+    // 🔄 刷退待確認：F32。能自動處理的已由 matchCCRefunds 在下載時標掉，
+    //    留在這裡的都是「系統不該替使用者決定」的——已匯入、超過 20 天、多候選、已有共用值。
+    refundPairs.needConfirm.forEach(p => {
+      result.push({
+        type: 'cc_refund',
+        label: '刷退待確認',
+        color: '#C77DFF',
+        refund: p.refund,
+        buy: p.buy || null,
+        cands: p.cands || null,
+        days: p.days,
+        reason: p.reason,
+        invRowIndex: p.invRowIndex || null,
+        invDate: p.invDate || '',
       });
     });
 
@@ -322,7 +342,8 @@ const Pending = (() => {
     return '';
   }
   function _itemDate(it) {
-    return it.cc?.txDate || it.inv?.date || it.row?.date || it.date || '';
+    // cc_refund 以刷退日歸月（帳單上看到退費的那個月才是使用者會來找的月份）
+    return it.cc?.txDate || it.inv?.date || it.row?.date || it.refund?.txDate || it.date || '';
   }
   function _defaultMonth(items) {
     let best = '';
@@ -389,6 +410,8 @@ const Pending = (() => {
       html += items.map((it, idx) => {
         let title, sub, amount;
         let catIcon = '';
+        let amtClass = 'amount-expense';
+        let amtFmt = _fmt;
         if (it.type === 'untagged') {
           title  = it.shop;
           sub    = it.date;
@@ -410,6 +433,14 @@ const Pending = (() => {
           title  = it.inv.shop || it.inv.invNum;
           sub    = `${it.inv.date}　${it.candidates.length} 筆候選 CC`;
           amount = it.inv.amount;
+        } else if (it.type === 'cc_refund') {
+          title  = it.refund.shop;
+          sub    = it.buy
+            ? `刷退 ${it.refund.txDate}　消費 ${it.buy.txDate}（間隔 ${it.days} 天）`
+            : `刷退 ${it.refund.txDate}　${it.cands.length} 筆候選消費`;
+          amount = it.refund.amount;
+          amtClass = 'amount-income';   // 退費是負數，用紅色顯示會誤導
+          amtFmt = _fmtSigned;
         } else {
           title  = it.row.item || '（未命名）';
           sub    = it.row.date;
@@ -423,7 +454,7 @@ const Pending = (() => {
               <div class="list-item-title">${title}</div>
               <div class="list-item-sub">${sub}</div>
             </div>
-            <div class="list-item-right amount-expense">${_fmt(amount)}</div>
+            <div class="list-item-right ${amtClass}">${amtFmt(amount)}</div>
           </div>`;
       }).join('');
     }
@@ -543,6 +574,82 @@ const Pending = (() => {
     else if (item.type === 'platform_unlinked') _renderPlatformUnlinked(item);
     else if (item.type === 'inv_pending')      _renderInvoicePending(item);
     else if (item.type === 'scan_cc_dup')      _renderScanCCDup(item);
+    else if (item.type === 'cc_refund')        _renderCCRefund(item);
+  }
+
+  // ── 🔄 刷退待確認：F32 ────────────────────────────────────────
+  //  自動處理不了的刷退。重點是把「為什麼不自動」講清楚，並在對應消費已經
+  //  進了月度帳本時給跳轉入口——那種情況標 x 是無效的，得去帳本自己改。
+
+  function _renderCCRefund(item) {
+    const { refund, buy, cands, days, reason, invRowIndex, invDate } = item;
+    document.getElementById('pending-modal-title').textContent = `🔄 ${refund.shop}`;
+
+    // 已匯入的兩種情形都無法靠標 x 解決，要醒目提示
+    const imported = buy && (buy.imported === 'TRUE' || buy.invImported);
+    const warnHtml = imported
+      ? `<div class="refund-warn">
+           <strong>⚠ 標 x 解決不了這筆</strong>
+           <p>這筆消費${buy.invImported ? '的發票' : ''}已經匯入月度帳本，帳本裡那筆
+              ${buy.invImported ? '是發票端寫進去的' : '是 CC 端寫進去的'}，
+              把信用卡明細標 x <b>不會</b>把它扣回。請直接到帳本處理。</p>
+         </div>`
+      : `<p class="refund-reason">${reason}</p>`;
+
+    const rowHtml = (r, tag) => `
+      <div class="list-item" style="border-radius:8px;margin-bottom:4px">
+        <div class="list-item-body">
+          <div class="list-item-title">${tag}　${r.shop}</div>
+          <div class="list-item-sub">${r.bank}　${r.txDate}${r.shared ? `　共用=${r.shared}` : ''}</div>
+        </div>
+        <div class="list-item-right ${r.amount < 0 ? 'amount-income' : 'amount-expense'}">${_fmtSigned(r.amount)}</div>
+      </div>`;
+
+    const pairHtml = buy
+      ? `${rowHtml(buy, '消費')}${rowHtml(refund, '刷退')}
+         <p class="list-item-sub" style="margin:4px 0 0">間隔 ${days} 天</p>`
+      : `${rowHtml(refund, '刷退')}
+         <div class="section-title" style="margin-top:12px">同名同額的消費（${cands.length} 筆）</div>
+         ${cands.map(c => rowHtml(c, '候選')).join('')}
+         <p class="list-item-sub" style="margin:4px 0 0">候選超過一筆，請直接到明細頁確認要沖銷哪一筆</p>`;
+
+    const jumpHtml = imported
+      ? `<div class="chip-row" style="margin-top:12px">
+           ${invRowIndex ? '<button class="chip" id="refund-goto-inv">🧾 查看發票</button>' : ''}
+           <button class="chip" id="refund-goto-ledger">📒 查看帳本列</button>
+         </div>`
+      : '';
+
+    document.getElementById('pending-modal-body').innerHTML = warnHtml + pairHtml + jumpHtml;
+
+    // 只有「單一候選 + 未匯入」才給一鍵沖銷；其餘一律不提供，避免做出無效動作
+    const canApply = buy && !imported;
+    document.getElementById('pending-modal-footer').innerHTML = `
+      <button class="btn-secondary" id="refund-cancel">關閉</button>
+      ${canApply ? '<button class="btn-primary" id="refund-confirm">確認沖銷（兩筆標 x）</button>' : ''}
+    `;
+
+    document.getElementById('refund-cancel').onclick = _closeDetail;
+    document.getElementById('refund-goto-inv')?.addEventListener('click', () => {
+      _closeDetail(); Ledger.jumpTo({ invoiceRow: invRowIndex, invoiceDate: invDate });
+    });
+    document.getElementById('refund-goto-ledger')?.addEventListener('click', () => {
+      _closeDetail(); Ledger.jumpTo({});
+    });
+    if (canApply) {
+      document.getElementById('refund-confirm').onclick = async () => {
+        const btn = document.getElementById('refund-confirm');
+        btn.disabled = true; btn.textContent = '處理中…';
+        try {
+          await Sheets.applyRefundPair(refund, buy);
+          _closeDetail();
+          await _reload();
+        } catch (e) {
+          btn.disabled = false; btn.textContent = '確認沖銷（兩筆標 x）';
+          alert(`沖銷失敗：${e.message}`);
+        }
+      };
+    }
   }
 
   // ── 🟡 未標記：品項歸屬標記 ──────────────────────────────────

@@ -301,6 +301,22 @@ select.field-input { height: 44px; }
 }
 .add-error.hidden { display: none; }
 
+/* 🔄 刷退待確認（F32）：說明「為什麼沒被自動處理」 */
+.refund-reason {
+  color: #8E8E93;
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+.refund-warn {
+  background: rgba(255,107,107,0.12);
+  border: 1px solid var(--salmon);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.refund-warn strong { color: var(--salmon); font-size: 14px; }
+.refund-warn p { color: #C7C7CC; font-size: 13px; margin: 6px 0 0; line-height: 1.5; }
+
 .modal-footer {
   display: flex;
   gap: 10px;

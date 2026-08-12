@@ -1166,6 +1166,136 @@ const Sheets = (() => {
     return count;
   }
 
+  // ── F32 刷退沖銷（2026-08-12）─────────────────────────────────
+  //  信用卡退費（負數列）現行只會被自動標 x、不進月度帳本，但「原本那筆消費」
+  //  沒有任何機制跟著標掉——實測 4,559 張發票裡作廢只有 2 張，靠發票作廢去
+  //  標消費列的舊路徑幾乎不會觸發，等於實質上沒有沖銷機制。
+  //
+  //  配對規則：商店名完全相同 + 金額絕對值相同 + 消費日 ≤ 退費日 + 間隔 ≤ 40 天。
+  //  分流（寫入與顯示共用這一份，避免兩套規則各自漂移——2026-06-16 誤配事故的成因之一）：
+  //    auto        ＝ 唯一候選 + 間隔 ≤20 天 + 消費列可安全改（見 _refundBlockReason）
+  //    needConfirm ＝ 其餘，附上原因交給待處理頁讓使用者決定，系統不自作主張
+  const REFUND_AUTO_DAYS = 20;   // 這天數內、其他條件都乾淨才自動標
+  const REFUND_MAX_DAYS  = 40;   // 超過就不再視為同一筆交易的刷退
+
+  // 回傳阻擋自動處理的原因；空字串代表可自動。
+  // 'x' 不算阻擋——作廢發票路徑（matchCCWithInvoices 先跑）已經把消費列標成 x，
+  // 這裡要接手把兩列的備註補上（含發票號碼），H 再寫一次 x 是無害的冪等操作。
+  function _refundBlockReason(buy) {
+    if (buy.shared === '部分') return '共用值為「部分」，備註欄放的是 Bear 負擔金額，不自動改';
+    if (buy.shared !== '' && buy.shared !== 'x') return `消費列已填共用值「${buy.shared}」，不覆蓋你的判斷`;
+    if (buy.imported === 'TRUE') return '消費列已匯入月度帳本，標 x 不會把帳本那筆扣回';
+    if (buy.invImported)       return '對應發票已匯入月度帳本，帳本那筆是發票寫入的，標 x 無效';
+    return '';
+  }
+
+  // rows: _parseCCRow 結果 + matched（I 欄發票號碼）；invImportedByNum: { 發票號碼: true }
+  function findRefundPairs(rows, invImportedByNum = {}) {
+    const day = s => {
+      const m = String(s || '').replace(/^'/, '').match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+      return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86400000 : null;
+    };
+    const all = rows.map(r => ({ ...r, _d: day(r.txDate), invImported: !!invImportedByNum[r.matched] }));
+    const auto = [], needConfirm = [];
+
+    for (const refund of all.filter(r => r.amount < 0 && r._d !== null)) {
+      // 退費列本身被手動改過共用值就不碰（預設是 _autoShared 填的 'x'）
+      if (refund.shared !== 'x') continue;
+      const cands = all.filter(b => b.amount === -refund.amount && b.shop === refund.shop
+        && b._d !== null && b._d <= refund._d && refund._d - b._d <= REFUND_MAX_DAYS);
+      if (!cands.length) continue;
+
+      if (cands.length > 1) {
+        needConfirm.push({ refund, cands, reason: `找到 ${cands.length} 筆同名同額的消費，系統不替你挑` });
+        continue;
+      }
+      const buy  = cands[0];
+      const days = refund._d - buy._d;
+      const blocked = _refundBlockReason(buy);
+      if (blocked)                      { needConfirm.push({ refund, buy, days, reason: blocked }); continue; }
+      if (days > REFUND_AUTO_DAYS)      { needConfirm.push({ refund, buy, days, reason: `間隔 ${days} 天，超過自動處理的 ${REFUND_AUTO_DAYS} 天` }); continue; }
+      // 已經是 x 且備註也寫過了 → 沒事可做，不要每次下載都重寫一遍
+      const { buyNote, refundNote } = refundNotePair(refund, buy);
+      if (buy.shared === 'x' && buyNote === buy.note && refundNote === refund.note) continue;
+      auto.push({ refund, buy, days });
+    }
+    return { auto, needConfirm };
+  }
+
+  // 備註採「附加」而非覆寫，避免蓋掉既有內容
+  function _appendNote(old, add) {
+    const o = String(old || '').trim();
+    return o.includes(add) ? o : (o ? `${o}；${add}` : add);
+  }
+
+  function refundNotePair(refund, buy) {
+    const invTag = buy.matched ? `／發票 ${buy.matched}` : '';
+    return {
+      buyNote:    _appendNote(buy.note,    `↔ 刷退 ${_normalizeDate(refund.txDate)}${invTag}`),
+      refundNote: _appendNote(refund.note, `↔ 消費 ${_normalizeDate(buy.txDate)}${invTag}`),
+    };
+  }
+
+  // 讀 CC 全表（含負數列）＋ 發票已匯入狀態，回傳配對結果供待處理頁顯示
+  async function getRefundPairs() {
+    const [ccData, invData] = await Promise.all([
+      _get(`${CONFIG.TABS.CC}!A:L`),
+      _get(`${CONFIG.TABS.INVOICE}!A:J`),
+    ]);
+    const invImported = {}, invRowByNum = {}, invDateByNum = {};
+    (invData.values || []).slice(1).forEach((r, i) => {
+      const num = (r[2] || '').trim();
+      if (!num) return;
+      invRowByNum[num]  = i + 2;
+      invDateByNum[num] = _normalizeDate(r[1]);
+      if (r[9] === 'TRUE' || r[9] === 'True') invImported[num] = true;
+    });
+    const rows = (ccData.values || []).slice(1).map((r, i) => ({
+      ..._parseCCRow(r, i + 2), matched: _asInvoiceNumber(r[8]),
+    }));
+    const res = findRefundPairs(rows, invImported);
+    res.needConfirm.forEach(n => {
+      const b = n.buy;
+      if (b && b.matched) {
+        n.invRowIndex = invRowByNum[b.matched] || null;
+        n.invDate     = invDateByNum[b.matched] || '';   // 發票 tab 逐月載入，跳轉要帶月份
+      }
+    });
+    return res;
+  }
+
+  // 套用可自動處理的那批：消費列 H='x'，兩列備註各自附加標記
+  async function matchCCRefunds(onProgress) {
+    const log = m => onProgress?.(m);
+    const { auto, needConfirm } = await getRefundPairs();
+    if (!auto.length) {
+      log(`→ 刷退沖銷：無可自動處理（待確認 ${needConfirm.length} 筆）`);
+      return { applied: 0, needConfirm: needConfirm.length };
+    }
+    const updates = [];
+    for (const { refund, buy } of auto) {
+      const { buyNote, refundNote } = refundNotePair(refund, buy);
+      updates.push(
+        { range: `${CONFIG.TABS.CC}!H${buy.rowIndex}`,    values: [['x']] },
+        { range: `${CONFIG.TABS.CC}!J${buy.rowIndex}`,    values: [[buyNote]] },
+        { range: `${CONFIG.TABS.CC}!J${refund.rowIndex}`, values: [[refundNote]] },
+      );
+    }
+    await _batchUpdate(updates);
+    log(`→ 刷退沖銷：自動標記 ${auto.length} 組（待確認 ${needConfirm.length} 筆）`);
+    return { applied: auto.length, needConfirm: needConfirm.length };
+  }
+
+  // 待處理頁「確認沖銷」用：與 matchCCRefunds 走同一組寫入動作
+  async function applyRefundPair(refund, buy) {
+    const { buyNote, refundNote } = refundNotePair(refund, buy);
+    await _batchUpdate([
+      { range: `${CONFIG.TABS.CC}!H${buy.rowIndex}`,    values: [['x']] },
+      { range: `${CONFIG.TABS.CC}!J${buy.rowIndex}`,    values: [[buyNote]] },
+      { range: `${CONFIG.TABS.CC}!J${refund.rowIndex}`, values: [[refundNote]] },
+    ]);
+  }
+
   async function writeCCFromGmail(transactions, onProgress) {
     const log = m => onProgress?.(m);
     if (!transactions.length) return { written: 0, skipped: 0 };
@@ -1238,6 +1368,7 @@ const Sheets = (() => {
     upsertRepayment,
     getCCPendingData, updateCCShared, updateInvoiceShared,
     getCCAllData, linkCCToInvoice,
+    getRefundPairs, matchCCRefunds, applyRefundPair,
     getRulesData, linkPlatformToCC,
     importToMonthly, ensureMonthlyPlaceholders,
     countRawInvoicesForMonth, writeInvoicesFromGmail, matchCCWithInvoices,

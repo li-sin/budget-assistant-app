@@ -3035,7 +3035,16 @@ const Ledger = (() => {
     }
   }
 
-  function jumpTo({ member, category, shared, sharedValues, rowIndex, scope, year } = {}) {
+  function jumpTo({ member, category, shared, sharedValues, rowIndex, scope, year, invoiceRow, invoiceDate } = {}) {
+    // invoiceRow：跳發票明細那一列（待處理頁 🔄 刷退待確認的「查看發票」入口）。
+    // 發票 tab 是逐月載入的，跨月的目標一定要先把月份切過去，否則列不在清單裡、定位不到。
+    if (invoiceRow) {
+      const m = String(invoiceDate || '').match(/(\d{4})[-/](\d{1,2})/);
+      if (m) { _year = +m[1]; _month = +m[2]; window.AppMonth?.set(_year, _month); }
+      Router.navigate('ledger');
+      requestAnimationFrame(() => _jumpToInvoice(invoiceRow));
+      return;
+    }
     // 確保切回月度帳本 sub-tab
     _activeSubTab = 'monthly';
     document.querySelectorAll('.sub-tab-btn').forEach(b =>

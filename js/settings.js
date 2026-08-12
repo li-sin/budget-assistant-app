@@ -286,6 +286,8 @@ const Settings = (() => {
             }
             // CC 解析後比對發票（金額±1、日期±3，蝦皮±10），自動填 CC I 欄連結
             await Sheets.matchCCWithInvoices(msg => logMsg(msg));
+            // F32：刷退沖銷——同名同額的消費列一併標 x，把握不準的留給待處理頁
+            await Sheets.matchCCRefunds(msg => logMsg(msg));
           } catch (e) {
             logMsg(`❌ CC：${e.message}`);
           }

@@ -1034,6 +1034,7 @@ button.badge-imported {
   font-size: 12px;
   color: var(--text-sub);
 }
+.cc-link-none { color: var(--text-sub); font-weight: 400; }
 /* 發票「已匯入」展開卡：沒有品項展開欄，直接列月度帳本列 */
 .cc-link-lines {
   display: flex;
@@ -1091,6 +1092,7 @@ button.badge-imported {
 }
 .cc-link-inv-text,
 .inv-imported-monthly-text,
+.inv-imported-cc-text,
 .cc-link-monthly-text {
   background: none;
   border: none;

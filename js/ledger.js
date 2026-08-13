@@ -39,6 +39,7 @@ const Ledger = (() => {
   let _ccSearchQuery   = '';
   let _invImportedFilter = 'all'; // 'all', 'yes', 'no'
   let _invoiceScrollRow = null;
+  let _ccScrollRow      = null;
   let _ccUnlinkRow      = null;
   let _ccUnlinkContext  = null;
 
@@ -798,6 +799,18 @@ const Ledger = (() => {
     document.querySelectorAll('#inv-shared-chips .chip')
       .forEach(b => b.classList.toggle('active', b.dataset.invShared === 'all'));
     await _loadInvoiceTab();
+  }
+
+  async function _jumpToCC(rowIndex) {
+    if (!rowIndex) return;
+    _ccScrollRow = rowIndex;
+    _setSubTab('cc');
+    _ccSearchQuery = '';
+    _ccLinkedFilter = 'all';
+    _ccPostedFilter = 'all';
+    const search = document.getElementById('cc-search');
+    if (search) search.value = '';
+    await _loadCCTab();
   }
 
   function _jumpToMonthly(rowIndex) {
@@ -2398,8 +2411,11 @@ const Ledger = (() => {
     host.insertAdjacentElement('afterend', card);
 
     try {
-      const monthlyRows = await _monthlyRowsForInvoice(inv);
-      const linesHtml = monthlyRows.length
+      const [monthlyRows, ccRows] = await Promise.all([
+        _monthlyRowsForInvoice(inv),
+        Sheets.getCCForInvoice(inv.invNum),
+      ]);
+      const monthlyHtml = monthlyRows.length
         ? monthlyRows.map(m => `
             <div class="cc-link-inv-line">
               <span class="cc-link-label">月度</span>
@@ -2407,13 +2423,22 @@ const Ledger = (() => {
               · ${m.item || m.source} · $${m.amount.toLocaleString('zh-TW')}
             </div>`).join('')
         : `<div class="cc-link-warning">⚠️ 找不到由這張發票匯入的月度帳本列（可能已被手動刪除）。解除後只會把「已匯入」改回未匯入。</div>`;
+      // 有沒有綁信用卡會影響解除時要不要一併解除連結，所以在卡片上直接講清楚
+      const ccHtml = ccRows.length
+        ? ccRows.map(c => `
+            <div class="cc-link-inv-line">
+              <span class="cc-link-label">信用卡</span>
+              <button class="inv-imported-cc-text" data-row="${c.rowIndex}">${c.txDate || `第 ${c.rowIndex} 列`}</button>
+              · ${c.bank}${c.shop ? ' · ' + c.shop : ''} · $${c.amount.toLocaleString('zh-TW')}
+            </div>`).join('')
+        : `<div class="cc-link-inv-line cc-link-none"><span class="cc-link-label">信用卡</span>未綁定</div>`;
 
       card.innerHTML = `
         <div class="cc-link-card-head">
           <span class="badge-imported">已匯入</span>
           <span class="cc-link-card-sub">解除後會刪除下列月度帳本，發票回到未匯入、可重新匯入。</span>
         </div>
-        <div class="cc-link-lines">${linesHtml}</div>
+        <div class="cc-link-lines">${monthlyHtml}${ccHtml}</div>
         <div class="cc-link-actions">
           <button class="btn-secondary inv-unimport-btn">解除匯入</button>
         </div>`;
@@ -2424,9 +2449,15 @@ const Ledger = (() => {
           _jumpToMonthly(parseInt(b.dataset.row, 10));
         });
       });
+      card.querySelectorAll('.inv-imported-cc-text').forEach(b => {
+        b.addEventListener('click', e => {
+          e.stopPropagation();
+          _jumpToCC(parseInt(b.dataset.row, 10));
+        });
+      });
       card.querySelector('.inv-unimport-btn').addEventListener('click', e => {
         e.stopPropagation();
-        _openInvUnimportModal(inv, monthlyRows);
+        _openInvUnimportModal(inv, monthlyRows, ccRows);
       });
     } catch (e) {
       card.innerHTML = `<p class="add-error">讀取失敗：${e.message}</p>`;
@@ -2473,12 +2504,16 @@ const Ledger = (() => {
     el.addEventListener('click', e => { if (e.target === el) close(); });
   }
 
-  function _openInvUnimportModal(inv, monthlyRows) {
+  function _openInvUnimportModal(inv, monthlyRows, ccRows = []) {
     _buildInvUnimportModal();
     const el  = document.getElementById('inv-unimport-modal');
     const err = document.getElementById('inv-unimport-error');
     err.classList.add('hidden');
-    document.getElementById('inv-unimport-chk-cc').checked = false;  // 預設不動 CC 連結
+    const chkCC = document.getElementById('inv-unimport-chk-cc');
+    chkCC.checked  = false;                // 預設不動 CC 連結
+    chkCC.disabled = ccRows.length === 0;  // 沒綁卡就沒得解除，別給無效選項
+    document.querySelector('label[for="inv-unimport-chk-cc"]').textContent =
+      ccRows.length ? `一併解除信用卡連結（${ccRows.length} 筆）` : '一併解除信用卡連結（此發票未綁卡）';
     document.getElementById('inv-unimport-info').innerHTML = `
       <p style="font-size:13px;color:var(--text-sub);margin-bottom:8px">
         ${inv.shop || inv.invNum}　$${inv.amount.toLocaleString('zh-TW')}
@@ -2496,8 +2531,7 @@ const Ledger = (() => {
         for (const m of [...monthlyRows].sort((a, b) => b.rowIndex - a.rowIndex)) {
           await Sheets.deleteMonthlyRow(m.rowIndex, m.date.slice(0, 7));
         }
-        if (document.getElementById('inv-unimport-chk-cc').checked) {
-          const ccRows = await Sheets.getCCForInvoice(inv.invNum);
+        if (chkCC.checked) {
           for (const cc of ccRows) await Sheets.unlinkCC(cc.rowIndex);
         }
         await Sheets.updateInvoiceImported(inv.rowIndex, false);
@@ -2792,6 +2826,11 @@ const Ledger = (() => {
         if (row) _toggleCCLinkCard(row, btn);
       });
     });
+    if (_ccScrollRow !== null) {
+      const rowIndex = _ccScrollRow;
+      _ccScrollRow = null;
+      requestAnimationFrame(() => _highlightTarget(el.querySelector(`.list-item[data-row="${rowIndex}"]`)));
+    }
   }
 
   // ── Shell ─────────────────────────────────────────────────────

@@ -897,7 +897,11 @@ const Sheets = (() => {
     return await Promise.all(matches.map(async m => {
       const d = await _get(`${CONFIG.TABS.CC}!A${m.rowIndex}:E${m.rowIndex}`);
       const r = ((d.values || [[]])[0]) || [];
-      return { rowIndex: m.rowIndex, bank: r[0] || '', amount: parseFloat(r[4]) || 0 };
+      return {
+        rowIndex: m.rowIndex, bank: r[0] || '',
+        txDate: _normalizeDate(r[1]).replace(/\//g, '-'),
+        shop: r[3] || '', amount: parseFloat(r[4]) || 0,
+      };
     }));
   }
 

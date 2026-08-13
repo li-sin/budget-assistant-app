@@ -23,6 +23,29 @@
 .month-btn:active { background: var(--divider); }
 .refresh-btn { font-size: 20px; margin-left: 4px; }
 
+/* 首頁 header 的下載入口：⬇ 旁邊掛一顆「已下載幾家」的小徽章 */
+.import-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 16px;
+  white-space: nowrap;
+  padding: 4px 6px;
+}
+.import-badge {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 6px;
+  color: var(--text-sub);
+}
+.import-badge:empty { display: none; }
+/* 當月過了 15 號還沒收齊 → 黃底提醒 */
+.import-badge-warn { background: #FFD60A; color: #1C1C1E; }
+/* 四家到齊 → 綠色勾勾 */
+.import-badge-done { color: var(--teal); font-size: 14px; padding: 0; }
+
 .summary-card { margin-bottom: 8px; }
 .summary-top {
   display: flex;

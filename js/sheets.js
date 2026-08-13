@@ -198,17 +198,40 @@ const Sheets = (() => {
     return String(v || '').replace(/^'/, '').trim();
   }
 
+  // 首頁徽章每次切月都要問一次下載家數，而這裡是整表讀 CC!A:L（_get 沒有快取），
+  // 所以整表只讀一次、就地攤成「每個帳單月份的各家筆數」，之後切月直接查表。
+  // 下載完成後由 Importer 呼叫 invalidateCCStatus() 作廢。
+  let _ccStatusPromise = null;
+
+  function _fetchCCStatusMap() {
+    if (!_ccStatusPromise) {
+      _ccStatusPromise = _get(`${CONFIG.TABS.CC}!A:L`).then(data => {
+        const map = {};
+        (data.values || []).slice(1).forEach(r => {
+          const bank = r[0] || '';
+          const billMonth = _normalizeDate(r[11]);
+          if (!bank || !billMonth) return;
+          if (!map[billMonth]) map[billMonth] = {};
+          map[billMonth][bank] = (map[billMonth][bank] || 0) + 1;
+        });
+        return map;
+      }).catch(e => {
+        _ccStatusPromise = null;   // 失敗不留壞快取，下次重試
+        throw e;
+      });
+    }
+    return _ccStatusPromise;
+  }
+
+  function invalidateCCStatus() {
+    _ccStatusPromise = null;
+  }
+
   async function getCreditCardImportStatus(year, month) {
     const ym = `${year}-${String(month).padStart(2, '0')}`;
     const banks = ['台新', '星展', '永豐', '富邦'];
-    const counts = Object.fromEntries(banks.map(b => [b, 0]));
-    const data = await _get(`${CONFIG.TABS.CC}!A:L`);
-    (data.values || []).slice(1).forEach(r => {
-      const bank = r[0] || '';
-      const billMonth = _normalizeDate(r[11]);
-      if (bank in counts && billMonth === ym) counts[bank]++;
-    });
-    return banks.map(bank => ({ bank, count: counts[bank] }));
+    const counts = (await _fetchCCStatusMap())[ym] || {};
+    return banks.map(bank => ({ bank, count: counts[bank] || 0 }));
   }
 
   function invalidateMonth(ym) {
@@ -1409,7 +1432,7 @@ const Sheets = (() => {
   }
 
   return {
-    getMonthlyData, getCreditCardImportStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
+    getMonthlyData, getCreditCardImportStatus, invalidateCCStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
     getInvoiceData, getItemData, updateItemRow,
     checkDuplicateInvoice, appendInvoiceRow, appendItemRows, appendSyntheticItemRow,

@@ -12,14 +12,9 @@ const Settings = (() => {
     ).join('');
   }
 
-  function _loadCCPasswords() {
-    try { return JSON.parse(localStorage.getItem('ba_cc_passwords') || '{}'); }
-    catch { return {}; }
-  }
-
-  function _saveCCPasswords(obj) {
-    localStorage.setItem('ba_cc_passwords', JSON.stringify(obj));
-  }
+  // 密碼讀寫與下載/匯入流程都住在 Importer，首頁 ⬇ 入口與這裡共用同一份
+  const _loadCCPasswords = () => Importer.loadCCPasswords();
+  const _saveCCPasswords = obj => Importer.saveCCPasswords(obj);
 
   function _fmt(n) {
     const abs = '$' + Math.abs(n).toLocaleString('zh-TW');
@@ -252,48 +247,14 @@ const Settings = (() => {
         const logMsg = msg => { lines.push(msg); log.textContent = lines.join('\n'); };
 
         try {
-          // ── 發票 ──
-          logMsg('── 發票 ──');
-          try {
-            const { invoices, items } = await Gmail.fetchInvoicesForMonth(
-              _importYear, _importMonth, msg => logMsg(msg)
-            );
-            if (invoices.length) {
-              const written = await Sheets.writeInvoicesFromGmail(
-                invoices, items, msg => logMsg(msg)
-              );
-              logMsg(`✅ 新寫入 ${written.invoices} 筆發票、${written.items} 筆品項`);
-            } else {
-              logMsg('⚠ 無有效發票');
-            }
-          } catch (e) {
-            if (e.message === 'gmail_scope_missing') logMsg('⚠ 發票：Gmail 授權失敗，請重試或登出後重新登入');
-            else if (e.message === 'auth_cancelled')  logMsg('⚠ 發票：授權已取消');
-            else logMsg(`❌ 發票：${e.message}`);
-          }
-
-          // ── CC 明細 ──
-          logMsg('\n── CC 明細 ──');
-          try {
-            const txns = await Gmail.fetchCCForMonth(
-              _importYear, _importMonth, _loadCCPasswords(), msg => logMsg(msg)
-            );
-            if (txns.length) {
-              const result = await Sheets.writeCCFromGmail(txns, msg => logMsg(msg));
-              logMsg(`✅ CC：新寫入 ${result.written} 筆，略過 ${result.skipped} 筆`);
-            } else {
-              logMsg('⚠ 無有效 CC 交易');
-            }
-            // CC 解析後比對發票（金額±1、日期±3，蝦皮±10），自動填 CC I 欄連結
-            await Sheets.matchCCWithInvoices(msg => logMsg(msg));
-            // F32：刷退沖銷——同名同額的消費列一併標 x，把握不準的留給待處理頁
-            await Sheets.matchCCRefunds(msg => logMsg(msg));
-          } catch (e) {
-            logMsg(`❌ CC：${e.message}`);
-          }
+          await Importer.runDownload(_importYear, _importMonth, logMsg);
+        } catch (e) {
+          logMsg(`❌ 失敗：${e.message}`);
         } finally {
           btn.disabled = false;
           btn.textContent = '下載發票 + CC';
+          _loadCardStatus();                    // 家數變了，上方「信用卡匯入狀態」跟著更新
+          window.Home?.refreshImportBadge();
         }
       });
 
@@ -308,9 +269,7 @@ const Settings = (() => {
         const logMsg = msg => { lines.push(msg); log.textContent = lines.join('\n'); };
 
         try {
-          const result = await Sheets.importToMonthly(_importYear, _importMonth, msg => logMsg(msg));
-          logMsg(`\n✅ 完成：發票 ${result.invoices} 筆，CC ${result.cc} 筆（CC 略過 ${result.skippedCC} 筆）`);
-          window.Home?.reload();
+          await Importer.runImport(_importYear, _importMonth, logMsg);
         } catch (e) {
           logMsg(`❌ 失敗：${e.message}`);
         } finally {

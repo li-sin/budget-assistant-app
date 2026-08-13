@@ -90,7 +90,29 @@ const Home = (() => {
     document.getElementById('home-list').innerHTML = '<div class="spinner"></div>';
   }
 
+  // header ⬇ 上的下載進度：未收齊顯示「幾家/共幾家」（當月過了 15 號用黃底提醒），
+  // 四家到齊換綠色勾勾。看歷史月份時不加黃底，否則每個舊月份都在喊。
+  async function _loadImportBadge() {
+    const el = document.getElementById('home-import-badge');
+    if (!el || !window.Importer) return;
+    el.textContent = '';
+    el.className   = 'import-badge';
+    try {
+      const { done, total, overdue } = await Importer.getStatus(_year, _month);
+      if (done === total) {
+        el.textContent = '✓';
+        el.className   = 'import-badge import-badge-done';
+      } else {
+        el.textContent = `${done}/${total}`;
+        el.className   = 'import-badge' + (overdue ? ' import-badge-warn' : '');
+      }
+    } catch {
+      el.textContent = '';   // 讀不到就不顯示，不干擾首頁
+    }
+  }
+
   async function _load() {
+    _loadImportBadge();
     _setLoading();
     try {
       const ym = _ym();
@@ -281,6 +303,10 @@ const Home = (() => {
         <button class="month-btn" id="home-prev">◀</button>
         <span id="home-month"></span>
         <button class="month-btn" id="home-next">▶</button>
+        ${_isSin() ? `
+        <button class="month-btn import-btn" id="home-import" title="下載 / 匯入">
+          ⬇<span class="import-badge" id="home-import-badge"></span>
+        </button>` : ''}
         <button class="month-btn refresh-btn" id="home-refresh" title="重新載入">↺</button>
       </div>
 
@@ -328,7 +354,11 @@ const Home = (() => {
     });
     document.getElementById('home-refresh').addEventListener('click', () => {
       Sheets.invalidateMonth(_ym());
+      Sheets.invalidateCCStatus();
       _load();
+    });
+    document.getElementById('home-import')?.addEventListener('click', () => {
+      window.Importer?.open(_year, _month);
     });
     document.getElementById('home-settings-btn').addEventListener('click', () => {
       window.Settings?.open();
@@ -356,7 +386,7 @@ const Home = (() => {
     _load();
   }
 
-  return { init, reload: _load, activate };
+  return { init, reload: _load, activate, refreshImportBadge: _loadImportBadge };
 })();
 
 window.Home = Home;

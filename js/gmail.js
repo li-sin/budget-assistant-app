@@ -257,8 +257,14 @@ const Gmail = (() => {
   // PDF.js 依座標抽字，商店名太長時消費地會折到下一行、金額反而留在原行，
   // 合併後變成「… 59 TAIPEI」——金額不在行尾，regex 收不到就整筆消失。
   // 尾段限定 ASCII 英文字母開頭且不含數字，確保不會誤吃到真正的金額。
-  // 外幣交易在台幣金額後面還多兩欄：折算日 MM/DD 與 幣別＋外幣金額（USD20.00、PHP1,031.25）。
-  const TAIL = '(?:\\s+\\d{2}/\\d{2}\\s+[A-Z]{3}[\\d.,]+)?(?:\\s+[A-Za-z][A-Za-z.\\-\\s]*)?$';
+  // 外幣交易在台幣金額後面還有欄位，而且各家格式不同：
+  //   永豐：折算日 MM/DD ＋ 幣別金額（USD20.00、PHP1,031.25）
+  //   台新：折算日 MMDD（無斜線）＋ 消費地 ＋ 幣別 ＋ 外幣金額（0626 US USD 1.99）
+  // 富邦的尾巴則是卡別標籤（JCB晶緻正卡末４碼3896），含中文與數字，另外處理。
+  const TAIL =
+    '(?:\\s+\\d{2}/\\d{2}\\s+[A-Z]{3}[\\d.,]+)?' +
+    '(?:\\s+\\d{4}\\s+[A-Z]{2}\\s+[A-Z]{3}\\s+[\\d.,]+)?' +
+    '(?:\\s+[A-Za-z][A-Za-z.\\-\\s]*)?$';
 
   async function _extractPdfText(pdfBytes, password) {
     if (typeof pdfjsLib === 'undefined') throw new Error('PDF.js 未載入');
@@ -307,37 +313,78 @@ const Gmail = (() => {
     return pageLines.join('\n');
   }
 
+  // ── 帳單對帳（F34，2026-08-13）───────────────────────────────
+  //  每家帳單都自己宣告了一個總額，拿來驗證「有沒有漏解析」。實測歸納出的規則：
+  //      sum(regex 收到的所有列) − sum(繳款列) === 帳單宣告總額
+  //  「所有列」要含事後被 SKIP 的回饋／折抵——它們有計進帳單總額，只是我們不記帳；
+  //  繳款列則要扣掉，那是在還上期的錢、不屬於本期新增。
+  //  四家的欄位名稱與語意都不同，不能共用一條 regex：
+  //      台新 `+本期新增款項`         永豐 `本期金額合計（含退款/調整）`
+  //      富邦 `本期應繳金額`           星展 沒有單一總額 → 每張卡的「新增消費小計」加總
+  const _BILL_TOTAL_RE = {
+    台新: /\+\s*本期新增款項\s+(-?[\d,]+)/,
+    永豐: /本期金額合計（含退款\/調整）\s*(-?[\d,]+)/,
+    富邦: /本期應繳金額\s+(-?[\d,]+)/,
+  };
+
+  function _statedBillTotal(bank, text) {
+    if (bank === '星展') {
+      const ms = [...text.matchAll(/新增消費小計\s+(-?[\d,]+)/g)];
+      return ms.length ? ms.reduce((s, m) => s + parseFloat(m[1].replace(/,/g, '')), 0) : null;
+    }
+    const m = (_BILL_TOTAL_RE[bank] || /$^/).exec(text);
+    return m ? parseFloat(m[1].replace(/,/g, '')) : null;
+  }
+
+  // parser 回傳 { txns, matchedSum, paymentSum }；這裡換算成對帳結果
+  function _auditBill(bank, text, parsed) {
+    const stated = _statedBillTotal(bank, text);
+    if (stated === null) {
+      return { ok: false, unknown: true, msg: '找不到帳單總額欄位，無法對帳（帳單格式可能改版）' };
+    }
+    const ours = parsed.matchedSum - parsed.paymentSum;
+    const diff = Math.round((ours - stated) * 100) / 100;
+    return diff === 0
+      ? { ok: true, stated, ours, diff, msg: `對帳 ${stated.toLocaleString('zh-TW')} ✓` }
+      : { ok: false, stated, ours, diff,
+          msg: `對帳差 ${diff.toLocaleString('zh-TW')} 元（帳單 ${stated.toLocaleString('zh-TW')}、解析 ${ours.toLocaleString('zh-TW')}）— 可能有漏筆` };
+  }
+
   // ── 四家銀行 parser（Python budget_parsers.py 的 JS 移植）──────
 
   function _parseTaishin(allText) {
     const si = allText.indexOf('下列消費明細');
     const ei = allText.indexOf('本年度截至本期');
-    if (si === -1) return [];
+    if (si === -1) return { txns: [], matchedSum: 0, paymentSum: 0 };
     const section  = ei !== -1 ? allText.slice(si, ei) : allText.slice(si);
     const lines    = _mergeContinuationLines(section.split('\n'));
     const pForeign = /^(\d{3}\/\d{2}\/\d{2})\s+(\d{3}\/\d{2}\/\d{2})\s+(.+)\s+(-?\d+(?:\.\d+)?)\s+([A-Z]{2,3})$/;
     const pTwd     = new RegExp(
       '^(\\d{3}/\\d{2}/\\d{2})\\s+(\\d{3}/\\d{2}/\\d{2})\\s+(.+)\\s+(-?\\d{1,3}(?:,\\d{3})*)' + TAIL);
     const txns = [];
+    let matchedSum = 0;
     for (const line of lines) {
+      // 繳款列直接不收（本期新增款項本來就不含它），故 paymentSum 恆 0
       if (line.replace(/\s+/g, '').includes('自動轉帳扣繳')) continue;
       const m = line.match(pForeign) || line.match(pTwd);
       if (!m) continue;
       const roc = m[1], yr = parseInt(roc.split('/')[0]) + 1911;
+      const amount = parseFloat(m[4].replace(/,/g, ''));
+      matchedSum += amount;
       txns.push({
         bank: '台新', txDate: `${yr}/${roc.slice(4)}`,
         entryDate: `${parseInt(m[2].split('/')[0]) + 1911}/${m[2].slice(4)}`,
-        shop: m[3].trim(), amount: parseFloat(m[4].replace(/,/g, '')),
+        shop: m[3].trim(), amount,
         currency: m[5] || 'TWD',
       });
     }
-    return txns;
+    return { txns, matchedSum, paymentSum: 0 };
   }
 
   function _parseDbs(allText) {
     const si = allText.indexOf('您本期的消費明細如下');
     const ei = allText.indexOf('注意事項');
-    if (si === -1) return [];
+    if (si === -1) return { txns: [], matchedSum: 0, paymentSum: 0 };
     const section = ei !== -1 ? allText.slice(si, ei) : allText.slice(si);
     const lines   = _mergeContinuationLines(section.split('\n'));
     const p       = new RegExp(
@@ -345,20 +392,23 @@ const Gmail = (() => {
     // 繳款入帳不是消費，與富邦「自動扣繳」、永豐「自扣」一致略過
     const SKIP    = ['網路繳款', '本行帳戶繳款', '自動扣繳'];
     const txns = [];
+    let matchedSum = 0, paymentSum = 0;
     for (const line of lines) {
       const m = line.match(p);
       if (!m) continue;
-      if (SKIP.some(k => m[3].includes(k))) continue;
+      const amt = parseFloat(m[4].replace(/,/g, ''));
+      matchedSum += amt;
+      if (SKIP.some(k => m[3].includes(k))) { paymentSum += amt; continue; }
       const shop = m[3].trim()
         .replace(/\s*\/\s*[A-Z]{2}\s+\S+$/, '')
         .replace(/\s*\/\s*[A-Z]{2}.*$/, '')
         .trim();
       txns.push({
         bank: '星展', txDate: m[1], entryDate: m[2],
-        shop, amount: parseFloat(m[4].replace(/,/g, '')), currency: 'TWD',
+        shop, amount: amt, currency: 'TWD',
       });
     }
-    return txns;
+    return { txns, matchedSum, paymentSum };
   }
 
   function _parseSinopac(allText, year) {
@@ -372,17 +422,22 @@ const Gmail = (() => {
     const p = new RegExp(
       '^(\\d{2}/\\d{2})\\s+(\\d{2}/\\d{2})\\s+(\\d{4})\\s+(?:[A-Z]{1,3}-\\s+)?(.+?)\\s+(-?\\d{1,3}(?:,\\d{3})*)' + TAIL);
     const txns = [];
+    let matchedSum = 0, paymentSum = 0;
     for (const line of lines) {
       const m = line.match(p);
       if (!m) continue;
       const shop = m[4].trim();
+      const amt  = parseFloat(m[5].replace(/,/g, ''));
+      // 回饋／折抵有計進「本期金額合計」，所以要進 matchedSum；只有繳款列要扣掉
+      matchedSum += amt;
+      if (shop.includes('自扣已入帳')) paymentSum += amt;
       if (SKIP.some(k => shop.includes(k))) continue;
       txns.push({
         bank: '永豐', txDate: `${year}/${m[1]}`, entryDate: `${year}/${m[2]}`,
-        shop, amount: parseFloat(m[5].replace(/,/g, '')), currency: 'TWD',
+        shop, amount: amt, currency: 'TWD',
       });
     }
-    return txns;
+    return { txns, matchedSum, paymentSum };
   }
 
   function _parseFubon(allText) {
@@ -397,20 +452,28 @@ const Gmail = (() => {
     const p = new RegExp(
       '^(\\d{3}/\\d{2}/\\d{2})\\s+(.+?)\\s+(\\d{3}/\\d{2}/\\d{2})' +
       '(?:\\s+\\S+/\\S+\\s+\\S+)?(?:\\s+[A-Z]{2,3})?\\s+(-?\\d{1,3}(?:,\\d{3})*)' + TAIL);
+    // 富邦部分列尾巴帶卡別標籤（JCB晶緻正卡末４碼3896），含中文與數字，TAIL 收不到，
+    // 先剝掉再比對——否則「刷卡金入帳」這類列會整筆漏掉、對帳永遠差那筆金額。
+    const stripCardLabel = l => l.replace(/\s+\S*正卡末\S*$/, '');
     const txns = [];
-    for (const line of lines) {
+    let matchedSum = 0, paymentSum = 0;
+    for (const raw of lines) {
+      const line = stripCardLabel(raw);
       const m = line.match(p);
       if (!m) continue;
       const desc = m[2].trim();
+      const amt  = parseFloat(m[4].replace(/,/g, ''));
+      matchedSum += amt;
+      if (desc.includes('自動扣繳')) paymentSum += amt;
       if (SKIP.some(k => desc.includes(k))) continue;
       const yr1 = parseInt(m[1].split('/')[0]) + 1911;
       const yr2 = parseInt(m[3].split('/')[0]) + 1911;
       txns.push({
         bank: '富邦', txDate: `${yr1}/${m[1].slice(4)}`, entryDate: `${yr2}/${m[3].slice(4)}`,
-        shop: desc, amount: parseFloat(m[4].replace(/,/g, '')), currency: 'TWD',
+        shop: desc, amount: amt, currency: 'TWD',
       });
     }
-    return txns;
+    return { txns, matchedSum, paymentSum };
   }
 
   // ── 主進入點：搜尋 Gmail → 下載 PDF → 解析 → 回傳交易清單 ──────
@@ -467,15 +530,19 @@ const Gmail = (() => {
         log(`  ❌ ${cfg.bank}：${msg}`); continue;
       }
 
-      let txns;
-      if (cfg.pwdKey === 'taishin')      txns = _parseTaishin(allText);
-      else if (cfg.pwdKey === 'dbs')     txns = _parseDbs(allText);
-      else if (cfg.pwdKey === 'sinopac') txns = _parseSinopac(allText, matchedYear);
-      else                               txns = _parseFubon(allText);
+      let parsed;
+      if (cfg.pwdKey === 'taishin')      parsed = _parseTaishin(allText);
+      else if (cfg.pwdKey === 'dbs')     parsed = _parseDbs(allText);
+      else if (cfg.pwdKey === 'sinopac') parsed = _parseSinopac(allText, matchedYear);
+      else                               parsed = _parseFubon(allText);
+      const txns = parsed.txns;
 
       txns.forEach(t => { t.billingMonth = billingM; });
       // 0 筆代表抓到的 PDF 不是這家的信用卡帳單（或格式變了），標成警告免得被當正常
       log(`  ${txns.length ? '✓' : '⚠'} ${cfg.bank}：解析 ${txns.length} 筆`);
+      // F34 對帳：跟帳單自己宣告的總額比，差額不為 0 就是有漏筆
+      const audit = _auditBill(cfg.bank, allText, parsed);
+      log(`  ${audit.ok ? '✓' : '⚠'} ${cfg.bank}：${audit.msg}`);
       allTxns.push(...txns);
     }
     return allTxns;

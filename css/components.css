@@ -1048,6 +1048,9 @@ button.badge-imported {
   margin-top: 8px;
 }
 .cc-link-actions .btn-secondary {
+  /* .btn-secondary 帶 flex:1，在這個 flex 容器裡會撐滿整行、justify-content 失效，
+     必須用 flex:0 0 auto 收回來才靠得到右側 */
+  flex: 0 0 auto;
   font-size: 12px;
   padding: 4px 12px;
   width: auto;

@@ -3218,7 +3218,7 @@ const Ledger = (() => {
     }
   }
 
-  function jumpTo({ member, category, shared, sharedValues, rowIndex, scope, year, invoiceRow, invoiceDate } = {}) {
+  function jumpTo({ member, category, shared, sharedValues, rowIndex, scope, year, invoiceRow, invoiceDate, monthlyDate } = {}) {
     // invoiceRow：跳發票明細那一列（待處理頁 🔄 刷退待確認的「查看發票」入口）。
     // 發票 tab 是逐月載入的，跨月的目標一定要先把月份切過去，否則列不在清單裡、定位不到。
     if (invoiceRow) {
@@ -3239,6 +3239,13 @@ const Ledger = (() => {
     // 範圍跟著來源（統計本年→年檢視；統計本月→月檢視），要在 navigate 觸發 activate 前設好
     if (scope) _setScope(scope);
     if (year !== undefined) _year = year;
+    // monthlyDate：目標列不在當前月份時要先切月，否則清單裡沒有那列、定位不到
+    const md = String(monthlyDate || '').replace(/\//g, '-').match(/^(\d{4})-(\d{1,2})/);
+    if (md) {
+      _year = +md[1]; _month = +md[2];
+      window.AppMonth?.set(_year, _month);
+      _setScope('month');
+    }
 
     _pendingFilter = {};
     if (member   !== undefined) _pendingFilter.member   = member;

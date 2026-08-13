@@ -181,6 +181,8 @@ const Pending = (() => {
         reason: p.reason,
         invRowIndex: p.invRowIndex || null,
         invDate: p.invDate || '',
+        monthlyRow: p.monthlyRow || null,
+        monthlyDate: p.monthlyDate || '',
       });
     });
 
@@ -582,7 +584,7 @@ const Pending = (() => {
   //  進了月度帳本時給跳轉入口——那種情況標 x 是無效的，得去帳本自己改。
 
   function _renderCCRefund(item) {
-    const { refund, buy, cands, days, reason, invRowIndex, invDate } = item;
+    const { refund, buy, cands, days, reason, invRowIndex, invDate, monthlyRow, monthlyDate } = item;
     document.getElementById('pending-modal-title').textContent = `🔄 ${refund.shop}`;
 
     // 已匯入的兩種情形都無法靠標 x 解決，要醒目提示
@@ -634,7 +636,9 @@ const Pending = (() => {
       _closeDetail(); Ledger.jumpTo({ invoiceRow: invRowIndex, invoiceDate: invDate });
     });
     document.getElementById('refund-goto-ledger')?.addEventListener('click', () => {
-      _closeDetail(); Ledger.jumpTo({});
+      _closeDetail();
+      // 帶上 rowIndex + 月份才定位得到；找不到目標列時退回單純切到月度帳本
+      Ledger.jumpTo(monthlyRow ? { rowIndex: monthlyRow, monthlyDate } : {});
     });
     if (canApply) {
       document.getElementById('refund-confirm').onclick = async () => {

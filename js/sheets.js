@@ -1289,6 +1289,27 @@ const Sheets = (() => {
         n.invDate     = invDateByNum[b.matched] || '';   // 發票 tab 逐月載入，跳轉要帶月份
       }
     });
+
+    // 「已匯入」那類唯一能做的補救是去月度帳本改，所以要把目標列找出來給跳轉用。
+    // 兩種來源找法不同：發票匯入的列 sourceLink 顯示發票號碼；CC 匯入的列
+    // sourceLink 是「→」（_dynamicCCLink 的顯示字），只能用日期＋金額比對。
+    const _ymd = s => String(s || '').replace(/^'/, '').replace(/\//g, '-').slice(0, 10);
+    for (const n of res.needConfirm) {
+      const b = n.buy;
+      if (!b || !(b.imported === 'TRUE' || b.invImported)) continue;
+      const src = b.invImported ? (invDateByNum[b.matched] || '') : b.txDate;
+      const m   = _ymd(src).match(/^(\d{4})-(\d{1,2})/);
+      if (!m) continue;
+      try {
+        const monthly = await getMonthlyData(+m[1], +m[2]);
+        const hit = b.invImported
+          ? monthly.find(r => r.sourceLink === b.matched)
+          : monthly.find(r => r.source === '信用卡'
+              && _ymd(r.date) === _ymd(b.txDate)
+              && Math.abs((r.amount || 0) - b.amount) < 0.5);
+        if (hit) { n.monthlyRow = hit.rowIndex; n.monthlyDate = hit.date; }
+      } catch { /* 找不到就退回單純切到月度帳本，不擋住其他項目 */ }
+    }
     return res;
   }
 

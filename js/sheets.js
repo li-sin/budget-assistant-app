@@ -1222,28 +1222,46 @@ const Sheets = (() => {
       const buy  = cands[0];
       const days = refund._d - buy._d;
       const blocked = _refundBlockReason(buy);
-      if (blocked)                      { needConfirm.push({ refund, buy, days, reason: blocked }); continue; }
-      if (days > REFUND_AUTO_DAYS)      { needConfirm.push({ refund, buy, days, reason: `間隔 ${days} 天，超過自動處理的 ${REFUND_AUTO_DAYS} 天` }); continue; }
-      // 已經是 x 且備註也寫過了 → 沒事可做，不要每次下載都重寫一遍
-      const { buyNote, refundNote } = refundNotePair(refund, buy);
-      if (buy.shared === 'x' && buyNote === buy.note && refundNote === refund.note) continue;
+      if (blocked) { needConfirm.push({ refund, buy, days, reason: blocked }); continue; }
+      // 已沖銷完成 → 兩邊都不出現。這個判斷必須排在天數檢查「之前」，否則超過
+      // 20 天的組合沖銷完仍會被天數規則丟回待確認，永遠清不掉（2026-08-12 實測）。
+      if (_refundPairDone(refund, buy)) continue;
+      if (days > REFUND_AUTO_DAYS) { needConfirm.push({ refund, buy, days, reason: `間隔 ${days} 天，超過自動處理的 ${REFUND_AUTO_DAYS} 天` }); continue; }
       auto.push({ refund, buy, days });
     }
     return { auto, needConfirm };
   }
 
-  // 備註採「附加」而非覆寫，避免蓋掉既有內容
-  function _appendNote(old, add) {
+  // 備註採「附加」而非覆寫，避免蓋掉既有內容。
+  // dedupKey 用「不含發票號碼的基底字串」比對——發票號碼是後來才補上的，
+  // 用完整字串去重會因為後綴不同而重複附加同一個標記（2026-08-12 實測）。
+  function _appendNote(old, add, dedupKey = add) {
     const o = String(old || '').trim();
-    return o.includes(add) ? o : (o ? `${o}；${add}` : add);
+    return o.includes(dedupKey) ? o : (o ? `${o}；${add}` : add);
+  }
+
+  function _refundMarks(refund, buy) {
+    return {
+      buyBase:    `↔ 刷退 ${_normalizeDate(refund.txDate)}`,
+      refundBase: `↔ 消費 ${_normalizeDate(buy.txDate)}`,
+    };
   }
 
   function refundNotePair(refund, buy) {
+    const { buyBase, refundBase } = _refundMarks(refund, buy);
     const invTag = buy.matched ? `／發票 ${buy.matched}` : '';
     return {
-      buyNote:    _appendNote(buy.note,    `↔ 刷退 ${_normalizeDate(refund.txDate)}${invTag}`),
-      refundNote: _appendNote(refund.note, `↔ 消費 ${_normalizeDate(buy.txDate)}${invTag}`),
+      buyNote:    _appendNote(buy.note,    buyBase + invTag,    buyBase),
+      refundNote: _appendNote(refund.note, refundBase + invTag, refundBase),
     };
+  }
+
+  // 消費列已標 x 且兩列都留下標記 → 這組沖銷已經完成
+  function _refundPairDone(refund, buy) {
+    const { buyBase, refundBase } = _refundMarks(refund, buy);
+    return buy.shared === 'x'
+      && String(buy.note || '').includes(buyBase)
+      && String(refund.note || '').includes(refundBase);
   }
 
   // 讀 CC 全表（含負數列）＋ 發票已匯入狀態，回傳配對結果供待處理頁顯示

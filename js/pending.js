@@ -1275,31 +1275,6 @@ const Pending = (() => {
     _showStep1();
   }
 
-  // ── 🟤 平台待配對：選擇 CC 明細後計算拆帳並寫入月度帳本 ────────
-
-  function _calcPlatformSplit(invItems, shared, ccAmount) {
-    if (shared === '是') {
-      const sin = Math.floor(ccAmount / 2);
-      return { sinShare: sin, bearShare: ccAmount - sin };
-    }
-    if (shared === '否') return { sinShare: 0, bearShare: ccAmount };
-    if (shared === '-')  return { sinShare: ccAmount, bearShare: 0 };
-    if (shared === '部分') {
-      const invTotal = invItems.reduce((sum, it) => sum + it.itemAmount, 0);
-      const bearFood = invItems.reduce((sum, it) => {
-        const a = it.attribution;
-        if (a === '🐨 Bear' || a === 'Bear') return sum + it.itemAmount;
-        if (a === '共用') return sum + Math.floor(it.itemAmount / 2);
-        return sum;
-      }, 0);
-      const sinFood  = invTotal - bearFood;
-      const diff     = ccAmount - invTotal;
-      const diffSin  = Math.floor(diff / 2);
-      return { sinShare: sinFood + diffSin, bearShare: bearFood + (diff - diffSin) };
-    }
-    return { sinShare: ccAmount, bearShare: 0 };
-  }
-
   function _renderPlatformUnlinked(item) {
     const { inv, invItems, platformKey, candidates } = item;
     document.getElementById('pending-modal-title').textContent = `📦 ${inv.shop || inv.invNum}`;
@@ -1389,8 +1364,7 @@ const Pending = (() => {
       btn.disabled    = true;
       btn.textContent = '處理中…';
       try {
-        const { sinShare, bearShare } = _calcPlatformSplit(invItems, inv.shared, selectedCC.amount);
-        await Sheets.linkPlatformToCC({ inv, cc: selectedCC, sinShare, bearShare, payer: selectedPayer });
+        await Sheets.linkPlatformToCC({ inv, cc: selectedCC, payer: selectedPayer });
         Sheets.invalidateMonth(inv.date.slice(0, 7));
         _saveClose();
         await _reload();

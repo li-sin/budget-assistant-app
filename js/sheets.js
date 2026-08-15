@@ -251,12 +251,15 @@ const Sheets = (() => {
   // [date, item, amount, payer, shared, category, sinShare, bearShare, note, source, sourceLink, importedAt]
 
   async function appendMonthlyRow(row) {
-    // 讀 A 欄找最後一筆有值的列，避免 ARRAYFORMULA 延伸造成 append 位置錯誤
     const data = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
-    const lastRow = (data.values || []).length;  // 含 header，下一列 = lastRow + 1
-    await _ensureRowCapacity(CONFIG.TABS.MONTHLY, lastRow + 1);
-    const range = `${CONFIG.TABS.MONTHLY}!A${lastRow + 1}`;
-    await _update(range, [row]);
+    const lastRow = (data.values || []).length;
+    const nextRow = lastRow + 1;
+    await _ensureRowCapacity(CONFIG.TABS.MONTHLY, nextRow);
+    const tab = CONFIG.TABS.MONTHLY;
+    await _batchUpdate([
+      { range: `${tab}!A${nextRow}:F${nextRow}`, values: [[row[0], row[1], row[2], row[3], row[4], row[5]]] },
+      { range: `${tab}!I${nextRow}:L${nextRow}`, values: [[row[8], row[9], row[10], row[11]]] },
+    ]);
     const ym = (row[0] || '').slice(0, 7);
     if (ym) invalidateMonth(ym);
   }
@@ -449,7 +452,7 @@ const Sheets = (() => {
       const eFormula = `=IFERROR(VLOOKUP(K${nextRow},'${invSheet}'!$C:$H,6,0),"")`;
       const gFormula = `=IFERROR(IF(C${nextRow}="","",C${nextRow}-H${nextRow}),"")`;
       // H：依月度帳本 C（正確總金額）與 E（是否共用）計算
-      // 「否」＝代墊，要看 D 欄付款人：Bear 付→Bear 代墊 Sin，H=0（與 ensure_capacity.py / add.js _calcShares 一致）
+      // 「否」＝代墊，要看 D 欄付款人：Bear 付→Bear 代墊 Sin，H=0（與 ensure_capacity.py buffer 公式一致）
       const hFormula = `=IFERROR(IF(E${nextRow}="是",ROUND(C${nextRow}/2,0),IF(E${nextRow}="否",IF(D${nextRow}="🐨 Bear",0,C${nextRow}),IF(E${nextRow}="-",0,IF(E${nextRow}="部分",IFERROR(VLOOKUP(K${nextRow},'${invSheet}'!$C:$K,9,0),0)+ROUND((C${nextRow}-IFERROR(VLOOKUP(K${nextRow},'${invSheet}'!$C:$E,3,0),0))/2,0),0)))),"")`;
 
       batchData.push(
@@ -596,32 +599,18 @@ const Sheets = (() => {
   }
 
   // ── 平台訂單配對 CC 後寫入月度帳本 ───────────────────────────
-  // sinShare/bearShare 由呼叫端根據品項歸屬 + CC 差額計算
-  async function linkPlatformToCC({ inv, cc, sinShare, bearShare, payer = '🌟 Star' }) {
-    const now = new Date();
-    const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-    const sourceLink = _dynamicInvoiceLink(inv.invNum);
-    const source = inv.carrier === '手查發票' ? '手查發票' : '掃描發票';
-
-    const row = [
-      inv.date, inv.shop, cc.amount,
-      payer || '🌟 Star', inv.shared, inv.category || '',
-      sinShare, bearShare, '',
-      source, sourceLink, importedAt,
-    ];
-    await appendMonthlyRow(row);
-    await markInvoiceImported(inv.rowIndex);
+  // G/H 由 appendMonthlyFromInvoice 的 inline 公式計算（含外送費 50/50 分攤）
+  async function linkPlatformToCC({ inv, cc, payer = '🌟 Star' }) {
     await linkCCToInvoice(cc.rowIndex, inv.invNum, inv.rowIndex);
-  }
-
-  // ── 匯入月度帳本（Step 1–4）──────────────────────────────────
-  function _calcShares(amount, shared, bearStr) {
-    const amt = parseFloat(String(amount).replace(',', '')) || 0;
-    if (shared === '是') { const h = Math.floor(amt / 2); return [String(h), String(amt - h)]; }
-    if (shared === '否') return ['0', String(Math.round(amt))];
-    if (shared === '部分') { const b = parseInt(bearStr) || 0; return [String(Math.round(amt) - b), String(b)]; }
-    if (shared === '-') return [String(Math.round(amt)), '0'];
-    return [String(Math.round(amt)), '0'];
+    await appendMonthlyFromInvoice({
+      date: inv.date,
+      shop: inv.shop,
+      category: inv.category || '',
+      invNum: inv.invNum,
+      invRowIndex: inv.rowIndex,
+      source: inv.carrier === '手查發票' ? '手查發票' : '掃描發票',
+      payer: payer || '🌟 Star',
+    });
   }
 
   let _sheetIdCache = null;
@@ -662,9 +651,8 @@ const Sheets = (() => {
     if (has('房租')) {
       log('[固定項目] 房租已存在，略過');
     } else {
-      const [sin, bear] = _calcShares(RENT_BASE, '是');
       const note = month % 2 === 0 ? '⚡ 本期含電費，收到後補上總額（電費 ）' : '';
-      rows.push([`${ym}-01`, '房租', RENT_BASE, '🌟 Star', '是', '🏠', sin, bear, note, '手動記帳', '', stamp]);
+      rows.push([`${ym}-01`, '房租', RENT_BASE, '🌟 Star', '是', '🏠', note, '手動記帳', '', stamp]);
       created.push('房租');
     }
 
@@ -673,14 +661,19 @@ const Sheets = (() => {
       log('[固定項目] 交通費已存在，略過');
     } else {
       const lastDay = new Date(year, month, 0).getDate();
-      rows.push([`${ym}-${lastDay}`, `[待填] ${transportKey}`, '', '🌟 Star', '-', '⛽', '', '0', '悠遊卡', '手動記帳', '', '']);
+      rows.push([`${ym}-${lastDay}`, `[待填] ${transportKey}`, '', '🌟 Star', '-', '⛽', '悠遊卡', '手動記帳', '', '']);
       created.push('交通費');
     }
 
     if (rows.length) {
       const colA = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
       const next = (colA.values || []).length + 1;
-      await _update(`${CONFIG.TABS.MONTHLY}!A${next}:L${next + rows.length - 1}`, rows);
+      const tab = CONFIG.TABS.MONTHLY;
+      const end = next + rows.length - 1;
+      await _batchUpdate([
+        { range: `${tab}!A${next}:F${end}`, values: rows.map(r => r.slice(0, 6)) },
+        { range: `${tab}!I${next}:L${end}`, values: rows.map(r => r.slice(6)) },
+      ]);
       invalidateMonth(ym);
       created.forEach(n => log(`[固定項目] 新增 ${n}`));
     }
@@ -735,16 +728,20 @@ const Sheets = (() => {
     const invMarkRanges   = [];
     for (const { rowIndex, r } of toImportInv) {
       const date = r[1].replace(/^'/, '');
-      const [sin, bear] = _calcShares(r[4], r[7], r[10]);
       const link = _dynamicInvoiceLink(r[2] || '→');
-      invMonthlyRows.push([date, r[3]||'', r[4]||'0', '🌟 Star', r[7], r[6]||'', sin, bear, r[8]||'', '發票', link, importedAt]);
+      invMonthlyRows.push([date, r[3]||'', r[4]||'0', '🌟 Star', r[7], r[6]||'', r[8]||'', '發票', link, importedAt]);
       invMarkRanges.push({ range: `${CONFIG.TABS.INVOICE}!J${rowIndex}`, values: [[true]] });
       importedInvList.push({ date, amount: parseFloat(String(r[4]).replace(',','')) || 0 });
     }
     if (invMonthlyRows.length) {
       const colA = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
       const next = (colA.values || []).length + 1;
-      await _update(`${CONFIG.TABS.MONTHLY}!A${next}:L${next + invMonthlyRows.length - 1}`, invMonthlyRows);
+      const tab = CONFIG.TABS.MONTHLY;
+      const end = next + invMonthlyRows.length - 1;
+      await _batchUpdate([
+        { range: `${tab}!A${next}:F${end}`, values: invMonthlyRows.map(r => r.slice(0, 6)) },
+        { range: `${tab}!I${next}:L${end}`, values: invMonthlyRows.map(r => r.slice(6)) },
+      ]);
       await _batchUpdate(invMarkRanges);
       invalidateMonth(ym);
     }
@@ -796,9 +793,11 @@ const Sheets = (() => {
         Math.abs((ccDate - new Date(d)) / 86400000) <= 5 && amt === a
       );
       if (hasDup) { skippedInv++; continue; }
-      const [sin, bear] = bearOverride !== null
-        ? _calcShares(r[4], '部分', String(bearOverride))
-        : _calcShares(r[4], r[7]);
+      let sin = '', bear = '';
+      if (bearOverride !== null) {
+        sin = String(Math.round(amt) - bearOverride);
+        bear = String(bearOverride);
+      }
       const link = _dynamicCCLink(ccGid, date, r[3] || '', r[4] || 0);
       ccMonthlyRows.push([date, r[3]||'', r[4]||'0', '🌟 Star', r[7], r[6]||'', sin, bear, r[9]||'', '信用卡', link, importedAt]);
       ccMarkRanges.push({ range: `${CONFIG.TABS.CC}!K${rowIndex}`, values: [[true]] });
@@ -807,7 +806,18 @@ const Sheets = (() => {
     if (ccMonthlyRows.length) {
       const colA = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
       const next = (colA.values || []).length + 1;
-      await _update(`${CONFIG.TABS.MONTHLY}!A${next}:L${next + ccMonthlyRows.length - 1}`, ccMonthlyRows);
+      const tab = CONFIG.TABS.MONTHLY;
+      const end = next + ccMonthlyRows.length - 1;
+      const batchData = [
+        { range: `${tab}!A${next}:F${end}`, values: ccMonthlyRows.map(r => r.slice(0, 6)) },
+        { range: `${tab}!I${next}:L${end}`, values: ccMonthlyRows.map(r => r.slice(8)) },
+      ];
+      ccMonthlyRows.forEach((r, i) => {
+        if (r[6] !== '' || r[7] !== '') {
+          batchData.push({ range: `${tab}!G${next + i}:H${next + i}`, values: [[r[6], r[7]]] });
+        }
+      });
+      await _batchUpdate(batchData);
       await _batchUpdate(ccMarkRanges);
       invalidateMonth(ym);
     }

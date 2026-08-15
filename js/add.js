@@ -4,21 +4,6 @@ const Add = (() => {
   let _payer  = '🌟 Star';
   let _shared = '是';
 
-  // ── 分擔計算 ───────────────────────────────────────────────────
-  // 是     → 各半
-  // 否     → 負責人代墊，對方全欠
-  // -      → Sin 個人，不計入 Bear
-  // 部分共用 → 留空（需在 Sheet 補品項明細）
-  function _calcShares(amount, payer, shared) {
-    const half = +(amount / 2).toFixed(0);
-    if (shared === '是')    return [half, half];
-    if (shared === '-')     return [amount, 0];
-    if (shared === '否') {
-      return payer === '🌟 Star' ? [0, amount] : [amount, 0];
-    }
-    return ['', ''];  // 部分共用：留空
-  }
-
   function _todayStr() {
     return new Date().toISOString().slice(0, 10);
   }
@@ -194,12 +179,9 @@ const Add = (() => {
     if (!amount || amount <= 0) return _showError('請輸入有效金額');
     if (!item)          return _showError('請輸入項目名稱');
 
-    const [sinShare, bearShare] = _calcShares(amount, _payer, _shared);
-
-    // [date, item, amount, payer, shared, category, sinShare, bearShare, note, source, sourceLink, importedAt]
     const row = [
       date, item, amount, _payer, _shared, cat,
-      sinShare, bearShare, note,
+      '', '', note,
       '手動記帳', '', _nowStr(),
     ];
 

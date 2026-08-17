@@ -46,14 +46,14 @@ const Settings = (() => {
   }
 
   function _renderCardStatus(rows) {
-    return rows.map(({ bank, count }) => `
-      <div class="settings-bank-row" data-bank="${bank}" style="cursor:pointer">
+    return rows.map(({ bank, count, skipped }) => {
+      const val = count ? `${count} 筆` : skipped ? '已略過' : '未到';
+      const cls = count ? '' : skipped ? 'settings-bank-skipped' : 'settings-bank-empty';
+      return `<div class="settings-bank-row" data-bank="${bank}" style="cursor:pointer">
         <span class="settings-bank-name">${bank}</span>
-        <span class="settings-bank-val ${count ? '' : 'settings-bank-empty'}">
-          ${count ? `${count} 筆` : '未到'}
-        </span>
-      </div>
-    `).join('');
+        <span class="settings-bank-val ${cls}">${val}</span>
+      </div>`;
+    }).join('');
   }
 
   async function _loadCardStatus() {

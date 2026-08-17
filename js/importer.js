@@ -72,7 +72,7 @@ const Importer = (() => {
   // overdue：今天已過該月 15 號仍未收齊（只在看當月時成立，翻舊月份不提醒）
   async function getStatus(year, month) {
     const rows  = await Sheets.getCreditCardImportStatus(year, month);
-    const done  = rows.filter(r => r.count > 0).length;
+    const done  = rows.filter(r => r.count > 0 || r.skipped).length;
     const now   = new Date();
     const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
     return {
@@ -117,6 +117,15 @@ const Importer = (() => {
                 <div class="settings-bank-loading">讀取中…</div>
               </div>
             </div>
+            <div class="settings-row settings-row-stack">
+              <div class="settings-row-head">
+                <span class="settings-label">匯入狀態</span>
+                <span class="settings-val" id="importer-import-sum">—</span>
+              </div>
+              <div id="importer-import-status" class="importer-import-grid">
+                <div class="settings-bank-loading">讀取中…</div>
+              </div>
+            </div>
             <div id="importer-log" class="import-log"></div>
             <div style="display:flex;gap:8px;margin-top:8px">
               <button class="btn-primary" id="importer-download" style="flex:1">下載發票 + CC</button>
@@ -143,6 +152,8 @@ const Importer = (() => {
     if (_month > 12) { _month = 1;  _year++; }
     document.getElementById('importer-month-lbl').textContent = _ymLabel();
     document.getElementById('importer-log').textContent = '';
+    const impEl = document.getElementById('importer-import-status');
+    if (impEl) impEl.innerHTML = '<div class="settings-bank-loading">讀取中…</div>';
     _renderStatus();
   }
 
@@ -154,15 +165,96 @@ const Importer = (() => {
     if (sum) sum.textContent = '—';
     try {
       const { rows, done, total } = await getStatus(_year, _month);
-      el.innerHTML = rows.map(({ bank, count }) => `
-        <div class="settings-bank-row">
+      el.innerHTML = rows.map(({ bank, count, skipped }) => {
+        let valHtml, btnHtml = '';
+        if (count > 0) {
+          valHtml = `<span class="settings-bank-val">${count} 筆</span>`;
+        } else if (skipped) {
+          valHtml = `<span class="settings-bank-val settings-bank-skipped">已略過</span>`;
+          btnHtml = `<button class="importer-skip-btn" data-bank="${bank}" data-action="unskip">取消</button>`;
+        } else {
+          valHtml = `<span class="settings-bank-val settings-bank-empty">未到</span>`;
+          btnHtml = `<button class="importer-skip-btn" data-bank="${bank}" data-action="skip">略過</button>`;
+        }
+        return `<div class="settings-bank-row">
           <span class="settings-bank-name">${bank}</span>
-          <span class="settings-bank-val ${count ? '' : 'settings-bank-empty'}">
-            ${count ? `${count} 筆` : '未到'}
-          </span>
-        </div>
-      `).join('');
+          <div style="display:flex;align-items:center;gap:6px">${valHtml}${btnHtml}</div>
+        </div>`;
+      }).join('');
+      el.querySelectorAll('.importer-skip-btn').forEach(btn => {
+        btn.addEventListener('click', () => _onSkipToggle(btn.dataset.bank, btn.dataset.action));
+      });
       if (sum) sum.textContent = done === total ? '✓ 四家到齊' : `${done}/${total} 家`;
+    } catch (e) {
+      if (e.message !== 'auth_expired') {
+        el.innerHTML = '<div class="settings-bank-loading">讀取失敗</div>';
+      }
+    }
+    _renderImportCompleteness();
+  }
+
+  async function _onSkipToggle(bank, action) {
+    if (_busy) return;
+    const btns = document.querySelectorAll('.importer-skip-btn');
+    btns.forEach(b => b.disabled = true);
+    try {
+      if (action === 'skip') {
+        await Sheets.skipCCBank(_year, _month, bank);
+      } else {
+        const rows = await Sheets.getCreditCardImportStatus(_year, _month);
+        const row = rows.find(r => r.bank === bank);
+        if (row?.skipRow) await Sheets.unskipCCBank(row.skipRow);
+      }
+      await _renderStatus();
+      window.Home?.refreshImportBadge();
+    } catch (e) {
+      alert(`操作失敗：${e.message}`);
+      btns.forEach(b => b.disabled = false);
+    }
+  }
+
+  async function _renderImportCompleteness() {
+    const el  = document.getElementById('importer-import-status');
+    const sum = document.getElementById('importer-import-sum');
+    if (!el) return;
+    el.innerHTML = '<div class="settings-bank-loading">讀取中…</div>';
+    if (sum) sum.textContent = '—';
+    try {
+      const { inv, cc } = await Sheets.getImportCompleteness(_year, _month);
+      const deduped = cc.deduped || 0;
+      const total = inv.total + cc.total;
+      const imported = inv.imported + cc.imported;
+      const blocked = inv.blocked + cc.blocked;
+      const done = imported + deduped;
+
+      if (total === 0) {
+        el.innerHTML = '<div class="settings-bank-loading">本月無資料</div>';
+        if (sum) sum.textContent = '—';
+        return;
+      }
+
+      const _row = (label, d) => {
+        const dup = d.deduped || 0;
+        const rowDone = d.imported + dup;
+        const allDone = rowDone === d.total && d.total > 0;
+        const icon = allDone ? '✅' : d.blocked > 0 ? '⚠' : '';
+        let detail = `${d.imported}/${d.total}`;
+        if (dup > 0) detail += `<span class="importer-deduped">（${dup} 筆與發票重複）</span>`;
+        if (d.blocked > 0) detail += `<span class="importer-blocked">（${d.blocked} 筆待填）</span>`;
+        return `<div class="importer-import-row">
+          <span class="importer-import-label">${label}</span>
+          <span class="importer-import-val ${allDone ? 'importer-import-done' : ''}">${icon} ${detail}</span>
+        </div>`;
+      };
+
+      el.innerHTML = _row('發票', inv) + _row('CC', cc);
+
+      if (done === total) {
+        if (sum) sum.textContent = '✓ 全部匯入';
+      } else {
+        const ready = total - done - blocked;
+        if (sum) sum.textContent = ready > 0 ? `${ready} 筆可匯入` : `${blocked} 筆待填`;
+      }
     } catch (e) {
       if (e.message !== 'auth_expired') {
         el.innerHTML = '<div class="settings-bank-loading">讀取失敗</div>';

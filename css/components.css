@@ -470,6 +470,60 @@ select.field-input { height: 44px; }
   font-size: 13px;
   padding: 8px 0 2px;
 }
+.settings-bank-skipped {
+  color: var(--text-sub);
+  font-size: 13px;
+  font-weight: 400;
+}
+.importer-skip-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-sub);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.importer-skip-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.importer-import-grid {
+  margin-top: 10px;
+}
+.importer-import-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+}
+.importer-import-row + .importer-import-row {
+  border-top: 1px solid var(--divider);
+}
+.importer-import-label {
+  font-size: 13px;
+  color: var(--text-sub);
+}
+.importer-import-val {
+  font-size: 14px;
+  font-weight: 600;
+}
+.importer-import-done {
+  color: var(--teal);
+}
+.importer-deduped {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  margin-left: 4px;
+}
+.importer-blocked {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--orange, #e8a735);
+  margin-left: 4px;
+}
 
 .settings-settlement-val {
   font-size: 20px;

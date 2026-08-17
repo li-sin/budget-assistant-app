@@ -38,6 +38,12 @@ const Ledger = (() => {
   let _ccPostedFilter  = 'all'; // 'all', 'yes', 'no'
   let _ccSearchQuery   = '';
   let _invImportedFilter = 'all'; // 'all', 'yes', 'no'
+  let _invSortMode       = 'date-desc'; // date-desc | date-asc | amount-desc | amount-asc
+  let _invCatFilter      = '';
+  let _invCarrierFilter  = '';
+  let _ccSortMode        = 'date-desc'; // date-desc | date-asc | amount-desc | amount-asc
+  let _ccCatFilter       = '';
+  let _ccBankFilter      = '';
   let _invoiceScrollRow = null;
   let _ccScrollRow      = null;
   let _ccUnlinkRow      = null;
@@ -654,6 +660,54 @@ const Ledger = (() => {
     const valid = prev === '' || cats.includes(prev) || (prev === UNCAT && hasUncat);
     sel.value  = valid ? prev : '';
     _catFilter = sel.value;
+  }
+
+  function _refreshInvFilterOptions() {
+    const carriers = [...new Set(_invRows.map(r => r.carrier).filter(Boolean))].sort();
+    const carrierSel = document.getElementById('inv-carrier');
+    if (carrierSel) {
+      const prevCarrier = _invCarrierFilter;
+      carrierSel.innerHTML = '<option value="">全部載具</option>'
+        + carriers.map(c => `<option value="${c}">${c}</option>`).join('');
+      carrierSel.value = carriers.includes(prevCarrier) ? prevCarrier : '';
+      _invCarrierFilter = carrierSel.value;
+    }
+    const cats = [...new Set(_invRows.map(r => r.category).filter(Boolean))].sort();
+    const hasUncat = _invRows.some(r => !r.category);
+    const catSel = document.getElementById('inv-cat');
+    if (catSel) {
+      const prev = _invCatFilter;
+      catSel.innerHTML = '<option value="">全部類別</option>'
+        + cats.map(c => `<option value="${c}">${c}</option>`).join('')
+        + (hasUncat ? `<option value="${UNCAT}">${UNCAT}</option>` : '');
+      const valid = prev === '' || cats.includes(prev) || (prev === UNCAT && hasUncat);
+      catSel.value = valid ? prev : '';
+      _invCatFilter = catSel.value;
+    }
+  }
+
+  function _refreshCCFilterOptions() {
+    const banks = [...new Set(_ccRows.map(r => r.bank).filter(Boolean))].sort();
+    const bankSel = document.getElementById('cc-bank');
+    if (bankSel) {
+      const prevBank = _ccBankFilter;
+      bankSel.innerHTML = '<option value="">全部銀行</option>'
+        + banks.map(b => `<option value="${b}">${b}</option>`).join('');
+      bankSel.value = banks.includes(prevBank) ? prevBank : '';
+      _ccBankFilter = bankSel.value;
+    }
+    const cats = [...new Set(_ccRows.map(r => r.category).filter(Boolean))].sort();
+    const hasUncat = _ccRows.some(r => !r.category);
+    const catSel = document.getElementById('cc-cat');
+    if (catSel) {
+      const prevCat = _ccCatFilter;
+      catSel.innerHTML = '<option value="">全部類別</option>'
+        + cats.map(c => `<option value="${c}">${c}</option>`).join('')
+        + (hasUncat ? `<option value="${UNCAT}">${UNCAT}</option>` : '');
+      const valid = prevCat === '' || cats.includes(prevCat) || (prevCat === UNCAT && hasUncat);
+      catSel.value = valid ? prevCat : '';
+      _ccCatFilter = catSel.value;
+    }
   }
 
   function _loadImportBadge() {
@@ -2684,6 +2738,7 @@ const Ledger = (() => {
         map.set(it.invNum, (map.get(it.invNum) || 0) + 1);
         return map;
       }, new Map());
+      _refreshInvFilterOptions();
       _renderInvoiceList();
     } catch (e) {
       el.innerHTML = `<div class="empty-state"><span>⚠️</span><p>${e.message}</p></div>`;
@@ -2700,9 +2755,20 @@ const Ledger = (() => {
     //   truthy 判定會把未匯入的列全算成已匯入（4273 筆 FALSE 全被誤標）
     if (_invImportedFilter === 'yes') rows = rows.filter(r => r.imported === 'TRUE');
     else if (_invImportedFilter === 'no') rows = rows.filter(r => r.imported !== 'TRUE');
+    if (_invCarrierFilter) rows = rows.filter(r => r.carrier === _invCarrierFilter);
+    if (_invCatFilter === UNCAT) rows = rows.filter(r => !r.category);
+    else if (_invCatFilter) rows = rows.filter(r => r.category === _invCatFilter);
     if (q) rows = rows.filter(r =>
       (r.shop || '').toLowerCase().includes(q) || (r.note || '').toLowerCase().includes(q)
     );
+    rows = [...rows].sort((a, b) => {
+      switch (_invSortMode) {
+        case 'date-asc':    return a.date.localeCompare(b.date);
+        case 'amount-desc': return b.amount - a.amount;
+        case 'amount-asc':  return a.amount - b.amount;
+        default:            return b.date.localeCompare(a.date);
+      }
+    });
     document.getElementById('inv-count').textContent = `${rows.length} 筆`;
     if (!rows.length) {
       el.innerHTML = '<div class="empty-state"><span>📭</span><p>沒有符合條件的記錄</p></div>';
@@ -2769,6 +2835,7 @@ const Ledger = (() => {
     document.getElementById('cc-count').textContent = '';
     try {
       _ccRows = await Sheets.getCCSheetData(_year, _month);
+      _refreshCCFilterOptions();
       _renderCCList();
     } catch (e) {
       el.innerHTML = `<div class="empty-state"><span>⚠️</span><p>${e.message}</p></div>`;
@@ -2787,9 +2854,20 @@ const Ledger = (() => {
     else if (_ccLinkedFilter === 'no') rows = rows.filter(r => !r.matched);
     if (_ccPostedFilter === 'yes') rows = rows.filter(r => r.posted);
     else if (_ccPostedFilter === 'no') rows = rows.filter(r => !r.posted);
+    if (_ccBankFilter) rows = rows.filter(r => r.bank === _ccBankFilter);
+    if (_ccCatFilter === UNCAT) rows = rows.filter(r => !r.category);
+    else if (_ccCatFilter) rows = rows.filter(r => r.category === _ccCatFilter);
     if (q) rows = rows.filter(r =>
       (r.shop || '').toLowerCase().includes(q) || (r.note || '').toLowerCase().includes(q)
     );
+    rows = [...rows].sort((a, b) => {
+      switch (_ccSortMode) {
+        case 'date-asc':    return a.txDate.localeCompare(b.txDate);
+        case 'amount-desc': return b.amount - a.amount;
+        case 'amount-asc':  return a.amount - b.amount;
+        default:            return b.txDate.localeCompare(a.txDate);
+      }
+    });
     document.getElementById('cc-count').textContent = `${rows.length} 筆`;
     if (!rows.length) {
       el.innerHTML = '<div class="empty-state"><span>📭</span><p>沒有符合條件的記錄</p></div>';
@@ -2933,7 +3011,21 @@ const Ledger = (() => {
             <button class="chip" data-inv-imported="yes">已匯入</button>
             <button class="chip" data-inv-imported="no">未匯入</button>
           </div>
-          <span id="inv-count" class="ledger-count"></span>
+          <div class="filter-row">
+            <select id="inv-carrier" class="cat-select">
+              <option value="">全部載具</option>
+            </select>
+            <select id="inv-cat" class="cat-select">
+              <option value="">全部類別</option>
+            </select>
+            <select id="inv-sort" class="cat-select">
+              <option value="date-desc">交易時間 ↓</option>
+              <option value="date-asc">交易時間 ↑</option>
+              <option value="amount-desc">金額高→低</option>
+              <option value="amount-asc">金額低→高</option>
+            </select>
+            <span id="inv-count" class="ledger-count"></span>
+          </div>
         </div>
         <div class="card" id="inv-list"></div>
       </div>
@@ -2965,7 +3057,21 @@ const Ledger = (() => {
             <button class="chip" data-cc-posted="yes">已匯入</button>
             <button class="chip" data-cc-posted="no">未匯入</button>
           </div>
-          <span id="cc-count" class="ledger-count"></span>
+          <div class="filter-row">
+            <select id="cc-bank" class="cat-select">
+              <option value="">全部銀行</option>
+            </select>
+            <select id="cc-cat" class="cat-select">
+              <option value="">全部類別</option>
+            </select>
+            <select id="cc-sort" class="cat-select">
+              <option value="date-desc">交易時間 ↓</option>
+              <option value="date-asc">交易時間 ↑</option>
+              <option value="amount-desc">金額高→低</option>
+              <option value="amount-asc">金額低→高</option>
+            </select>
+            <span id="cc-count" class="ledger-count"></span>
+          </div>
         </div>
         <div class="card" id="cc-list"></div>
       </div>
@@ -3071,6 +3177,18 @@ const Ledger = (() => {
       document.getElementById('inv-search-clear').classList.add('hidden');
       _renderInvoiceList();
     });
+    document.getElementById('inv-carrier').addEventListener('change', e => {
+      _invCarrierFilter = e.target.value;
+      _renderInvoiceList();
+    });
+    document.getElementById('inv-cat').addEventListener('change', e => {
+      _invCatFilter = e.target.value;
+      _renderInvoiceList();
+    });
+    document.getElementById('inv-sort').addEventListener('change', e => {
+      _invSortMode = e.target.value;
+      _renderInvoiceList();
+    });
 
     // CC明細篩選（複選）
     document.querySelectorAll('#cc-shared-chips .chip').forEach(btn => {
@@ -3119,6 +3237,18 @@ const Ledger = (() => {
       _ccSearchQuery = '';
       document.getElementById('cc-search').value = '';
       document.getElementById('cc-search-clear').classList.add('hidden');
+      _renderCCList();
+    });
+    document.getElementById('cc-bank').addEventListener('change', e => {
+      _ccBankFilter = e.target.value;
+      _renderCCList();
+    });
+    document.getElementById('cc-cat').addEventListener('change', e => {
+      _ccCatFilter = e.target.value;
+      _renderCCList();
+    });
+    document.getElementById('cc-sort').addEventListener('change', e => {
+      _ccSortMode = e.target.value;
       _renderCCList();
     });
 

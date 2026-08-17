@@ -806,7 +806,8 @@ const Sheets = (() => {
       if (sh === 'x' || sh === '') return;
       const d = (r[1] || '').replace(/^'/, '').replace(/\//g, '-');
       const a = parseFloat(r[4]) || 0;
-      if (d && a) invForDedup.push({ date: d, amount: a });
+      const platform = CONFIG.CC_PAY_KEYWORDS.some(kw => (r[8] || '').toLowerCase().includes(kw.toLowerCase()));
+      if (d && a) invForDedup.push({ date: d, amount: a, platform });
     });
 
     const toImportCC = [];
@@ -837,7 +838,7 @@ const Sheets = (() => {
       const amt = parseFloat(r[4]) || 0;
       const ccDate = new Date(date);
       const hasSuspect = invForDedup.some(inv =>
-        Math.abs((ccDate - new Date(inv.date)) / 86400000) <= 5 && amt === inv.amount
+        Math.abs((ccDate - new Date(inv.date)) / 86400000) <= (inv.platform ? 5 : 1) && amt === inv.amount
       );
       if (hasSuspect) { skippedSuspect++; continue; }
       let sin = '', bear = '';
@@ -1511,21 +1512,18 @@ const Sheets = (() => {
       const date = (r[1] || '').replace(/^'/, '').replace(/\//g, '-');
       if (!date.startsWith(ym)) continue;
       if (r[5] === '作廢') continue;
-      if (CONFIG.CC_PAY_KEYWORDS.some(kw => (r[8] || '').toLowerCase().includes(kw.toLowerCase()))) continue;
       if ((r[7] || '') === 'x') continue;
-      invTotal++;
+      const isPlatform = CONFIG.CC_PAY_KEYWORDS.some(kw => (r[8] || '').toLowerCase().includes(kw.toLowerCase()));
       const amt = parseFloat(r[4]) || 0;
-      if (r[9] === 'TRUE' || r[9] === 'True') {
-        invImported++;
-        if (date && amt) invForDedup.push({ date, amount: amt });
-        continue;
-      }
+      if (date && amt) invForDedup.push({ date, amount: amt, platform: isPlatform });
+      if (isPlatform) continue;
+      invTotal++;
+      if (r[9] === 'TRUE' || r[9] === 'True') { invImported++; continue; }
       if (!r[6] || !['是','否','部分','-'].includes(r[7])) { invBlocked++; continue; }
       if (r[7] === '部分') {
         const its = itemMap[r[2]] || [];
         if (!its.length || its.some(it => !(it[6] || '').trim())) { invBlocked++; continue; }
       }
-      if (date && amt) invForDedup.push({ date, amount: amt });
     }
 
     const ccRows = (ccRaw.values || []).slice(1);
@@ -1548,7 +1546,7 @@ const Sheets = (() => {
       const ccAmt = parseFloat(r[4]) || 0;
       const ccDate = new Date(date);
       const hasSuspect = invForDedup.some(inv =>
-        Math.abs((ccDate - new Date(inv.date)) / 86400000) <= 5 && ccAmt === inv.amount
+        Math.abs((ccDate - new Date(inv.date)) / 86400000) <= (inv.platform ? 5 : 1) && ccAmt === inv.amount
       );
       if (hasSuspect) { ccSuspect++; }
     }

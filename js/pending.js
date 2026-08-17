@@ -314,7 +314,8 @@ const Pending = (() => {
         const suspects = invoices.filter(inv => {
           if (inv.status === '作廢' || (inv.shared || '') === 'x') return false;
           const diff = Math.abs((ccDate - new Date(inv.date)) / 86400000);
-          return diff <= 5 && cc.amount === inv.amount;
+          const isPlatform = CONFIG.CC_PAY_KEYWORDS.some(kw => (inv.note || '').toLowerCase().includes(kw.toLowerCase()));
+          return diff <= (isPlatform ? 5 : 1) && cc.amount === inv.amount;
         });
         if (!suspects.length) return;
         result.push({

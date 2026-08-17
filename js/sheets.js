@@ -600,7 +600,7 @@ const Sheets = (() => {
 
   // ── 取得全部信用卡明細（掃描/CC 配對用）────────────────────────
   async function getCCAllData() {
-    const data = await _get(`${CONFIG.TABS.CC}!A:J`);
+    const data = await _get(`${CONFIG.TABS.CC}!A:L`);
     return (data.values || []).slice(1)
       .map((r, i) => ({
         rowIndex: i + 2,
@@ -608,9 +608,12 @@ const Sheets = (() => {
         txDate:  _normalizeDate(r[1]),
         shop:    r[3] || '',
         amount:  parseFloat(r[4]) || 0,
+        category: r[6] || '',
         shared:  r[7] || '',
-        matched: _asInvoiceNumber(r[8]),  // I欄：只接受發票號碼，避免誤填備註被當連結
+        matched: _asInvoiceNumber(r[8]),
         note:    r[9] || '',
+        imported: r[10] || '',
+        billMonth: r[11] || '',
       }))
       .filter(r => r.amount > 0 && r.txDate);
   }
@@ -770,7 +773,6 @@ const Sheets = (() => {
     }
     log(`[Step 1] 待匯入 ${toImportInv.length} 筆`);
 
-    const importedInvList = [];
     const invMonthlyRows  = [];
     const invMarkRanges   = [];
     for (const { rowIndex, r } of toImportInv) {
@@ -778,7 +780,6 @@ const Sheets = (() => {
       const link = _dynamicInvoiceLink(r[2] || '→');
       invMonthlyRows.push([date, r[3]||'', r[4]||'0', '🌟 Star', r[7], r[6]||'', r[8]||'', '發票', link, importedAt]);
       invMarkRanges.push({ range: `${CONFIG.TABS.INVOICE}!J${rowIndex}`, values: [[true]] });
-      importedInvList.push({ date, amount: parseFloat(String(r[4]).replace(',','')) || 0 });
     }
     if (invMonthlyRows.length) {
       const colA = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
@@ -799,14 +800,13 @@ const Sheets = (() => {
     const ccRaw  = await _get(`${CONFIG.TABS.CC}!A:K`);
     const ccRows = (ccRaw.values || []).slice(1);
 
-    // 已匯入發票（含 App 掃描）加入去重清單
-    const allInvDedup = [...importedInvList];
+    const invForDedup = [];
     invRows.forEach(r => {
-      if ((r[9]==='TRUE'||r[9]==='True') && r[7]!=='x' && r[7]!=='') {
-        const date = (r[1]||'').replace(/^'/,'');
-        const amt  = parseFloat(r[4]) || 0;
-        if (date && amt) allInvDedup.push({ date, amount: amt });
-      }
+      const sh = r[7] || '';
+      if (sh === 'x' || sh === '') return;
+      const d = (r[1] || '').replace(/^'/, '').replace(/\//g, '-');
+      const a = parseFloat(r[4]) || 0;
+      if (d && a) invForDedup.push({ date: d, amount: a });
     });
 
     const toImportCC = [];
@@ -832,18 +832,14 @@ const Sheets = (() => {
 
     const ccMonthlyRows = [];
     const ccMarkRanges  = [];
-    let   skippedInv    = 0;
+    let   skippedSuspect = 0;
     for (const { rowIndex, r, bearOverride, date } of toImportCC) {
-      const amt    = parseFloat(r[4]) || 0;
+      const amt = parseFloat(r[4]) || 0;
       const ccDate = new Date(date);
-      const hasDup = allInvDedup.some(({ date: d, amount: a }) =>
-        Math.abs((ccDate - new Date(d)) / 86400000) <= 5 && amt === a
+      const hasSuspect = invForDedup.some(inv =>
+        Math.abs((ccDate - new Date(inv.date)) / 86400000) <= 5 && amt === inv.amount
       );
-      if (hasDup) {
-        skippedInv++;
-        ccMarkRanges.push({ range: `${CONFIG.TABS.CC}!K${rowIndex}`, values: [['DUP']] });
-        continue;
-      }
+      if (hasSuspect) { skippedSuspect++; continue; }
       let sin = '', bear = '';
       if (bearOverride !== null) {
         sin = String(Math.round(amt) - bearOverride);
@@ -853,7 +849,6 @@ const Sheets = (() => {
       ccMonthlyRows.push([date, r[3]||'', r[4]||'0', '🌟 Star', r[7], r[6]||'', sin, bear, r[9]||'', '信用卡', link, importedAt]);
       ccMarkRanges.push({ range: `${CONFIG.TABS.CC}!K${rowIndex}`, values: [[true]] });
     }
-    log(`[Step 2] 因已有發票略過：${skippedInv} 筆`);
     if (ccMonthlyRows.length) {
       const colA = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
       const next = (colA.values || []).length + 1;
@@ -869,18 +864,17 @@ const Sheets = (() => {
         }
       });
       await _batchUpdate(batchData);
+      await _batchUpdate(ccMarkRanges);
       invalidateMonth(ym);
     }
-    if (ccMarkRanges.length) {
-      await _batchUpdate(ccMarkRanges);
-    }
+    if (skippedSuspect) log(`[Step 2] ⚠ ${skippedSuspect} 筆疑似與發票重複，待確認（見待處理 tab）`);
     log(`[Step 2] 完成，匯入 CC ${ccMonthlyRows.length} 筆`);
 
     // ── Step 3: 每月固定項目（房租／交通費）──────────────────────
     log('[Step 3] 固定項目…');
     await ensureMonthlyPlaceholders(year, month, log);
 
-    return { invoices: invMonthlyRows.length, cc: ccMonthlyRows.length, skippedCC: skippedInv };
+    return { invoices: invMonthlyRows.length, cc: ccMonthlyRows.length, skippedSuspect };
   }
 
   // ── F20 刪除：發票明細整列刪除 ──────────────────────────────
@@ -1510,7 +1504,7 @@ const Sheets = (() => {
 
     const invRows = (invRaw.values || []).slice(1);
     let invTotal = 0, invImported = 0, invBlocked = 0;
-    const invDedup = [];
+    const invForDedup = [];
     for (let i = 0; i < invRows.length; i++) {
       const r = [...invRows[i]];
       while (r.length < 11) r.push('');
@@ -1523,7 +1517,7 @@ const Sheets = (() => {
       const amt = parseFloat(r[4]) || 0;
       if (r[9] === 'TRUE' || r[9] === 'True') {
         invImported++;
-        if (date && amt) invDedup.push({ date, amount: amt });
+        if (date && amt) invForDedup.push({ date, amount: amt });
         continue;
       }
       if (!r[6] || !['是','否','部分','-'].includes(r[7])) { invBlocked++; continue; }
@@ -1531,11 +1525,11 @@ const Sheets = (() => {
         const its = itemMap[r[2]] || [];
         if (!its.length || its.some(it => !(it[6] || '').trim())) { invBlocked++; continue; }
       }
-      if (date && amt) invDedup.push({ date, amount: amt });
+      if (date && amt) invForDedup.push({ date, amount: amt });
     }
 
     const ccRows = (ccRaw.values || []).slice(1);
-    let ccTotal = 0, ccImported = 0, ccBlocked = 0, ccDeduped = 0;
+    let ccTotal = 0, ccImported = 0, ccBlocked = 0, ccSuspect = 0;
     for (let i = 0; i < ccRows.length; i++) {
       const r = [...ccRows[i]];
       while (r.length < 11) r.push('');
@@ -1545,7 +1539,6 @@ const Sheets = (() => {
       if (_asInvoiceNumber(r[8])) continue;
       if (!(r[3] || '').trim() || (parseFloat(r[4]) || 0) <= 0) continue;
       ccTotal++;
-      if (r[10] === 'DUP') { ccDeduped++; continue; }
       if (r[10] === 'TRUE' || r[10] === 'True') { ccImported++; continue; }
       if (!['是','否','部分','-'].includes(r[7])) { ccBlocked++; continue; }
       if (r[7] === '部分') {
@@ -1554,16 +1547,53 @@ const Sheets = (() => {
       }
       const ccAmt = parseFloat(r[4]) || 0;
       const ccDate = new Date(date);
-      const hasDup = invDedup.some(inv =>
+      const hasSuspect = invForDedup.some(inv =>
         Math.abs((ccDate - new Date(inv.date)) / 86400000) <= 5 && ccAmt === inv.amount
       );
-      if (hasDup) { ccDeduped++; }
+      if (hasSuspect) { ccSuspect++; }
     }
 
     return {
       inv: { total: invTotal, imported: invImported, blocked: invBlocked },
-      cc:  { total: ccTotal,  imported: ccImported,  blocked: ccBlocked, deduped: ccDeduped },
+      cc:  { total: ccTotal,  imported: ccImported,  blocked: ccBlocked, suspect: ccSuspect },
     };
+  }
+
+  async function importSingleCC(ccRowIndex) {
+    const data = await _get(`${CONFIG.TABS.CC}!A${ccRowIndex}:K${ccRowIndex}`);
+    const r = (data.values || [])[0];
+    if (!r) throw new Error('找不到 CC 列');
+    while (r.length < 11) r.push('');
+    const date = (r[1] || '').replace(/^'/, '').replace(/\//g, '-');
+    const amt = parseFloat(r[4]) || 0;
+    const shared = r[7] || '';
+    let sin = '', bear = '';
+    if (shared === '部分') {
+      const bearAmt = parseFloat((r[9] || '').replace(',', ''));
+      if (!isNaN(bearAmt)) {
+        sin = String(Math.round(amt) - bearAmt);
+        bear = String(bearAmt);
+      }
+    }
+    const now = new Date();
+    const importedAt = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    const gids = await _fetchSheetIds();
+    const ccGid = gids[CONFIG.TABS.CC];
+    const link = _dynamicCCLink(ccGid, date, r[3] || '', r[4] || 0);
+    const row = [date, r[3]||'', r[4]||'0', '🌟 Star', shared, r[6]||'', sin, bear, r[9]||'', '信用卡', link, importedAt];
+    const colA = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
+    const next = (colA.values || []).length + 1;
+    const tab = CONFIG.TABS.MONTHLY;
+    const batchData = [
+      { range: `${tab}!A${next}:F${next}`, values: [row.slice(0, 6)] },
+      { range: `${tab}!I${next}:L${next}`, values: [row.slice(8)] },
+    ];
+    if (sin !== '' || bear !== '') {
+      batchData.push({ range: `${tab}!G${next}:H${next}`, values: [[sin, bear]] });
+    }
+    await _batchUpdate(batchData);
+    await _update(`${CONFIG.TABS.CC}!K${ccRowIndex}`, [[true]]);
+    invalidateMonth(date.slice(0, 7));
   }
 
   return {
@@ -1586,6 +1616,6 @@ const Sheets = (() => {
     getInvoiceSheetData, getCCSheetData,
     updateCCFields,
     writeCCFromGmail,
-    skipCCBank, unskipCCBank, getImportCompleteness,
+    skipCCBank, unskipCCBank, getImportCompleteness, importSingleCC,
   };
 })();

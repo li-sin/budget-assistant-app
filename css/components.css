@@ -512,10 +512,10 @@ select.field-input { height: 44px; }
 .importer-import-done {
   color: var(--teal);
 }
-.importer-deduped {
+.importer-suspect {
   font-weight: 400;
   font-size: 12px;
-  color: var(--text-secondary, #888);
+  color: var(--orange, #e8a735);
   margin-left: 4px;
 }
 .importer-blocked {

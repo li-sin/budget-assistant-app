@@ -301,9 +301,37 @@ const Pending = (() => {
         });
       });
 
-    // 排序：🔴 > 🟠 > 🟡 > 🔵 > 🟤 > 🔗 > 🟣
-    const order = { anomaly: 0, duplicate: 1, untagged: 2, cc_pending: 3, platform_unlinked: 4, scan_cc_dup: 5, inv_pending: 6 };
-    result.sort((a, b) => order[a.type] - order[b.type]);
+    // 🟠 CC 疑似與發票重複：shared 已填、未匯入、未連結，但有日期±5天+金額相同的發票
+    ccAllRows
+      .filter(cc =>
+        ['是','否','部分','-'].includes(cc.shared) &&
+        cc.imported !== 'TRUE' && cc.imported !== 'True' &&
+        !cc.matched &&
+        cc.amount > 0 && cc.shop
+      )
+      .forEach(cc => {
+        const ccDate = new Date(cc.txDate);
+        const suspects = invoices.filter(inv => {
+          if (inv.status === '作廢' || (inv.shared || '') === 'x') return false;
+          const diff = Math.abs((ccDate - new Date(inv.date)) / 86400000);
+          return diff <= 5 && cc.amount === inv.amount;
+        });
+        if (!suspects.length) return;
+        result.push({
+          type: 'cc_inv_suspect',
+          label: '疑似重複',
+          color: '#FF9F43',
+          cc,
+          suspects: suspects.map(inv => ({
+            ...inv,
+            invItems: items.filter(it => it.invNum === inv.invNum),
+          })),
+        });
+      });
+
+    // 排序：🔴 > 🟠 > 🟡 > 🔵 > 🟤 > 🔗 > 🟣 > ⚠
+    const order = { anomaly: 0, duplicate: 1, cc_inv_suspect: 2, untagged: 3, cc_pending: 4, platform_unlinked: 5, scan_cc_dup: 6, inv_pending: 7, cc_refund: 8 };
+    result.sort((a, b) => (order[a.type] ?? 99) - (order[b.type] ?? 99));
     _items = result;
   }
 
@@ -435,6 +463,10 @@ const Pending = (() => {
           title  = it.inv.shop || it.inv.invNum;
           sub    = `${it.inv.date}　${it.candidates.length} 筆候選 CC`;
           amount = it.inv.amount;
+        } else if (it.type === 'cc_inv_suspect') {
+          title  = it.cc.shop;
+          sub    = `${it.cc.bank}　${it.cc.txDate}　${it.suspects.length} 筆候選發票`;
+          amount = it.cc.amount;
         } else if (it.type === 'cc_refund') {
           title  = it.refund.shop;
           sub    = it.buy
@@ -576,7 +608,96 @@ const Pending = (() => {
     else if (item.type === 'platform_unlinked') _renderPlatformUnlinked(item);
     else if (item.type === 'inv_pending')      _renderInvoicePending(item);
     else if (item.type === 'scan_cc_dup')      _renderScanCCDup(item);
+    else if (item.type === 'cc_inv_suspect')  _renderCCInvSuspect(item);
     else if (item.type === 'cc_refund')        _renderCCRefund(item);
+  }
+
+  // ── 🟠 CC 疑似與發票重複 ────────────────────────────────────────
+
+  function _renderCCInvSuspect(item) {
+    const { cc, suspects } = item;
+    let selectedInv = suspects.length === 1 ? suspects[0] : null;
+    document.getElementById('pending-modal-title').textContent = `⚠ ${cc.shop}`;
+
+    const _invItemsHtml = (inv) => {
+      if (!inv.invItems || !inv.invItems.length) return '';
+      return `<div class="suspect-items" style="padding:4px 0 0 12px;font-size:12px;color:var(--text-sub,#888)">
+        ${inv.invItems.map(it => `<div>${it.itemName}　${_fmt(it.itemAmount)}</div>`).join('')}
+      </div>`;
+    };
+
+    document.getElementById('pending-modal-body').innerHTML = `
+      <p class="list-item-sub" style="margin-bottom:4px">${cc.bank}　${cc.txDate}　${_fmt(cc.amount)}</p>
+      <p class="list-item-sub" style="margin-bottom:12px;font-size:12px;opacity:.7">
+        這筆 CC 的日期（±5天）和金額與下列發票相同，可能是同一筆消費。
+      </p>
+      <label class="field-label">對應的發票</label>
+      <div id="suspect-inv-list">
+        ${suspects.map((inv, i) => `
+          <div class="list-item cc-inv-item${suspects.length === 1 ? ' active' : ''}" data-i="${i}" style="cursor:pointer;border-radius:8px;margin-bottom:4px">
+            <div class="list-item-body">
+              <div class="list-item-title">${inv.shop || inv.invNum}${
+                inv.shared ? ` <span class="tag-shared">${inv.shared}</span>` : ''}</div>
+              <div class="list-item-sub">${inv.date}　${inv.invNum}</div>
+              ${_invItemsHtml(inv)}
+            </div>
+            <div class="list-item-right amount-expense">${_fmt(inv.amount)}</div>
+          </div>`).join('')}
+      </div>
+      <p id="suspect-error" class="add-error hidden"></p>
+    `;
+
+    document.getElementById('pending-modal-footer').innerHTML = `
+      <button class="btn-secondary" id="suspect-cancel">取消</button>
+      <button class="btn-primary" id="suspect-is-dup"${selectedInv ? '' : ' disabled'}>是重複（連結發票）</button>
+      <button class="btn-secondary" id="suspect-not-dup">不是重複（直接匯入）</button>
+    `;
+
+    document.querySelectorAll('#suspect-inv-list .cc-inv-item').forEach(row => {
+      row.addEventListener('click', () => {
+        document.querySelectorAll('#suspect-inv-list .cc-inv-item').forEach(r => r.classList.remove('active'));
+        row.classList.add('active');
+        selectedInv = suspects[parseInt(row.dataset.i)];
+        document.getElementById('suspect-is-dup').disabled = false;
+      });
+    });
+
+    document.getElementById('suspect-cancel').addEventListener('click', _closeDetail);
+
+    document.getElementById('suspect-is-dup').addEventListener('click', async () => {
+      if (!selectedInv) return;
+      const btn = document.getElementById('suspect-is-dup');
+      btn.disabled = true;
+      btn.textContent = '連結中…';
+      try {
+        await Sheets.linkCCToInvoice(cc.rowIndex, selectedInv.invNum, selectedInv.rowIndex);
+        _saveClose();
+        await _reload();
+      } catch (e) {
+        const errEl = document.getElementById('suspect-error');
+        errEl.textContent = '連結失敗：' + e.message;
+        errEl.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = '是重複（連結發票）';
+      }
+    });
+
+    document.getElementById('suspect-not-dup').addEventListener('click', async () => {
+      const btn = document.getElementById('suspect-not-dup');
+      btn.disabled = true;
+      btn.textContent = '匯入中…';
+      try {
+        await Sheets.importSingleCC(cc.rowIndex);
+        _saveClose();
+        await _reload();
+      } catch (e) {
+        const errEl = document.getElementById('suspect-error');
+        errEl.textContent = '匯入失敗：' + e.message;
+        errEl.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = '不是重複（直接匯入）';
+      }
+    });
   }
 
   // ── 🔄 刷退待確認：F32 ────────────────────────────────────────

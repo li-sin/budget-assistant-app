@@ -62,7 +62,7 @@ const Importer = (() => {
   // 發票明細 + CC 明細 → 月度帳本
   async function runImport(year, month, logMsg) {
     const result = await Sheets.importToMonthly(year, month, logMsg);
-    logMsg(`\n✅ 完成：發票 ${result.invoices} 筆，CC ${result.cc} 筆（CC 略過 ${result.skippedCC} 筆）`);
+    logMsg(`\n✅ 完成：發票 ${result.invoices} 筆，CC ${result.cc} 筆${result.skippedSuspect ? `（${result.skippedSuspect} 筆疑似重複待確認）` : ''}`);
     window.Home?.reload();
   }
 
@@ -221,11 +221,10 @@ const Importer = (() => {
     if (sum) sum.textContent = '—';
     try {
       const { inv, cc } = await Sheets.getImportCompleteness(_year, _month);
-      const deduped = cc.deduped || 0;
+      const suspect = cc.suspect || 0;
       const total = inv.total + cc.total;
       const imported = inv.imported + cc.imported;
       const blocked = inv.blocked + cc.blocked;
-      const done = imported + deduped;
 
       if (total === 0) {
         el.innerHTML = '<div class="settings-bank-loading">本月無資料</div>';
@@ -234,12 +233,11 @@ const Importer = (() => {
       }
 
       const _row = (label, d) => {
-        const dup = d.deduped || 0;
-        const rowDone = d.imported + dup;
-        const allDone = rowDone === d.total && d.total > 0;
-        const icon = allDone ? '✅' : d.blocked > 0 ? '⚠' : '';
+        const sus = d.suspect || 0;
+        const allDone = (d.imported + sus) === d.total && d.total > 0;
+        const icon = allDone ? '✅' : (d.blocked > 0 || sus > 0) ? '⚠' : '';
         let detail = `${d.imported}/${d.total}`;
-        if (dup > 0) detail += `<span class="importer-deduped">（${dup} 筆與發票重複）</span>`;
+        if (sus > 0) detail += `<span class="importer-suspect">（${sus} 筆疑似重複）</span>`;
         if (d.blocked > 0) detail += `<span class="importer-blocked">（${d.blocked} 筆待填）</span>`;
         return `<div class="importer-import-row">
           <span class="importer-import-label">${label}</span>
@@ -249,11 +247,11 @@ const Importer = (() => {
 
       el.innerHTML = _row('發票', inv) + _row('CC', cc);
 
-      if (done === total) {
+      if (imported === total) {
         if (sum) sum.textContent = '✓ 全部匯入';
       } else {
-        const ready = total - done - blocked;
-        if (sum) sum.textContent = ready > 0 ? `${ready} 筆可匯入` : `${blocked} 筆待填`;
+        const ready = total - imported - blocked - suspect;
+        if (sum) sum.textContent = ready > 0 ? `${ready} 筆可匯入` : suspect > 0 ? `${suspect} 筆待確認` : `${blocked} 筆待填`;
       }
     } catch (e) {
       if (e.message !== 'auth_expired') {

@@ -656,7 +656,12 @@ const Ledger = (() => {
     _catFilter = sel.value;
   }
 
+  function _loadImportBadge() {
+    window.Importer?.loadBadge(document.getElementById('ledger-import-badge'), _year, _month);
+  }
+
   async function _load() {
+    _loadImportBadge();
     document.getElementById('ledger-list').innerHTML = '<div class="spinner"></div>';
     document.getElementById('ledger-count').textContent = '';
     try {
@@ -2841,6 +2846,10 @@ const Ledger = (() => {
         <button class="month-btn" id="ledger-prev">◀</button>
         <span id="ledger-month"></span>
         <button class="month-btn" id="ledger-next">▶</button>
+        ${_isSin() ? `
+        <button class="month-btn import-btn" id="ledger-import" title="下載 / 匯入">
+          ⬇<span class="import-badge" id="ledger-import-badge"></span>
+        </button>` : ''}
         <button class="month-btn refresh-btn" id="ledger-refresh">↺</button>
       </div>
 
@@ -2998,6 +3007,9 @@ const Ledger = (() => {
       window.Home?.reload();
       window.Stats?.reload?.();
       window.Pending?.reload?.();
+    });
+    document.getElementById('ledger-import')?.addEventListener('click', () => {
+      window.Importer?.open(_year, _month);
     });
 
     // Sub-tab 切換
@@ -3266,7 +3278,7 @@ const Ledger = (() => {
     _load();
   }
 
-  return { init, reload: _load, activate, jumpTo };
+  return { init, reload: _load, activate, jumpTo, refreshImportBadge: _loadImportBadge };
 })();
 
 window.Ledger = Ledger;

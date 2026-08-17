@@ -64,6 +64,7 @@ main#content {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
 }
 
 .tab-content { min-height: 100%; padding: 16px 16px calc(var(--nav-h) + 16px); }

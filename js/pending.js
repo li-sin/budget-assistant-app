@@ -6,6 +6,10 @@ const Pending = (() => {
   let _advanceIdx  = -1;   // reload 後自動開啟的清單索引（-1 = 不自動開啟）
   let _pendingMonth = null; // {year, month} 月份切換器選的月份；null = 尚未初始化（首次取最新有項目的月）
 
+  function _isSin() {
+    return Auth.getEmail() === CONFIG.EMAIL_WHITELIST[0];
+  }
+
   const CATEGORIES = ['🍴', '🛒', '🧋', '⛽', '📦', '🎬', '👗', '🏠', '💊', '📚', '🎁'];
   const APP_INVOICE_CARRIERS = new Set(['掃描發票', '手查發票']);
   const _isAppInvoiceCarrier = carrier => APP_INVOICE_CARRIERS.has(carrier);
@@ -390,18 +394,24 @@ const Pending = (() => {
   function _visibleItems() {
     const all = _allItems();
     if (_bankFilter) return all;
-    if (!_pendingMonth) _pendingMonth = _defaultMonth(all);
+    if (!_pendingMonth) _pendingMonth = { ...window.AppMonth.get() };
     const ymSel = `${_pendingMonth.year}-${String(_pendingMonth.month).padStart(2, '0')}`;
     return all.filter(it => { const ym = _ymOf(_itemDate(it)); return ym === ymSel || ym === ''; });
   }
   function _shiftMonth(delta) {
-    if (!_pendingMonth) _pendingMonth = _defaultMonth(_allItems());
+    if (!_pendingMonth) _pendingMonth = { ...window.AppMonth.get() };
     let { year, month } = _pendingMonth;
     month += delta;
     if (month < 1)  { month = 12; year--; }
     if (month > 12) { month = 1;  year++; }
     _pendingMonth = { year, month };
+    window.AppMonth.set(year, month);
     _renderList();
+  }
+
+  function _loadImportBadge() {
+    const ym = _pendingMonth || window.AppMonth.get();
+    window.Importer?.loadBadge(document.getElementById('pending-import-badge'), ym.year, ym.month);
   }
 
   // ── 渲染列表 ──────────────────────────────────────────────────
@@ -419,8 +429,9 @@ const Pending = (() => {
     } else {
       monthNav?.classList.remove('hidden');
       const lbl = document.getElementById('pending-month-lbl');
-      if (lbl) lbl.textContent = `${_pendingMonth.year}年${_pendingMonth.month}月`;
+      if (lbl) lbl.textContent = `${_pendingMonth.year} 年 ${String(_pendingMonth.month).padStart(2, '0')} 月`;
       if (summaryEl) summaryEl.textContent = `${_pendingMonth.month}月共 ${items.length} 張　待處理共 ${all.length} 張`;
+      _loadImportBadge();
     }
 
     let html = '';
@@ -1598,14 +1609,15 @@ const Pending = (() => {
 
   function _buildShell() {
     document.getElementById('tab-pending').innerHTML = `
-      <div class="home-nav" style="margin-bottom:8px">
-        <span style="flex:1;font-size:16px;font-weight:600">待處理</span>
-        <button class="month-btn refresh-btn" id="pending-refresh" title="重新載入">↺</button>
-      </div>
-      <div class="home-nav" id="pending-month-nav" style="margin-bottom:6px">
+      <div class="home-nav" id="pending-month-nav">
         <button class="month-btn" id="pending-prev-m">◀</button>
-        <span id="pending-month-lbl" style="flex:1;text-align:center;font-weight:600"></span>
+        <span id="pending-month-lbl"></span>
         <button class="month-btn" id="pending-next-m">▶</button>
+        ${_isSin() ? `
+        <button class="month-btn import-btn" id="pending-import" title="下載 / 匯入">
+          ⬇<span class="import-badge" id="pending-import-badge"></span>
+        </button>` : ''}
+        <button class="month-btn refresh-btn" id="pending-refresh" title="重新載入">↺</button>
       </div>
       <div id="pending-summary" class="ledger-count" style="display:block;margin-bottom:8px"></div>
       <div class="card" id="pending-list"></div>
@@ -1613,6 +1625,10 @@ const Pending = (() => {
     document.getElementById('pending-refresh').addEventListener('click', _reload);
     document.getElementById('pending-prev-m').addEventListener('click', () => _shiftMonth(-1));
     document.getElementById('pending-next-m').addEventListener('click', () => _shiftMonth(1));
+    document.getElementById('pending-import')?.addEventListener('click', () => {
+      const ym = _pendingMonth || window.AppMonth.get();
+      window.Importer?.open(ym.year, ym.month);
+    });
   }
 
   function jumpTo({ bank } = {}) {
@@ -1620,11 +1636,18 @@ const Pending = (() => {
     Router.navigate('pending');
   }
 
-  function activate() {
+  function activate({ year, month } = {}) {
     if (_jumpBank !== null) {
       _bankFilter = _jumpBank;
       _jumpBank   = null;
       _reload();
+      return;
+    }
+    if (year && month && (_pendingMonth?.year !== year || _pendingMonth?.month !== month)) {
+      _pendingMonth = { year, month };
+      _renderList();
+    } else {
+      _loadImportBadge();
     }
   }
 
@@ -1637,7 +1660,7 @@ const Pending = (() => {
     _reload();
   }
 
-  return { init, reload: _reload, activate, jumpTo };
+  return { init, reload: _reload, activate, jumpTo, refreshImportBadge: _loadImportBadge };
 })();
 
 window.Pending = Pending;

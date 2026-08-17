@@ -13,6 +13,10 @@ const Stats = (() => {
   let _chartType    = 'donut';   // 'donut' | 'bar'
   let _rows         = [];        // 供分類下鑽用
 
+  function _isSin() {
+    return Auth.getEmail() === CONFIG.EMAIL_WHITELIST[0];
+  }
+
   function _fmt(n) { return '$' + Math.abs(n).toLocaleString('zh-TW'); }
   function _fmtK(n) {
     if (n >= 10000) return Math.round(n / 1000) + 'k';
@@ -166,6 +170,7 @@ const Stats = (() => {
   // ── Load data ─────────────────────────────────────────────────
 
   async function _load() {
+    _loadImportBadge();
     document.getElementById('stats-chart').innerHTML  = '<div class="spinner"></div>';
     document.getElementById('stats-legend').innerHTML = '';
 
@@ -243,6 +248,10 @@ const Stats = (() => {
         <button class="month-btn" id="stats-prev">◀</button>
         <span id="stats-label"></span>
         <button class="month-btn" id="stats-next">▶</button>
+        ${_isSin() ? `
+        <button class="month-btn import-btn" id="stats-import" title="下載 / 匯入">
+          ⬇<span class="import-badge" id="stats-import-badge"></span>
+        </button>` : ''}
         <button class="month-btn refresh-btn" id="stats-refresh" title="重新載入">↺</button>
       </div>
 
@@ -354,6 +363,13 @@ const Stats = (() => {
       }
       _load();
     });
+    document.getElementById('stats-import')?.addEventListener('click', () => {
+      window.Importer?.open(_year, _month);
+    });
+  }
+
+  function _loadImportBadge() {
+    window.Importer?.loadBadge(document.getElementById('stats-import-badge'), _year, _month);
   }
 
   function activate({ year, month }) {
@@ -361,6 +377,8 @@ const Stats = (() => {
       _year = year; _month = month;
       _updateLabel();
       _load();
+    } else {
+      _loadImportBadge();
     }
   }
 
@@ -370,7 +388,7 @@ const Stats = (() => {
     _load();
   }
 
-  return { init, activate, reload: _load };
+  return { init, activate, reload: _load, refreshImportBadge: _loadImportBadge };
 })();
 
 window.Stats = Stats;

@@ -66,7 +66,39 @@ const Importer = (() => {
     window.Home?.reload();
   }
 
-  // ── 下載狀態（首頁徽章與 modal 共用）───────────────────────
+  // ── 下載 + 匯入徽章（各 tab 共用）──────────────────────────
+
+  // 四家到齊 + 全部匯入 → ✓✓；四家到齊但未全部匯入 → ✓；未到齊 → n/4
+  async function loadBadge(el, year, month) {
+    if (!el) return;
+    el.textContent = '';
+    el.className   = 'import-badge';
+    try {
+      const { done, total, overdue } = await getStatus(year, month);
+      if (done === total) {
+        let fullyImported = false;
+        try {
+          const c = await Sheets.getImportCompleteness(year, month);
+          fullyImported = (c.inv.total === 0 || c.inv.imported === c.inv.total)
+                       && (c.cc.total  === 0 || c.cc.imported  === c.cc.total);
+        } catch { /* ignore */ }
+        el.textContent = fullyImported ? '✓✓' : '✓';
+        el.className   = 'import-badge import-badge-done';
+      } else {
+        el.textContent = `${done}/${total}`;
+        el.className   = 'import-badge' + (overdue ? ' import-badge-warn' : '');
+      }
+    } catch {
+      el.textContent = '';
+    }
+  }
+
+  function _refreshAllBadges() {
+    [window.Home, window.Ledger, window.Stats, window.Pending]
+      .forEach(m => m?.refreshImportBadge?.());
+  }
+
+  // ── 下載狀態 ─────────────────────────────────────────────────
 
   // 回傳 { rows, done, total, isCurrentMonth, overdue }
   // overdue：今天已過該月 15 號仍未收齊（只在看當月時成立，翻舊月份不提醒）
@@ -206,7 +238,7 @@ const Importer = (() => {
         if (row?.skipRow) await Sheets.unskipCCBank(row.skipRow);
       }
       await _renderStatus();
-      window.Home?.refreshImportBadge();
+      _refreshAllBadges();
     } catch (e) {
       alert(`操作失敗：${e.message}`);
       btns.forEach(b => b.disabled = false);
@@ -282,7 +314,7 @@ const Importer = (() => {
       btn.disabled = other.disabled = false;
       btn.textContent = label;
       await _renderStatus();
-      window.Home?.refreshImportBadge();
+      _refreshAllBadges();
     }
   }
 
@@ -308,7 +340,7 @@ const Importer = (() => {
     document.getElementById('importer-modal')?.classList.add('hidden');
   }
 
-  return { open, close, runDownload, runImport, getStatus, loadCCPasswords, saveCCPasswords, BANKS };
+  return { open, close, runDownload, runImport, getStatus, loadBadge, loadCCPasswords, saveCCPasswords, BANKS };
 })();
 
 window.Importer = Importer;

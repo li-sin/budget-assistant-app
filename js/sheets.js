@@ -247,12 +247,12 @@ const Sheets = (() => {
     }));
   }
 
-  async function skipCCBank(year, month, bank) {
+  async function skipCCBank(year, month, bank, reason = '無帳單') {
     const ym = `${year}-${String(month).padStart(2, '0')}`;
     const colA = await _get(`${CONFIG.TABS.CC}!A:A`);
     const nextRow = (colA.values || []).length + 1;
     await _update(`${CONFIG.TABS.CC}!A${nextRow}:L${nextRow}`, [[
-      bank, '', '', '無帳單', 0, '', '', '略過', '', '', '', ym,
+      bank, '', '', reason, 0, '', '', '略過', '', '', '', ym,
     ]]);
     invalidateCCStatus();
   }

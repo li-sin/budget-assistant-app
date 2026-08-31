@@ -40,12 +40,22 @@ const Importer = (() => {
     // ── CC 明細 ──
     logMsg('\n── CC 明細 ──');
     try {
-      const txns = await Gmail.fetchCCForMonth(year, month, loadCCPasswords(), logMsg);
+      const { txns, emptyBanks } = await Gmail.fetchCCForMonth(year, month, loadCCPasswords(), logMsg);
       if (txns.length) {
         const result = await Sheets.writeCCFromGmail(txns, logMsg);
         logMsg(`✅ CC：新寫入 ${result.written} 筆，略過 ${result.skipped} 筆`);
-      } else {
+      } else if (!emptyBanks.length) {
         logMsg('⚠ 無有效 CC 交易');
+      }
+      if (emptyBanks.length) {
+        Sheets.invalidateCCStatus();
+        const statusRows = await Sheets.getCreditCardImportStatus(year, month);
+        for (const bank of emptyBanks) {
+          const row = statusRows.find(r => r.bank === bank);
+          if (row && (row.count > 0 || row.skipped)) continue;
+          await Sheets.skipCCBank(year, month, bank, '無新增消費');
+          logMsg(`  ℹ ${bank}：帳單已收到但無新增消費，自動略過`);
+        }
       }
       // CC 解析後比對發票（金額±1、日期±3，蝦皮±10），自動填 CC I 欄連結
       await Sheets.matchCCWithInvoices(logMsg);

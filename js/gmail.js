@@ -481,6 +481,7 @@ const Gmail = (() => {
   async function fetchCCForMonth(year, month, passwords, onProgress) {
     const log      = m => onProgress?.(m);
     const allTxns  = [];
+    const emptyBanks = [];
     const billingM = `${year}-${String(month).padStart(2, '0')}`;
 
     for (const cfg of _CC_BANKS) {
@@ -543,9 +544,10 @@ const Gmail = (() => {
       // F34 對帳：跟帳單自己宣告的總額比，差額不為 0 就是有漏筆
       const audit = _auditBill(cfg.bank, allText, parsed);
       log(`  ${audit.ok ? '✓' : '⚠'} ${cfg.bank}：${audit.msg}`);
+      if (txns.length === 0 && audit.ok) emptyBanks.push(cfg.bank);
       allTxns.push(...txns);
     }
-    return allTxns;
+    return { txns: allTxns, emptyBanks };
   }
 
   return { fetchInvoicesForMonth, checkForMonth, fetchCCForMonth };

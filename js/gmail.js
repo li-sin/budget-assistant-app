@@ -496,13 +496,16 @@ const Gmail = (() => {
       if (!msgs.length) { log(`  ⚠ ${cfg.bank}：找不到帳單信件`); continue; }
 
       // 逐封取 Subject，找符合年月的信
+      // month = 消費月份；帳單標題的月份 = 消費月份 + 1（銀行次月出帳）
+      const billMonth = month === 12 ? 1 : month + 1;
+      const billYear  = month === 12 ? year + 1 : year;
       let pdfBytes = null, matchedYear = year;
       for (const msgId of msgs) {
         const meta = await _get(`/messages/${msgId}?format=metadata&metadataHeaders=Subject`);
         const subj = (meta.payload?.headers || [])
           .find(h => h.name.toLowerCase() === 'subject')?.value || '';
         const ym = _extractYearMonth(subj);
-        if (!ym || ym.year !== year || ym.month !== month) continue;
+        if (!ym || ym.year !== billYear || ym.month !== billMonth) continue;
 
         const full    = await _get(`/messages/${msgId}`);
         const pdfInfo = _findPdfPart(full.payload?.parts || []);

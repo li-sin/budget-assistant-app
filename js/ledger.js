@@ -3410,9 +3410,11 @@ const Ledger = (() => {
 
   function jumpToCCBank(bank) {
     _ccBankFilter = bank;
-    _setSubTab('cc');
     Router.navigate('ledger');
-    _loadCCTab();
+    requestAnimationFrame(() => {
+      _setSubTab('cc');
+      _loadCCTab();
+    });
   }
 
   return { init, reload: _load, activate, jumpTo, jumpToCCBank, refreshImportBadge: _loadImportBadge };

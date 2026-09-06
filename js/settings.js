@@ -39,11 +39,19 @@ const Settings = (() => {
 
   async function _loadCardStatus() {
     const el = document.getElementById('settings-card-status');
-    const monthEl = document.getElementById('settings-card-month');
     if (!el) return;
-    const label = `${_importYear}-${String(_importMonth).padStart(2, '0')}`;
-    if (monthEl) monthEl.textContent = label;
-    await Importer.renderBankStatus(el, _importYear, _importMonth, { closeFn: close });
+    const monthEl = document.getElementById('settings-card-month');
+    if (monthEl) monthEl.textContent = `${_importYear}-${String(_importMonth).padStart(2, '0')}`;
+    const sumEl = document.getElementById('settings-card-sum');
+    const result = await Importer.renderBankStatus(el, _importYear, _importMonth, { closeFn: close });
+    if (result && sumEl) {
+      sumEl.textContent = result.done === result.total ? '✓ 四家到齊' : `${result.done}/${result.total} 家`;
+    }
+    Importer.renderImportStatus(
+      document.getElementById('settings-import-status'),
+      document.getElementById('settings-import-sum'),
+      _importYear, _importMonth,
+    );
   }
 
   function _buildContent() {
@@ -83,6 +91,7 @@ const Settings = (() => {
             <span class="settings-label">試算表 ID</span>
             <span class="settings-val settings-mono">${CONFIG.SHEET_ID.slice(0, 16)}…</span>
           </div>
+          ${issin ? '' : `
           <div class="settings-row settings-row-stack">
             <div class="settings-row-head">
               <span class="settings-label">信用卡匯入狀態</span>
@@ -92,10 +101,11 @@ const Settings = (() => {
               <div class="settings-bank-loading">讀取中…</div>
             </div>
           </div>
+          `}
         </div>
 
         ${issin ? `
-        <div class="section-title">資料匯入</div>
+        <div class="section-title">下載 / 匯入</div>
         <div class="card">
           <div class="settings-row">
             <span class="settings-label">月份</span>
@@ -103,6 +113,24 @@ const Settings = (() => {
               <button class="month-btn" id="import-prev-m">◀</button>
               <span id="import-month-lbl"></span>
               <button class="month-btn" id="import-next-m">▶</button>
+            </div>
+          </div>
+          <div class="settings-row settings-row-stack">
+            <div class="settings-row-head">
+              <span class="settings-label">帳單下載狀態</span>
+              <span class="settings-val" id="settings-card-sum">—</span>
+            </div>
+            <div id="settings-card-status" class="settings-bank-list">
+              <div class="settings-bank-loading">讀取中…</div>
+            </div>
+          </div>
+          <div class="settings-row settings-row-stack">
+            <div class="settings-row-head">
+              <span class="settings-label">匯入狀態</span>
+              <span class="settings-val" id="settings-import-sum">—</span>
+            </div>
+            <div id="settings-import-status" class="importer-import-grid">
+              <div class="settings-bank-loading">讀取中…</div>
             </div>
           </div>
           <div id="import-log" class="import-log"></div>
@@ -245,6 +273,7 @@ const Settings = (() => {
         } finally {
           btn.disabled = false;
           btn.textContent = '匯入月度帳本';
+          _loadCardStatus();
         }
       });
     }

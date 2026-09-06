@@ -271,13 +271,11 @@ const Importer = (() => {
     }
   }
 
-  async function _renderImportCompleteness() {
-    const el  = document.getElementById('importer-import-status');
-    const sum = document.getElementById('importer-import-sum');
+  async function renderImportStatus(el, sumEl, year, month) {
     if (!el) return;
-    if (sum) sum.textContent = '…';
+    if (sumEl) sumEl.textContent = '…';
     try {
-      const { inv, cc } = await Sheets.getImportCompleteness(_year, _month);
+      const { inv, cc } = await Sheets.getImportCompleteness(year, month);
       const suspect = cc.suspect || 0;
       const total = inv.total + cc.total;
       const imported = inv.imported + cc.imported;
@@ -285,7 +283,7 @@ const Importer = (() => {
 
       if (total === 0) {
         el.innerHTML = '<div class="settings-bank-loading">本月無資料</div>';
-        if (sum) sum.textContent = '—';
+        if (sumEl) sumEl.textContent = '—';
         return;
       }
 
@@ -304,17 +302,27 @@ const Importer = (() => {
 
       el.innerHTML = _row('發票', inv) + _row('CC', cc);
 
-      if (imported === total) {
-        if (sum) sum.textContent = '✓ 全部匯入';
-      } else {
-        const ready = total - imported - blocked - suspect;
-        if (sum) sum.textContent = ready > 0 ? `${ready} 筆可匯入` : suspect > 0 ? `${suspect} 筆待確認` : `${blocked} 筆待填`;
+      if (sumEl) {
+        if (imported === total) {
+          sumEl.textContent = '✓ 全部匯入';
+        } else {
+          const ready = total - imported - blocked - suspect;
+          sumEl.textContent = ready > 0 ? `${ready} 筆可匯入` : suspect > 0 ? `${suspect} 筆待確認` : `${blocked} 筆待填`;
+        }
       }
     } catch (e) {
       if (e.message !== 'auth_expired') {
         el.innerHTML = '<div class="settings-bank-loading">讀取失敗</div>';
       }
     }
+  }
+
+  async function _renderImportCompleteness() {
+    await renderImportStatus(
+      document.getElementById('importer-import-status'),
+      document.getElementById('importer-import-sum'),
+      _year, _month,
+    );
   }
 
   // 兩顆按鈕共用：跑流程期間鎖住 UI，結束後刷新狀態與首頁徽章
@@ -365,7 +373,7 @@ const Importer = (() => {
     document.getElementById('importer-modal')?.classList.add('hidden');
   }
 
-  return { open, close, runDownload, runImport, getStatus, renderBankStatus, loadBadge, loadCCPasswords, saveCCPasswords, BANKS };
+  return { open, close, runDownload, runImport, getStatus, renderBankStatus, renderImportStatus, loadBadge, loadCCPasswords, saveCCPasswords, BANKS };
 })();
 
 window.Importer = Importer;

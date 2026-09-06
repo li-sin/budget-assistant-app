@@ -194,8 +194,6 @@ const Importer = (() => {
     if (_month > 12) { _month = 1;  _year++; }
     document.getElementById('importer-month-lbl').textContent = _ymLabel();
     document.getElementById('importer-log').textContent = '';
-    const impEl = document.getElementById('importer-import-status');
-    if (impEl) impEl.innerHTML = '<div class="settings-bank-loading">讀取中…</div>';
     _renderStatus();
   }
 
@@ -277,8 +275,7 @@ const Importer = (() => {
     const el  = document.getElementById('importer-import-status');
     const sum = document.getElementById('importer-import-sum');
     if (!el) return;
-    el.innerHTML = '<div class="settings-bank-loading">讀取中…</div>';
-    if (sum) sum.textContent = '—';
+    if (sum) sum.textContent = '…';
     try {
       const { inv, cc } = await Sheets.getImportCompleteness(_year, _month);
       const suspect = cc.suspect || 0;

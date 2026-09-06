@@ -16,9 +16,17 @@ const Sheets = (() => {
     }
   }
 
+  async function _fetchRetry(url, opts, maxRetries = 3) {
+    for (let i = 0; i <= maxRetries; i++) {
+      const res = await fetch(url, opts);
+      if (res.status < 500 || i === maxRetries) return res;
+      await new Promise(r => setTimeout(r, 1000 * 2 ** i));
+    }
+  }
+
   async function _get(range) {
     const url = `${BASE}/values/${encodeURIComponent(range)}`;
-    const res = await fetch(url, { headers: _authHeader() });
+    const res = await _fetchRetry(url, { headers: _authHeader() });
     await _apiError(res);
     return res.json();
   }
@@ -26,7 +34,7 @@ const Sheets = (() => {
   async function _append(range, values) {
     const url = `${BASE}/values/${encodeURIComponent(range)}:append`
       + '?valueInputOption=USER_ENTERED&insertDataOption=OVERWRITE';
-    const res = await fetch(url, {
+    const res = await _fetchRetry(url, {
       method: 'POST',
       headers: { ..._authHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ values }),
@@ -38,7 +46,7 @@ const Sheets = (() => {
   async function _update(range, values) {
     const url = `${BASE}/values/${encodeURIComponent(range)}`
       + '?valueInputOption=USER_ENTERED';
-    const res = await fetch(url, {
+    const res = await _fetchRetry(url, {
       method: 'PUT',
       headers: { ..._authHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ range, values }),
@@ -48,9 +56,8 @@ const Sheets = (() => {
   }
 
   async function _batchUpdate(dataArr) {
-    // dataArr: [{ range, values }, ...]，一次寫多個不連續範圍
     const url = `${BASE}/values:batchUpdate`;
-    const res = await fetch(url, {
+    const res = await _fetchRetry(url, {
       method: 'POST',
       headers: { ..._authHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: dataArr }),
@@ -79,7 +86,7 @@ const Sheets = (() => {
       // 查詢目前 sheet 行數上限
       const metaUrl = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SHEET_ID}`
         + '?fields=sheets(properties(sheetId,gridProperties(rowCount)))';
-      const r = await fetch(metaUrl, { headers: _authHeader() });
+      const r = await _fetchRetry(metaUrl, { headers: _authHeader() });
       if (!r.ok) return;
       const meta = await r.json();
       const sp = (meta.sheets || []).find(s => s.properties.sheetId === gid);
@@ -92,7 +99,7 @@ const Sheets = (() => {
     // 不夠用 → insertDimension 補 1000 行
     const addRows = neededRow - maxRow + 1000;
     const extUrl = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SHEET_ID}:batchUpdate`;
-    const r2 = await fetch(extUrl, {
+    const r2 = await _fetchRetry(extUrl, {
       method: 'POST',
       headers: { ..._authHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -261,7 +268,7 @@ const Sheets = (() => {
     const gids = await _fetchSheetIds();
     const ccGid = gids[CONFIG.TABS.CC];
     const url = `${BASE}:batchUpdate`;
-    const res = await fetch(url, {
+    const res = await _fetchRetry(url, {
       method: 'POST',
       headers: { ..._authHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -322,7 +329,7 @@ const Sheets = (() => {
   // ── 刪除月度帳本指定列 ────────────────────────────
   async function deleteMonthlyRow(rowIndex, ym) {
     const url = `${BASE}:batchUpdate`;
-    const res = await fetch(url, {
+    const res = await _fetchRetry(url, {
       method: 'POST',
       headers: { ..._authHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -667,7 +674,7 @@ const Sheets = (() => {
   async function _fetchSheetIds() {
     if (_sheetIdCache) return _sheetIdCache;
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SHEET_ID}?fields=sheets.properties`;
-    const res = await fetch(url, { headers: _authHeader() });
+    const res = await _fetchRetry(url, { headers: _authHeader() });
     if (res.status === 401) { if (!_isDev) Auth.logout(); throw new Error('auth_expired'); }
     if (!res.ok) throw new Error(`Sheets API ${res.status}`);
     const data = await res.json();
@@ -881,7 +888,7 @@ const Sheets = (() => {
   // ── F20 刪除：發票明細整列刪除 ──────────────────────────────
   async function deleteInvoiceRow(rowIndex) {
     const url = `${BASE}:batchUpdate`;
-    const res = await fetch(url, {
+    const res = await _fetchRetry(url, {
       method: 'POST',
       headers: { ..._authHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -907,7 +914,7 @@ const Sheets = (() => {
     if (!rowIndices.length) return;
     const sorted = [...rowIndices].sort((a, b) => b - a);
     const url = `${BASE}:batchUpdate`;
-    const res = await fetch(url, {
+    const res = await _fetchRetry(url, {
       method: 'POST',
       headers: { ..._authHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify({

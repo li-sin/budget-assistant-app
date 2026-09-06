@@ -210,7 +210,7 @@ const Importer = (() => {
       el.innerHTML = rows.map(({ bank, count, skipped }) => {
         let valHtml, btnHtml = '';
         if (count > 0) {
-          valHtml = `<span class="settings-bank-val">${count} 筆</span>`;
+          valHtml = `<span class="settings-bank-val settings-bank-link" data-bank="${bank}">${count} 筆</span>`;
         } else if (skipped) {
           valHtml = `<span class="settings-bank-val settings-bank-skipped">已略過</span>`;
           btnHtml = `<button class="importer-skip-btn" data-bank="${bank}" data-action="unskip">取消</button>`;
@@ -225,6 +225,12 @@ const Importer = (() => {
       }).join('');
       el.querySelectorAll('.importer-skip-btn').forEach(btn => {
         btn.addEventListener('click', () => _onSkipToggle(btn.dataset.bank, btn.dataset.action));
+      });
+      el.querySelectorAll('.settings-bank-link').forEach(span => {
+        span.addEventListener('click', () => {
+          close();
+          window.Ledger.jumpToCCBank(span.dataset.bank);
+        });
       });
       if (sum) sum.textContent = done === total ? '✓ 四家到齊' : `${done}/${total} 家`;
     } catch (e) {

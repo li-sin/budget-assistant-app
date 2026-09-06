@@ -3408,7 +3408,14 @@ const Ledger = (() => {
     _load();
   }
 
-  return { init, reload: _load, activate, jumpTo, refreshImportBadge: _loadImportBadge };
+  function jumpToCCBank(bank) {
+    _ccBankFilter = bank;
+    _setSubTab('cc');
+    Router.navigate('ledger');
+    _loadCCTab();
+  }
+
+  return { init, reload: _load, activate, jumpTo, jumpToCCBank, refreshImportBadge: _loadImportBadge };
 })();
 
 window.Ledger = Ledger;

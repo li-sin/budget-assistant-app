@@ -462,6 +462,11 @@ select.field-input { height: 44px; }
   font-weight: 700;
   color: var(--teal);
 }
+.settings-bank-link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .settings-bank-empty,
 .settings-bank-loading {
   color: var(--text-sub);

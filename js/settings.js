@@ -48,8 +48,9 @@ const Settings = (() => {
   function _renderCardStatus(rows) {
     return rows.map(({ bank, count, skipped }) => {
       const val = count ? `${count} 筆` : skipped ? '已略過' : '未到';
-      const cls = count ? '' : skipped ? 'settings-bank-skipped' : 'settings-bank-empty';
-      return `<div class="settings-bank-row" data-bank="${bank}" style="cursor:pointer">
+      const cls = count ? 'settings-bank-link' : skipped ? 'settings-bank-skipped' : 'settings-bank-empty';
+      const extra = count ? ' data-has-count style="cursor:pointer"' : '';
+      return `<div class="settings-bank-row" data-bank="${bank}"${extra}>
         <span class="settings-bank-name">${bank}</span>
         <span class="settings-bank-val ${cls}">${val}</span>
       </div>`;
@@ -65,10 +66,10 @@ const Settings = (() => {
     el.innerHTML = '<div class="settings-bank-loading">讀取中…</div>';
     try {
       el.innerHTML = _renderCardStatus(await Sheets.getCreditCardImportStatus(year, month));
-      el.querySelectorAll('.settings-bank-row[data-bank]').forEach(row => {
+      el.querySelectorAll('.settings-bank-row[data-bank][data-has-count]').forEach(row => {
         row.addEventListener('click', () => {
           Settings.close();
-          window.Pending?.jumpTo({ bank: row.dataset.bank });
+          window.Ledger.jumpToCCBank(row.dataset.bank, year, month);
         });
       });
     } catch (e) {

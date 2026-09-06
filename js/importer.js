@@ -228,8 +228,9 @@ const Importer = (() => {
       });
       el.querySelectorAll('.settings-bank-link').forEach(span => {
         span.addEventListener('click', () => {
+          const y = _year, m = _month;
           close();
-          window.Ledger.jumpToCCBank(span.dataset.bank);
+          window.Ledger.jumpToCCBank(span.dataset.bank, y, m);
         });
       });
       if (sum) sum.textContent = done === total ? '✓ 四家到齊' : `${done}/${total} 家`;

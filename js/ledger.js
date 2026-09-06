@@ -3408,8 +3408,11 @@ const Ledger = (() => {
     _load();
   }
 
-  function jumpToCCBank(bank) {
+  function jumpToCCBank(bank, year, month) {
     _ccBankFilter = bank;
+    if (year) _year = year;
+    if (month) _month = month;
+    window.AppMonth?.set(_year, _month);
     Router.navigate('ledger');
     requestAnimationFrame(() => {
       _setSubTab('cc');

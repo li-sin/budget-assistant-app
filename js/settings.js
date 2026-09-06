@@ -37,46 +37,13 @@ const Settings = (() => {
     }
   }
 
-  function _currentYm() {
-    const { year, month } = window.AppMonth?.get() || {
-      year: new Date().getFullYear(),
-      month: new Date().getMonth() + 1,
-    };
-    return { year, month, label: `${year}-${String(month).padStart(2, '0')}` };
-  }
-
-  function _renderCardStatus(rows) {
-    return rows.map(({ bank, count, skipped }) => {
-      const val = count ? `${count} 筆` : skipped ? '已略過' : '未到';
-      const cls = count ? 'settings-bank-link' : skipped ? 'settings-bank-skipped' : 'settings-bank-empty';
-      const extra = count ? ' data-has-count style="cursor:pointer"' : '';
-      return `<div class="settings-bank-row" data-bank="${bank}"${extra}>
-        <span class="settings-bank-name">${bank}</span>
-        <span class="settings-bank-val ${cls}">${val}</span>
-      </div>`;
-    }).join('');
-  }
-
   async function _loadCardStatus() {
     const el = document.getElementById('settings-card-status');
     const monthEl = document.getElementById('settings-card-month');
     if (!el) return;
-    const { year, month, label } = _currentYm();
+    const label = `${_importYear}-${String(_importMonth).padStart(2, '0')}`;
     if (monthEl) monthEl.textContent = label;
-    el.innerHTML = '<div class="settings-bank-loading">讀取中…</div>';
-    try {
-      el.innerHTML = _renderCardStatus(await Sheets.getCreditCardImportStatus(year, month));
-      el.querySelectorAll('.settings-bank-row[data-bank][data-has-count]').forEach(row => {
-        row.addEventListener('click', () => {
-          Settings.close();
-          window.Ledger.jumpToCCBank(row.dataset.bank, year, month);
-        });
-      });
-    } catch (e) {
-      if (e.message !== 'auth_expired') {
-        el.innerHTML = '<div class="settings-bank-loading">讀取失敗</div>';
-      }
-    }
+    await Importer.renderBankStatus(el, _importYear, _importMonth, { closeFn: close });
   }
 
   function _buildContent() {
@@ -229,12 +196,14 @@ const Settings = (() => {
         if (_importMonth < 1) { _importMonth = 12; _importYear--; }
         _updateImportLbl();
         document.getElementById('import-log').textContent = '';
+        _loadCardStatus();
       });
       document.getElementById('import-next-m').addEventListener('click', () => {
         _importMonth++;
         if (_importMonth > 12) { _importMonth = 1; _importYear++; }
         _updateImportLbl();
         document.getElementById('import-log').textContent = '';
+        _loadCardStatus();
       });
 
       // ── 下載發票 + CC：發票 CSV + 四家 CC 帳單 PDF → Sheets ──

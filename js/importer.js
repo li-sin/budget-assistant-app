@@ -199,45 +199,56 @@ const Importer = (() => {
     _renderStatus();
   }
 
-  async function _renderStatus() {
-    const el  = document.getElementById('importer-status');
-    const sum = document.getElementById('importer-status-sum');
-    if (!el) return;
+  async function renderBankStatus(el, year, month, { closeFn, showSkipBtns, onSkipToggle } = {}) {
     el.innerHTML = '<div class="settings-bank-loading">讀取中…</div>';
-    if (sum) sum.textContent = '—';
     try {
-      const { rows, done, total } = await getStatus(_year, _month);
+      const { rows, done, total } = await getStatus(year, month);
       el.innerHTML = rows.map(({ bank, count, skipped }) => {
         let valHtml, btnHtml = '';
         if (count > 0) {
           valHtml = `<span class="settings-bank-val settings-bank-link" data-bank="${bank}">${count} 筆</span>`;
         } else if (skipped) {
           valHtml = `<span class="settings-bank-val settings-bank-skipped">已略過</span>`;
-          btnHtml = `<button class="importer-skip-btn" data-bank="${bank}" data-action="unskip">取消</button>`;
+          if (showSkipBtns) btnHtml = `<button class="importer-skip-btn" data-bank="${bank}" data-action="unskip">取消</button>`;
         } else {
           valHtml = `<span class="settings-bank-val settings-bank-empty">未到</span>`;
-          btnHtml = `<button class="importer-skip-btn" data-bank="${bank}" data-action="skip">略過</button>`;
+          if (showSkipBtns) btnHtml = `<button class="importer-skip-btn" data-bank="${bank}" data-action="skip">略過</button>`;
         }
         return `<div class="settings-bank-row">
           <span class="settings-bank-name">${bank}</span>
           <div style="display:flex;align-items:center;gap:6px">${valHtml}${btnHtml}</div>
         </div>`;
       }).join('');
-      el.querySelectorAll('.importer-skip-btn').forEach(btn => {
-        btn.addEventListener('click', () => _onSkipToggle(btn.dataset.bank, btn.dataset.action));
-      });
+      if (showSkipBtns && onSkipToggle) {
+        el.querySelectorAll('.importer-skip-btn').forEach(btn => {
+          btn.addEventListener('click', () => onSkipToggle(btn.dataset.bank, btn.dataset.action));
+        });
+      }
       el.querySelectorAll('.settings-bank-link').forEach(span => {
         span.addEventListener('click', () => {
-          const y = _year, m = _month;
-          close();
-          window.Ledger.jumpToCCBank(span.dataset.bank, y, m);
+          if (closeFn) closeFn();
+          window.Ledger.jumpToCCBank(span.dataset.bank, year, month);
         });
       });
-      if (sum) sum.textContent = done === total ? '✓ 四家到齊' : `${done}/${total} 家`;
+      return { done, total };
     } catch (e) {
       if (e.message !== 'auth_expired') {
         el.innerHTML = '<div class="settings-bank-loading">讀取失敗</div>';
       }
+      return null;
+    }
+  }
+
+  async function _renderStatus() {
+    const el  = document.getElementById('importer-status');
+    const sum = document.getElementById('importer-status-sum');
+    if (!el) return;
+    if (sum) sum.textContent = '—';
+    const result = await renderBankStatus(el, _year, _month, {
+      closeFn: close, showSkipBtns: true, onSkipToggle: _onSkipToggle,
+    });
+    if (result && sum) {
+      sum.textContent = result.done === result.total ? '✓ 四家到齊' : `${result.done}/${result.total} 家`;
     }
     _renderImportCompleteness();
   }
@@ -357,7 +368,7 @@ const Importer = (() => {
     document.getElementById('importer-modal')?.classList.add('hidden');
   }
 
-  return { open, close, runDownload, runImport, getStatus, loadBadge, loadCCPasswords, saveCCPasswords, BANKS };
+  return { open, close, runDownload, runImport, getStatus, renderBankStatus, loadBadge, loadCCPasswords, saveCCPasswords, BANKS };
 })();
 
 window.Importer = Importer;

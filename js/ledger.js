@@ -88,6 +88,7 @@ const Ledger = (() => {
   let _invSubEditShared = '';
   let _invSubPayer = '';              // 發票明細編輯：對應月度帳本負責人
   let _invSubMonthlyRowIndex = null;  // 對應月度帳本列 index（可寫 D 欄）
+  let _invSubMonthlyRow = null;       // 完整月度帳本 row（部分歸屬 modal 需要）
   let _invSubPayerEditable = false;   // 掃描/手查發票且已匯入才可改
   let _ccSubEditRow = null;
   let _ccSubEditShared = '';
@@ -1624,20 +1625,23 @@ const Ledger = (() => {
         // 更新發票 H
         await Sheets.updateInvoiceFields(invRow.rowIndex, { category: newCat, shared: '部分', note: newNote });
         _clearInvoiceCache();
-        const ym = monthlyRow.date.slice(0, 7);
-        await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: '部分', category: newCat }, ym);
-        // CC 連結：靜態 G/H 需手動重算（從 modal DOM 讀取剛設定的歸屬）
-        if (ccRow) {
-          const modalItems = Array.from(overlay.querySelectorAll('.item-attr-block')).map((block, i) => {
-            const it = invItems[i];
-            const activeChip = block.querySelector('.item-attr-chip.active');
-            const opt = activeChip ? activeChip.dataset.opt : (it.attribution || '');
-            let attribution = opt === '部分' ? '共用' : opt;
-            let custom = opt === '部分' ? (block.querySelector('.bear-amt-input')?.value || '') : '';
-            return { itemAmount: it.itemAmount, attribution, custom };
-          });
-          const { sinShare, bearShare } = _calcPlatformSplit(modalItems, '部分', ccRow.amount);
-          await Sheets.updateMonthlyGH(monthlyRow.rowIndex, sinShare, bearShare, ym);
+        // 月度帳本同步（已匯入時才有 monthlyRow）
+        if (monthlyRow) {
+          const ym = monthlyRow.date.slice(0, 7);
+          await Sheets.updateMonthlyFields(monthlyRow.rowIndex, { shared: '部分', category: newCat }, ym);
+          // CC 連結：靜態 G/H 需手動重算（從 modal DOM 讀取剛設定的歸屬）
+          if (ccRow) {
+            const modalItems = Array.from(overlay.querySelectorAll('.item-attr-block')).map((block, i) => {
+              const it = invItems[i];
+              const activeChip = block.querySelector('.item-attr-chip.active');
+              const opt = activeChip ? activeChip.dataset.opt : (it.attribution || '');
+              let attribution = opt === '部分' ? '共用' : opt;
+              let custom = opt === '部分' ? (block.querySelector('.bear-amt-input')?.value || '') : '';
+              return { itemAmount: it.itemAmount, attribution, custom };
+            });
+            const { sinShare, bearShare } = _calcPlatformSplit(modalItems, '部分', ccRow.amount);
+            await Sheets.updateMonthlyGH(monthlyRow.rowIndex, sinShare, bearShare, ym);
+          }
         }
         _itemsCache = null;
         overlay.remove();
@@ -2178,11 +2182,54 @@ const Ledger = (() => {
       errEl.classList.add('hidden');
       btn.disabled = true; btn.textContent = '儲存中…';
       try {
+        const oldShared = row.shared || '';
+        // 改成部分：先設定品項歸屬（按需載入 monthlyRow）
+        if (_invSubEditShared === '部分' && oldShared !== '部分') {
+          let monthlyRow = _invSubMonthlyRow;
+          if (!monthlyRow) {
+            const monthly = await Sheets.getMonthlyData(_year, _month);
+            monthlyRow = monthly.find(mr => mr.sourceLink === row.invNum) || null;
+          }
+          if (!_itemsCache || Date.now() - _itemsCacheTs >= ITEMS_CACHE_TTL) {
+            _itemsCache   = await Sheets.getItemData();
+            _itemsCacheTs = Date.now();
+          }
+          const invItems = _itemsCache.filter(it => it.invNum === row.invNum);
+          if (invItems.length) {
+            btn.disabled = false; btn.textContent = '儲存';
+            _closeInvSubModal();
+            _openItemAttrModal(row, monthlyRow, invItems, cat, note, null, null);
+            return;
+          }
+          if (monthlyRow) {
+            const choice = await _promptNoItemsPartial();
+            if (choice === null) {
+              btn.disabled = false; btn.textContent = '儲存';
+              return;
+            }
+            await Sheets.appendSyntheticItemRow(
+              { carrier: row.carrier, date: row.date, invNum: row.invNum, shop: row.shop },
+              { itemName: row.shop || '（整體）', itemAmount: row.amount,
+                attribution: '共用', customAmount: String(choice.bearShare) }
+            );
+          }
+        }
+        // 找出 monthlyRow 用於同步（如果前面沒找過）
+        let syncMonthlyRow = _invSubMonthlyRow;
+        if (!syncMonthlyRow && _invSubEditShared !== oldShared) {
+          const monthly = await Sheets.getMonthlyData(_year, _month);
+          syncMonthlyRow = monthly.find(mr => mr.sourceLink === row.invNum) || null;
+        }
         await Sheets.updateInvoiceFields(row.rowIndex, { category: cat, shared: _invSubEditShared, note });
         // 負責人寫月度帳本 D 欄（僅掃描/手查發票且已匯入、且有值時）
         if (_invSubPayerEditable && _invSubMonthlyRowIndex && _invSubPayer) {
           await Sheets.updateMonthlyFields(_invSubMonthlyRowIndex, { payer: _invSubPayer },
             `${_year}-${String(_month).padStart(2, '0')}`);
+        }
+        // 月度帳本同步 shared/category（已匯入時）
+        if (syncMonthlyRow) {
+          const ym = syncMonthlyRow.date.slice(0, 7);
+          await Sheets.updateMonthlyFields(syncMonthlyRow.rowIndex, { shared: _invSubEditShared, category: cat }, ym);
         }
         _clearInvoiceCache();
         _closeInvSubModal();
@@ -2203,6 +2250,7 @@ const Ledger = (() => {
     const chipsEl = document.getElementById('inv-sub-payer-chips');
     _invSubPayer = '';
     _invSubMonthlyRowIndex = null;
+    _invSubMonthlyRow = null;
     _invSubPayerEditable = false;
     const isApp = row.carrier === '掃描發票' || row.carrier === '手查發票';
     if (!isApp) {
@@ -2222,6 +2270,7 @@ const Ledger = (() => {
       return;
     }
     _invSubMonthlyRowIndex = monthlyRow.rowIndex;
+    _invSubMonthlyRow = monthlyRow;
     _invSubPayer = monthlyRow.payer || _defaultPayer();
     _invSubPayerEditable = true;
     chipsEl.innerHTML = [['🌟 Star', '🌟 Sin'], ['🐨 Bear', '🐨 Bear']].map(([val, label]) =>

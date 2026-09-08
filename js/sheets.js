@@ -258,9 +258,24 @@ const Sheets = (() => {
     const ym = `${year}-${String(month).padStart(2, '0')}`;
     const colA = await _get(`${CONFIG.TABS.CC}!A:A`);
     const nextRow = (colA.values || []).length + 1;
-    await _update(`${CONFIG.TABS.CC}!A${nextRow}:L${nextRow}`, [[
-      bank, '', '', reason, 0, '', '', '略過', '', '', '', ym,
+    await _update(`${CONFIG.TABS.CC}!A${nextRow}:M${nextRow}`, [[
+      bank, '', '', '', 0, '', '', '略過', '', '', '', ym, reason,
     ]]);
+    const gids = await _fetchSheetIds();
+    const ccGid = gids[CONFIG.TABS.CC];
+    await _fetchRetry(`${BASE}:batchUpdate`, {
+      method: 'POST',
+      headers: { ..._authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: [{
+          updateDimensionProperties: {
+            range: { sheetId: ccGid, dimension: 'ROWS', startIndex: nextRow - 1, endIndex: nextRow },
+            properties: { hiddenByUser: true },
+            fields: 'hiddenByUser',
+          },
+        }],
+      }),
+    });
     invalidateCCStatus();
   }
 

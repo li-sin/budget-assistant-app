@@ -1479,6 +1479,7 @@ const Ledger = (() => {
       _itemsCache = null;
       await _load();
       window.Home?.reload();
+      window.Pending?.reload?.();
     } catch (e) {
       errEl.textContent = '儲存失敗：' + e.message;
       errEl.classList.remove('hidden');
@@ -1647,6 +1648,7 @@ const Ledger = (() => {
         overlay.remove();
         await _load();
         window.Home?.reload();
+        window.Pending?.reload?.();
       } catch (e) {
         errEl.textContent = '儲存失敗：' + e.message;
         errEl.classList.remove('hidden');
@@ -2235,6 +2237,8 @@ const Ledger = (() => {
         _closeInvSubModal();
         _invRows = [];
         await _loadInvoiceTab();
+        window.Home?.reload();
+        window.Pending?.reload?.();
       } catch (e) {
         errEl.textContent = '儲存失敗：' + e.message;
         errEl.classList.remove('hidden');

@@ -564,7 +564,7 @@ const Ledger = (() => {
     if (!confirm(`確定刪除「${row.item || '此筆'}」？此操作無法復原。`)) return;
     const ym = row.date.slice(0, 7);
     Sheets.deleteMonthlyRow(row.rowIndex, ym)
-      .then(() => { _load(); window.Home?.reload(); })
+      .then(() => { _load(); window.Home?.reload(); window.Pending?.reload?.(); })
       .catch(e => alert('刪除失敗：' + e.message));
   }
 
@@ -642,6 +642,7 @@ const Ledger = (() => {
       _closeCCDeleteModal();
       await _load();
       window.Home?.reload();
+      window.Pending?.reload?.();
     } catch (e) {
       errEl.textContent = '刪除失敗：' + e.message;
       errEl.classList.remove('hidden');
@@ -859,6 +860,8 @@ const Ledger = (() => {
     document.querySelectorAll('#inv-shared-chips .chip')
       .forEach(b => b.classList.toggle('active', b.dataset.invShared === 'all'));
     await _loadInvoiceTab();
+    window.Home?.reload();
+    window.Pending?.reload?.();
   }
 
   async function _jumpToCC(rowIndex) {
@@ -871,6 +874,8 @@ const Ledger = (() => {
     const search = document.getElementById('cc-search');
     if (search) search.value = '';
     await _loadCCTab();
+    window.Home?.reload();
+    window.Pending?.reload?.();
   }
 
   function _jumpToMonthly(rowIndex) {
@@ -1089,6 +1094,7 @@ const Ledger = (() => {
           close();
           await _load();
           window.Home?.reload();
+          window.Pending?.reload?.();
         } catch (e) {
           const err = overlay.querySelector('.cat-pick-error');
           err.textContent = '儲存失敗：' + e.message;
@@ -1218,6 +1224,7 @@ const Ledger = (() => {
         if (ymNew !== ymOrig) Sheets.invalidateMonth(ymNew);
         await _load();
         window.Home?.reload();
+        window.Pending?.reload?.();
       } catch (e) {
         errEl.textContent = '儲存失敗：' + e.message;
         errEl.classList.remove('hidden');
@@ -1391,6 +1398,7 @@ const Ledger = (() => {
         _itemsCache = null;
         await _load();
         window.Home?.reload();
+        window.Pending?.reload?.();
         return;
       }
 
@@ -1771,6 +1779,7 @@ const Ledger = (() => {
           Sheets.invalidateMonth(ym);
         }
         window.Home?.reload();
+        window.Pending?.reload?.();
         msgEl.style.display = 'inline';
         setTimeout(() => { msgEl.style.display = 'none'; }, 2000);
       } catch (e) {
@@ -1948,6 +1957,7 @@ const Ledger = (() => {
       _closeDeleteModal();
       await _load();
       window.Home?.reload();
+      window.Pending?.reload?.();
     } catch (e) {
       errEl.textContent = '刪除失敗：' + e.message;
       errEl.classList.remove('hidden');
@@ -2119,6 +2129,7 @@ const Ledger = (() => {
       if (ymNew !== ymOrig) Sheets.invalidateMonth(ymNew);
       await _load();
       window.Home?.reload();
+      window.Pending?.reload?.();
     } catch (e) {
       document.getElementById('edit-error').textContent = '儲存失敗：' + e.message;
       document.getElementById('edit-error').classList.remove('hidden');
@@ -2384,6 +2395,8 @@ const Ledger = (() => {
         _closeCCSubModal();
         _ccRows = [];
         await _loadCCTab();
+        window.Home?.reload();
+        window.Pending?.reload?.();
       } catch (e) {
         errEl.textContent = '儲存失敗：' + e.message;
         errEl.classList.remove('hidden');
@@ -2651,6 +2664,8 @@ const Ledger = (() => {
         _clearInvoiceCache();
         _invRows = [];
         await _loadInvoiceTab();
+        window.Home?.reload();
+        window.Pending?.reload?.();
       } catch (e) {
         err.textContent = `解除失敗：${e.message}`;
         err.classList.remove('hidden');

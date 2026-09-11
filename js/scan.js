@@ -1420,8 +1420,8 @@ const Scan = (() => {
           btn.textContent = submitLabel;
           return;
         }
-        if (isQueryDetailMode && !shopValue) {
-          errEl.textContent = '請確認商店名稱';
+        if (!shopValue) {
+          errEl.textContent = '請填商店名稱';
           errEl.classList.remove('hidden');
           btn.disabled = false;
           btn.textContent = submitLabel;

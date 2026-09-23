@@ -341,15 +341,8 @@ const Pending = (() => {
   }
 
   async function _getAllMonthly() {
-    // 讀完整月度帳本（不限月份）
-    const BASE = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SHEET_ID}`;
-    const url  = `${BASE}/values/${encodeURIComponent(CONFIG.TABS.MONTHLY + '!A:L')}`;
-    const res  = await fetch(url, {
-      headers: { Authorization: `Bearer ${Auth.getToken()}` },
-    });
-    if (res.status === 401) { Auth.logout(); throw new Error('auth_expired'); }
-    if (!res.ok) throw new Error(`Sheets API ${res.status}`);
-    const data = await res.json();
+    // 讀完整月度帳本（不限月份）；走 Sheets 共用讀取，才有 429 退避重試
+    const data = await Sheets.getRange(`${CONFIG.TABS.MONTHLY}!A:L`);
     return (data.values || []).slice(1).map((r, i) => ({
       rowIndex:   i + 2,
       date:       r[0]  || '',

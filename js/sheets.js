@@ -1633,6 +1633,7 @@ const Sheets = (() => {
   }
 
   return {
+    getRange: _get,  // 原始範圍讀取（含 5xx/429 重試），給需要整表資料的模組用
     getMonthlyData, getCreditCardImportStatus, invalidateCCStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, deleteMonthlyRow,
     getInvoiceData, getItemData, updateItemRow,

@@ -16,11 +16,22 @@ const Sheets = (() => {
     }
   }
 
+  // 5xx：1→2→4 秒；429（每分鐘讀取額度）：Retry-After 優先，否則 2→4→8→16 秒＋隨機延遲，
+  // 避免並行請求同時醒來又一起撞額度。429 代表請求未被執行，寫入重試也不會重複寫。
   async function _fetchRetry(url, opts, maxRetries = 3) {
-    for (let i = 0; i <= maxRetries; i++) {
+    for (let i = 0; ; i++) {
       const res = await fetch(url, opts);
-      if (res.status < 500 || i === maxRetries) return res;
-      await new Promise(r => setTimeout(r, 1000 * 2 ** i));
+      const is429 = res.status === 429;
+      const limit = is429 ? 4 : maxRetries;
+      if ((!is429 && res.status < 500) || i >= limit) return res;
+      let wait;
+      if (is429) {
+        const ra = parseInt(res.headers.get('Retry-After'), 10);
+        wait = (ra > 0 ? ra * 1000 : 2000 * 2 ** i) + Math.random() * 1000;
+      } else {
+        wait = 1000 * 2 ** i;
+      }
+      await new Promise(r => setTimeout(r, wait));
     }
   }
 
@@ -157,7 +168,8 @@ const Sheets = (() => {
 
   function _dynamicItemsLink(invNum, display = invNum) {
     const q = _formulaText(invNum);
-    return `=HYPERLINK("#gid=${CONFIG.ITEMS_SHEET_ID}&range=G"&MATCH("${q}",${_sheetRef(CONFIG.TABS.ITEMS)}!$L:$L,0),"${_formulaText(display)}")`;
+    // 品項明細沒有這張發票（如 QR 未帶品項）時 MATCH 為 #N/A，退回顯示純號碼
+    return `=IFERROR(HYPERLINK("#gid=${CONFIG.ITEMS_SHEET_ID}&range=G"&MATCH("${q}",${_sheetRef(CONFIG.TABS.ITEMS)}!$L:$L,0),"${_formulaText(display)}"),"${_formulaText(display)}")`;
   }
 
   function _dynamicCCLink(ccGid, date, shop, amount, display = '→') {
@@ -991,11 +1003,15 @@ const Sheets = (() => {
 
   // ── F20 刪除/編輯：找出連結某發票的 CC 列（兩段式，只讀 I:I 定位）──
   async function getCCForInvoice(invNum) {
+    // 發票號碼無效（#N/A、空白）時 target 會是 ''，會跟所有「未綁發票」的 CC 列配對成功，
+    // 逐列讀 A:E 瞬間打出數百次請求 → 429。無效號碼直接視為未綁定。
+    const target = _asInvoiceNumber(invNum);
+    if (!target) return [];
     const iData = await _get(`${CONFIG.TABS.CC}!I:I`);
     const iRows = (iData.values || []).slice(1);
     const matches = iRows
       .map((r, i) => ({ rowIndex: i + 2, matched: _asInvoiceNumber(r[0]) }))
-      .filter(r => r.matched === _asInvoiceNumber(invNum));
+      .filter(r => r.matched === target);
     if (!matches.length) return [];
     return await Promise.all(matches.map(async m => {
       const d = await _get(`${CONFIG.TABS.CC}!A${m.rowIndex}:E${m.rowIndex}`);

@@ -1199,7 +1199,8 @@ const Pending = (() => {
     const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
     let selectedShared = inv.shared || '';
     let selectedCat = inv.category || '';
-    let noteVal = inv.note || '';
+    let noteVal = PayerTag.strip(inv.note);          // 備註框不顯示負責人標籤
+    let selectedPayer = PayerTag.payerOf(inv.note);  // 匯入前負責人（存備註標籤，匯入時帶入月度 D 欄）
     const needCat = !inv.category;
     document.getElementById('pending-modal-title').textContent = `🟣 ${inv.shop}`;
 
@@ -1226,6 +1227,11 @@ const Pending = (() => {
         <div class="chip-row" id="inv-shared-chips" style="margin-bottom:12px">
           ${SHARED_OPTS.map(opt => `<button class="chip${selectedShared === opt ? ' active' : ''}" data-opt="${opt}">${opt}</button>`).join('')}
         </div>
+        <label class="field-label">負責人</label>
+        <div class="chip-row" id="inv-payer-chips" style="margin-bottom:12px">
+          ${[['🌟 Star', '🌟 Sin 付'], ['🐨 Bear', '🐨 Bear 付']].map(([v, l]) =>
+            `<button class="chip${selectedPayer === v ? ' active' : ''}" data-payer="${v}">${l}</button>`).join('')}
+        </div>
         <label class="field-label">備注</label>
         <input type="text" id="inv-note" class="field-input" placeholder="選填">
         <p id="inv-error" class="add-error hidden"></p>
@@ -1243,6 +1249,14 @@ const Pending = (() => {
           selectedCat = btn.dataset.cat;
           document.querySelectorAll('#inv-cat-chips .chip')
             .forEach(b => b.classList.toggle('active', b.dataset.cat === selectedCat));
+        });
+      });
+
+      document.querySelectorAll('#inv-payer-chips .chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          selectedPayer = btn.dataset.payer;
+          document.querySelectorAll('#inv-payer-chips .chip')
+            .forEach(b => b.classList.toggle('active', b.dataset.payer === selectedPayer));
         });
       });
 
@@ -1276,7 +1290,7 @@ const Pending = (() => {
         btn.disabled = true;
         btn.textContent = '儲存中…';
         try {
-          await Sheets.updateInvoiceFields(inv.rowIndex, { category: selectedCat, shared: selectedShared, note: noteVal });
+          await Sheets.updateInvoiceFields(inv.rowIndex, { category: selectedCat, shared: selectedShared, note: PayerTag.apply(noteVal, selectedPayer) });
           _saveClose();
           await _reload();
         } catch (e) {
@@ -1379,17 +1393,18 @@ const Pending = (() => {
             );
           }
           const _finalCat = selectedCat || item.invItems[0]?.category || inv.category || '';
-          await Sheets.updateInvoiceFields(inv.rowIndex, { ...(_finalCat ? { category: _finalCat } : {}), shared: '部分', note: noteVal });
+          await Sheets.updateInvoiceFields(inv.rowIndex, { ...(_finalCat ? { category: _finalCat } : {}), shared: '部分', note: PayerTag.apply(noteVal, selectedPayer) });
           await Sheets.appendMonthlyFromInvoice({
             date: inv.date,
             shop: inv.shop,
             amount: inv.amount,
             shared: '部分',
             category: _finalCat,
-            note: noteVal,
+            note: PayerTag.apply(noteVal, selectedPayer),
             invNum: inv.invNum,
             invRowIndex: inv.rowIndex,
             source: _sourceFromCarrier(inv.carrier),
+            payer: selectedPayer,
           });
           Sheets.invalidateMonth(inv.date.slice(0, 7));
           _saveClose();

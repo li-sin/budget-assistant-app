@@ -1383,6 +1383,7 @@ const Ledger = (() => {
     const oldShared = invRow.shared || '';
     const oldPayer  = monthlyRow.payer || '';
     const ym        = monthlyRow.date.slice(0, 7);
+    newNote = PayerTag.apply(newNote, newPayer || oldPayer);   // 備註標籤與 D 欄一致
 
     try {
       // 負責人變更：寫月度帳本 D 欄（x 會刪整列，故不在此寫）
@@ -2200,7 +2201,9 @@ const Ledger = (() => {
       const btn   = document.getElementById('inv-sub-save');
       const errEl = document.getElementById('inv-sub-error');
       const cat   = document.getElementById('inv-sub-cat').value;
-      const note  = document.getElementById('inv-sub-note').value.trim();
+      // 負責人以備註標籤同步（未匯入時是唯一存放處；已匯入時與月度 D 欄保持一致）
+      const note  = PayerTag.apply(document.getElementById('inv-sub-note').value.trim(),
+                                   _invSubPayer || PayerTag.payerOf(row.note));
       errEl.classList.add('hidden');
       btn.disabled = true; btn.textContent = '儲存中…';
       try {
@@ -2243,7 +2246,7 @@ const Ledger = (() => {
           syncMonthlyRow = monthly.find(mr => mr.sourceLink === row.invNum) || null;
         }
         await Sheets.updateInvoiceFields(row.rowIndex, { category: cat, shared: _invSubEditShared, note });
-        // 負責人寫月度帳本 D 欄（僅掃描/手查發票且已匯入、且有值時）
+        // 負責人寫月度帳本 D 欄（已匯入、且有值時；未匯入只存備註標籤）
         if (_invSubPayerEditable && _invSubMonthlyRowIndex && _invSubPayer) {
           await Sheets.updateMonthlyFields(_invSubMonthlyRowIndex, { payer: _invSubPayer },
             `${_year}-${String(_month).padStart(2, '0')}`);
@@ -2268,7 +2271,8 @@ const Ledger = (() => {
     });
   }
 
-  // 負責人存在月度帳本 D 欄（非發票明細）。已匯入月度帳本才可改，寫月度帳本 D 欄。
+  // 負責人存在月度帳本 D 欄（非發票明細）。已匯入 → 寫月度帳本 D 欄；
+  // 未匯入 → 存備註標籤 [🐨Bear付]，「匯入月度帳本」時帶入 D 欄（PayerTag）。
   // 財政部發票也開放（Sin 載具但 Bear 代付的情況），與月度帳本 sub-tab「發票欄位」一致。
   async function _loadInvSubPayer(row) {
     const chipsEl = document.getElementById('inv-sub-payer-chips');
@@ -2284,16 +2288,17 @@ const Ledger = (() => {
         mr.sourceLink === row.invNum &&
         (mr.source === '發票' || mr.source === '掃描發票' || mr.source === '手查發票'));
     } catch { /* 讀取失敗時下方顯示提示 */ }
-    if (!monthlyRow) {
-      chipsEl.innerHTML = '<span class="list-item-sub">尚未匯入月度帳本（匯入後才能設定負責人）</span>';
-      return;
+    if (monthlyRow) {
+      _invSubMonthlyRowIndex = monthlyRow.rowIndex;
+      _invSubMonthlyRow = monthlyRow;
+      _invSubPayer = monthlyRow.payer || _defaultPayer();
+      _invSubPayerEditable = true;
+    } else {
+      _invSubPayer = PayerTag.payerOf(row.note);   // 未匯入：讀備註標籤
     }
-    _invSubMonthlyRowIndex = monthlyRow.rowIndex;
-    _invSubMonthlyRow = monthlyRow;
-    _invSubPayer = monthlyRow.payer || _defaultPayer();
-    _invSubPayerEditable = true;
     chipsEl.innerHTML = [['🌟 Star', '🌟 Sin'], ['🐨 Bear', '🐨 Bear']].map(([val, label]) =>
-      `<button class="chip${_invSubPayer === val ? ' active' : ''}" data-payer="${val}">${label}</button>`).join('');
+      `<button class="chip${_invSubPayer === val ? ' active' : ''}" data-payer="${val}">${label}</button>`).join('') +
+      (monthlyRow ? '' : '<span class="list-item-sub" style="align-self:center">匯入月度帳本時帶入</span>');
     chipsEl.querySelectorAll('.chip').forEach(btn => {
       btn.addEventListener('click', () => {
         _invSubPayer = btn.dataset.payer;
@@ -2309,7 +2314,7 @@ const Ledger = (() => {
     document.getElementById('inv-sub-info').innerHTML =
       `${row.shop || '（未知）'}　${row.date}　${row.invNum}<br>金額 $${row.amount.toLocaleString('zh-TW')}`;
     document.getElementById('inv-sub-cat').value  = row.category || '';
-    document.getElementById('inv-sub-note').value = row.note     || '';
+    document.getElementById('inv-sub-note').value = PayerTag.strip(row.note);
     document.getElementById('inv-sub-error').classList.add('hidden');
     document.querySelectorAll('#inv-sub-shared-chips .chip')
       .forEach(b => b.classList.toggle('active', b.dataset.val === _invSubEditShared));

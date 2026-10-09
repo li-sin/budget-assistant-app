@@ -815,7 +815,7 @@ const Sheets = (() => {
     for (const { rowIndex, r } of toImportInv) {
       const date = r[1].replace(/^'/, '');
       const link = _dynamicInvoiceLink(r[2] || '→');
-      invMonthlyRows.push([date, r[3]||'', r[4]||'0', '🌟 Star', r[7], r[6]||'', r[8]||'', '發票', link, importedAt]);
+      invMonthlyRows.push([date, r[3]||'', r[4]||'0', PayerTag.payerOf(r[8]), r[7], r[6]||'', r[8]||'', '發票', link, importedAt]);
       invMarkRanges.push({ range: `${CONFIG.TABS.INVOICE}!J${rowIndex}`, values: [[true]] });
     }
     if (invMonthlyRows.length) {

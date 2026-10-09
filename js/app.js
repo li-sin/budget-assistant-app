@@ -59,6 +59,20 @@ const NoteChips = (() => {
 })();
 window.NoteChips = NoteChips;
 
+// 匯入前的負責人暫存：發票明細沒有 payer 欄，Bear 代付以備註標籤 [🐨Bear付] 記錄，
+// 「匯入月度帳本」（JS importToMonthly / import_to_monthly.py）讀到標籤就寫 D=🐨 Bear
+window.PayerTag = (() => {
+  const TAG = '[🐨Bear付]';
+  const has   = note => (note || '').includes(TAG);
+  const strip = note => (note || '').split(TAG).join('').replace(/\s{2,}/g, ' ').trim();
+  const apply = (note, payer) => {
+    const base = strip(note);
+    return payer === '🐨 Bear' ? (base ? `${base} ${TAG}` : TAG) : base;
+  };
+  const payerOf = note => has(note) ? '🐨 Bear' : '🌟 Star';
+  return { TAG, has, strip, apply, payerOf };
+})();
+
 window.AppMonth = (() => {
   const now = new Date();
   let _y = now.getFullYear(), _m = now.getMonth() + 1;

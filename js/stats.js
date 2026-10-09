@@ -28,6 +28,7 @@ const Stats = (() => {
   //   成員 all→總金額、sin→sinShare、bear→bearShare；是否共用複選篩列（空=全部）
   function _rowContribution(r) {
     if (r.shared === 'x') return 0;
+    if ((r.amount || 0) < 0) return 0;   // 中獎獎金（負金額）只影響結算，不計入花費統計
     if (_sharedSelected.size > 0 && !_sharedSelected.has(r.shared)) return 0;
     if (_memberFilter === 'sin')  return r.sinShare  || 0;
     if (_memberFilter === 'bear') return r.bearShare || 0;

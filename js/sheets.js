@@ -331,16 +331,19 @@ const Sheets = (() => {
   // row: 長度 12 的陣列，對應 A~L 欄
   // [date, item, amount, payer, shared, category, sinShare, bearShare, note, source, sourceLink, importedAt]
 
-  async function appendMonthlyRow(row) {
+  // gh：選填 [G, H] 靜態值（逃生口，如中獎獎金自訂分配）；省略時 G/H 交給 buffer 公式
+  async function appendMonthlyRow(row, gh = null) {
     const data = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
     const lastRow = (data.values || []).length;
     const nextRow = lastRow + 1;
     await _ensureRowCapacity(CONFIG.TABS.MONTHLY, nextRow);
     const tab = CONFIG.TABS.MONTHLY;
-    await _batchUpdate([
+    const updates = [
       { range: `${tab}!A${nextRow}:F${nextRow}`, values: [[row[0], row[1], row[2], row[3], row[4], row[5]]] },
       { range: `${tab}!I${nextRow}:L${nextRow}`, values: [[row[8], row[9], row[10], row[11]]] },
-    ]);
+    ];
+    if (gh) updates.push({ range: `${tab}!G${nextRow}:H${nextRow}`, values: [gh] });
+    await _batchUpdate(updates);
     const ym = (row[0] || '').slice(0, 7);
     if (ym) invalidateMonth(ym);
   }

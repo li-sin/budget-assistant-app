@@ -317,6 +317,44 @@ select.field-input { height: 44px; }
   pointer-events: none;
 }
 .amount-input { padding-left: 24px; }
+.amount-wrap .amount-calc-btn {
+  position: absolute;
+  right: 6px; top: 50%;
+  transform: translateY(-50%);
+  background: none; border: none;
+  font-size: 20px; padding: 4px 6px;
+  cursor: pointer;
+}
+#add-amount { padding-right: 44px; }
+.hidden.prize-only, .hidden.expense-only { display: none; }
+
+/* 🧮 計算機 modal */
+.calc-display {
+  background: var(--card, rgba(127,127,127,.08));
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  text-align: right;
+}
+.calc-expr   { min-height: 20px; font-size: 14px; color: var(--text-sub); word-break: break-all; }
+.calc-result { font-size: 30px; font-weight: 600; color: var(--text-main); }
+.calc-keys {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.calc-key {
+  height: 52px;
+  border: none; border-radius: 10px;
+  font-size: 20px;
+  background: rgba(127,127,127,.15);
+  color: var(--text-main);
+  cursor: pointer;
+}
+.calc-key.op   { background: var(--teal); color: #000; font-weight: 600; }
+.calc-key.fn   { color: var(--salmon); }
+.calc-key.wide { grid-column: span 2; }
+.calc-key:active { opacity: .6; }
 
 .add-error {
   color: var(--salmon);

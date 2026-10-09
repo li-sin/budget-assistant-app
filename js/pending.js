@@ -1199,6 +1199,7 @@ const Pending = (() => {
     const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
     let selectedShared = inv.shared || '';
     let selectedCat = inv.category || '';
+    let noteVal = inv.note || '';
     const needCat = !inv.category;
     document.getElementById('pending-modal-title').textContent = `🟣 ${inv.shop}`;
 
@@ -1225,8 +1226,13 @@ const Pending = (() => {
         <div class="chip-row" id="inv-shared-chips" style="margin-bottom:12px">
           ${SHARED_OPTS.map(opt => `<button class="chip${selectedShared === opt ? ' active' : ''}" data-opt="${opt}">${opt}</button>`).join('')}
         </div>
+        <label class="field-label">備注</label>
+        <input type="text" id="inv-note" class="field-input" placeholder="選填">
         <p id="inv-error" class="add-error hidden"></p>
       `;
+      const noteEl = document.getElementById('inv-note');
+      noteEl.value = noteVal;
+      NoteChips.render('inv-note');
       document.getElementById('pending-modal-footer').innerHTML = `
         <button class="btn-secondary" id="inv-cancel">取消</button>
         <button class="btn-primary" id="inv-save">儲存</button>
@@ -1251,6 +1257,7 @@ const Pending = (() => {
       document.getElementById('inv-cancel').addEventListener('click', _closeDetail);
       document.getElementById('inv-save').addEventListener('click', async () => {
         const errEl = document.getElementById('inv-error');
+        noteVal = document.getElementById('inv-note').value.trim();
         if (needCat && !selectedCat) {
           errEl.textContent = '請選擇類別';
           errEl.classList.remove('hidden');
@@ -1269,7 +1276,7 @@ const Pending = (() => {
         btn.disabled = true;
         btn.textContent = '儲存中…';
         try {
-          await Sheets.updateInvoiceFields(inv.rowIndex, { category: selectedCat, shared: selectedShared });
+          await Sheets.updateInvoiceFields(inv.rowIndex, { category: selectedCat, shared: selectedShared, note: noteVal });
           _saveClose();
           await _reload();
         } catch (e) {
@@ -1372,14 +1379,14 @@ const Pending = (() => {
             );
           }
           const _finalCat = selectedCat || item.invItems[0]?.category || inv.category || '';
-          await Sheets.updateInvoiceFields(inv.rowIndex, { ...(_finalCat ? { category: _finalCat } : {}), shared: '部分' });
+          await Sheets.updateInvoiceFields(inv.rowIndex, { ...(_finalCat ? { category: _finalCat } : {}), shared: '部分', note: noteVal });
           await Sheets.appendMonthlyFromInvoice({
             date: inv.date,
             shop: inv.shop,
             amount: inv.amount,
             shared: '部分',
             category: _finalCat,
-            note: inv.note || '',
+            note: noteVal,
             invNum: inv.invNum,
             invRowIndex: inv.rowIndex,
             source: _sourceFromCarrier(inv.carrier),

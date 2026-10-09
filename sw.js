@@ -1,4 +1,4 @@
-const CACHE = 'ba-v254';
+const CACHE = 'ba-v255';
 const SHELL = [
   './index.html',
   './css/main.css',
@@ -10,6 +10,7 @@ const SHELL = [
   './js/gmail.js',
   './js/home.js',
   './js/ledger.js',
+  './js/calc.js',
   './js/add.js',
   './js/scan.js',
   './js/pending.js',

@@ -177,8 +177,9 @@ const Ledger = (() => {
       const mmdd = r.date.slice(5).replace('-', '/');
       const cat  = r.category || UNCAT;
       const shares = [];
-      if (r.sinShare  > 0) shares.push(`Sin ${_fmt(r.sinShare)}`);
-      if (r.bearShare > 0) shares.push(`Bear ${_fmt(r.bearShare)}`);
+      // 中獎獎金列為負值：顯示兩人各分到多少
+      if (r.sinShare  !== 0) shares.push(`Sin ${r.sinShare  < 0 ? '+' : ''}${_fmt(r.sinShare)}`);
+      if (r.bearShare !== 0) shares.push(`Bear ${r.bearShare < 0 ? '+' : ''}${_fmt(r.bearShare)}`);
       const bearBadge = r.payer === '🐨 Bear'
         ? '<span class="badge badge-bear">Bear付</span>' : '';
       const sharedLabel = r.shared ? `<span class="tag-shared">${r.shared}</span>` : '';
@@ -196,7 +197,7 @@ const Ledger = (() => {
               ${sharesRow}
             </div>
             <div class="list-item-right">
-              <div class="amount-expense">${_fmt(r.amount)}</div>
+              <div class="${r.amount < 0 ? 'amount-income' : 'amount-expense'}">${r.amount < 0 ? '+' : ''}${_fmt(r.amount)}</div>
               ${isSin && isInvoice ? `<button class="expand-btn" data-row="${r.rowIndex}">▼</button>` : ''}
             </div>
           </div>
@@ -2259,19 +2260,14 @@ const Ledger = (() => {
     });
   }
 
-  // 負責人存在月度帳本 D 欄（非發票明細）。財政部發票恆 Sin、唯讀；
-  // 掃描/手查發票且已匯入月度帳本才可改，寫月度帳本 D 欄。
+  // 負責人存在月度帳本 D 欄（非發票明細）。已匯入月度帳本才可改，寫月度帳本 D 欄。
+  // 財政部發票也開放（Sin 載具但 Bear 代付的情況），與月度帳本 sub-tab「發票欄位」一致。
   async function _loadInvSubPayer(row) {
     const chipsEl = document.getElementById('inv-sub-payer-chips');
     _invSubPayer = '';
     _invSubMonthlyRowIndex = null;
     _invSubMonthlyRow = null;
     _invSubPayerEditable = false;
-    const isApp = row.carrier === '掃描發票' || row.carrier === '手查發票';
-    if (!isApp) {
-      chipsEl.innerHTML = '<span class="list-item-sub">🌟 Sin（財政部發票固定）</span>';
-      return;
-    }
     chipsEl.innerHTML = '<span class="list-item-sub">讀取中…</span>';
     let monthlyRow = null;
     try {

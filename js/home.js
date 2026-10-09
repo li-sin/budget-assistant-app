@@ -21,9 +21,11 @@ const Home = (() => {
   }
 
   function _renderSummary(rows, settlement, paid) {
-    const total    = rows.reduce((s, r) => s + r.amount,    0);
-    const sinTotal = rows.reduce((s, r) => s + r.sinShare,  0);
-    _bearMonthly   = rows.reduce((s, r) => s + r.bearShare, 0);
+    // 花費卡排除中獎獎金（負金額）；結算 net 仍用全部列
+    const spend    = rows.filter(r => r.amount >= 0);
+    const total    = spend.reduce((s, r) => s + r.amount,    0);
+    const sinTotal = spend.reduce((s, r) => s + r.sinShare,  0);
+    _bearMonthly   = spend.reduce((s, r) => s + r.bearShare, 0);
     // 月淨值：Bear欠Sin（Sin付的bearShare） - Sin欠Bear（Bear付的sinShare）
     const b2s = rows.filter(r => r.payer !== '🐨 Bear').reduce((s, r) => s + r.bearShare, 0);
     const s2b = rows.filter(r => r.payer === '🐨 Bear').reduce((s, r) => s + r.sinShare, 0);

@@ -1143,7 +1143,8 @@ const Ledger = (() => {
         </div>
         <div class="inv-edit-row">
           <span class="inv-edit-label">金額</span>
-          <input type="number" class="ne-amount field-input" style="height:36px;font-size:13px;padding:4px 8px;" value="${row.amount || ''}">
+          <input type="number" class="ne-amount field-input" style="height:36px;font-size:13px;padding:4px 8px;flex:1;min-width:0;" value="${row.amount || ''}">
+          <button type="button" class="ne-calc-btn" aria-label="計算機">🧮</button>
         </div>
         <div class="inv-edit-row">
           <span class="inv-edit-label">類別</span>
@@ -1173,6 +1174,13 @@ const Ledger = (() => {
 
     let currentPayer  = rowPayer;
     let currentShared = row.shared || '是';
+
+    // 🧮 計算機（如房租加電費：16500＋電費 → 帶入）
+    detail.querySelector('.ne-calc-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      const amtEl = detail.querySelector('.ne-amount');
+      Calculator.open(amtEl.value, result => { amtEl.value = result; });
+    });
 
     detail.querySelectorAll('.ne-payer-chip').forEach(chip => {
       chip.addEventListener('click', () => {

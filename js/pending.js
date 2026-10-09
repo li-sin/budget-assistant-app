@@ -334,8 +334,8 @@ const Pending = (() => {
         });
       });
 
-    // 排序：🔴 > 🟠 > 🟡 > 🔵 > 🟤 > 🔗 > 🟣 > ⚠
-    const order = { anomaly: 0, duplicate: 1, cc_inv_suspect: 2, untagged: 3, cc_pending: 4, platform_unlinked: 5, scan_cc_dup: 6, inv_pending: 7, cc_refund: 8 };
+    // 排序：🔴 > 🟠 > 🟡 > 🟣 > 🔵 > 🟤 > 🔗 > ⚠（🟣 發票待填排在 🔵 信用卡待填之前，2026-10-10 Sin 指定）
+    const order = { anomaly: 0, duplicate: 1, cc_inv_suspect: 2, untagged: 3, inv_pending: 4, cc_pending: 5, platform_unlinked: 6, scan_cc_dup: 7, cc_refund: 8 };
     result.sort((a, b) => (order[a.type] ?? 99) - (order[b.type] ?? 99));
     _items = result;
   }

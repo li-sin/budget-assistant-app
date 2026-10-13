@@ -5,13 +5,18 @@ const Add = (() => {
   let _shared = '是';
   let _mode   = 'expense';   // expense＝一般支出；prize＝中獎獎金（寫負金額，沿用 G/H 矩陣沖抵結算）
 
+  // 用本地時間（toISOString 是 UTC，台灣早上 8 點前會差一天）
+  function _localIso() {
+    const d = new Date();
+    return new Date(d - d.getTimezoneOffset() * 60000).toISOString();
+  }
+
   function _todayStr() {
-    return new Date().toISOString().slice(0, 10);
+    return _localIso().slice(0, 10);
   }
 
   function _nowStr() {
-    const d = new Date();
-    return d.toISOString().slice(0, 16).replace('T', ' ');
+    return _localIso().slice(0, 16).replace('T', ' ');
   }
 
   function _defaultPayer() {

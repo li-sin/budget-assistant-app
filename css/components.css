@@ -973,6 +973,13 @@ select.field-input { height: 44px; }
 .sconf-platform-chip { padding: 8px 16px; font-size: 14px; }
 .sconf-platform-hint { margin: 8px 0 0; font-size: 12px; color: var(--text-sub); }
 #calc-modal { z-index: 400; }
+.cc-preset { border: 1px solid var(--divider); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.cc-preset-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.cc-preset-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-sub); padding: 2px 0; }
+.cc-preset-addons { margin: 8px 0; }
+.cc-preset-check { font-size: 13px; color: var(--teal); }
+.cc-preset-check.is-off { color: var(--salmon); }
+.cc-preset-split { font-size: 13px; font-weight: 600; margin-top: 4px; }
 .inv-edit-row.hidden { display: none; }
 
 /* ── Settings version ───────────────────────────── */

@@ -1015,13 +1015,44 @@ const Pending = (() => {
 
   // ── 🔵 信用卡待填：填是否共用 + 備注 ─────────────────────────
 
+  // 常吃品項：預計金額＝品項＋勾選的加購；Bear＝Bear 品項加總
+  function _findShopPreset(shop) {
+    const s = String(shop || '').toLowerCase();
+    return (CONFIG.SHOP_PRESETS || []).find(p => s.includes(p.match)) || null;
+  }
+  function _presetTotal(preset, addonOn) {
+    return preset.items.reduce((sum, it) => sum + it.price, 0)
+      + preset.addons.reduce((sum, a, i) => sum + (addonOn[i] ? a.price : 0), 0);
+  }
+
+  // Bear 負擔：先加指定給 Bear 的品項與加購，再把 who:'larger' 的加購算給目前金額比較多的人
+  function _presetBear(preset, addonOn) {
+    const on = preset.addons.filter((_, i) => addonOn[i]);
+    const sum = (list, who) => list.filter(x => x.who === who).reduce((s, x) => s + x.price, 0);
+    const sin  = sum(preset.items, 'Sin')  + sum(on, 'Sin');
+    const bear = sum(preset.items, 'Bear') + sum(on, 'Bear');
+    return bear > sin ? bear + sum(on, 'larger') : bear;
+  }
+
+  // 刷卡金額剛好等於某種加購組合就先選好，對不上就都不選
+  function _presetAutoAddons(preset, amount) {
+    const n = preset.addons.length;
+    for (let mask = 0; mask < (1 << n); mask++) {
+      const on = preset.addons.map((_, i) => !!(mask & (1 << i)));
+      if (_presetTotal(preset, on) === amount) return on;
+    }
+    return preset.addons.map(() => false);
+  }
+
   function _renderCCPending(item) {
     const cc = item.cc;
+    const preset = _findShopPreset(cc.shop);
+    const addonOn = preset ? _presetAutoAddons(preset, cc.amount) : [];
     const cands = item.invCandidates || [];   // 可連結的現有發票（CC 驅動）
     let selectedInv = null;
     const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
-    let selectedShared = cc.shared || '';          // CC 下載時若已自動填，預選供 double check
-    let selectedCat    = cc.category || '';        // 類別：下載時 _lookupCategory 可能已自動填
+    let selectedShared = cc.shared || (preset ? '部分' : '');   // CC 下載時若已自動填，預選供 double check
+    let selectedCat    = cc.category || preset?.category || '';  // 類別：下載時 _lookupCategory 可能已自動填
     document.getElementById('pending-modal-title').textContent = `🔵 ${cc.shop}`;
 
     // 下載時已自動帶入的欄位，提示使用者確認
@@ -1051,6 +1082,16 @@ const Pending = (() => {
           <input type="text" id="cc-note" class="field-input" value="${cc.note}" placeholder="選填">
         </div>
         <div id="cc-bear-row" class="hidden">
+          ${preset ? `
+          <div class="cc-preset">
+            <div class="cc-preset-title">${preset.name} 常吃品項</div>
+            ${preset.items.map(it => `<div class="cc-preset-row"><span>${it.icon} ${it.who} ${it.name}</span><span>${_fmt(it.price)}</span></div>`).join('')}
+            <div class="chip-row cc-preset-addons">
+              ${preset.addons.map((a, i) => `<button type="button" class="chip cc-preset-addon${addonOn[i] ? ' active' : ''}" data-i="${i}">${a.icon} ${a.name} +${_fmt(a.price)}</button>`).join('')}
+            </div>
+            <div class="cc-preset-check" id="cc-preset-check"></div>
+            <div class="cc-preset-split" id="cc-preset-split"></div>
+          </div>` : ''}
           <label class="field-label">Bear 負擔金額</label>
           <div class="amount-wrap">
             <span class="amount-prefix">$</span>
@@ -1147,6 +1188,33 @@ const Pending = (() => {
     };
     _updatePartialUI();
     Calculator.attach(document.getElementById('cc-bear'));
+    if (preset) {
+      const bearInput = document.getElementById('cc-bear');
+      let bearEdited = false;   // 自己改過 Bear 金額後，按加購就不再蓋掉
+      bearInput.value = _presetBear(preset, addonOn);
+      const syncPreset = () => {
+        const expected = _presetTotal(preset, addonOn);
+        const diff = cc.amount - expected;
+        const checkEl = document.getElementById('cc-preset-check');
+        checkEl.textContent = diff === 0
+          ? `✓ 金額對得起來：預計 ${_fmt(expected)}`
+          : `⚠️ 差 ${_fmt(Math.abs(diff))}：預計 ${_fmt(expected)}，刷卡${diff > 0 ? '多' : '少'} ${_fmt(Math.abs(diff))}`;
+        checkEl.classList.toggle('is-off', diff !== 0);
+        const bear = parseFloat(bearInput.value) || 0;
+        document.getElementById('cc-preset-split').textContent = `Sin ${_fmt(cc.amount - bear)}／Bear ${_fmt(bear)}`;
+      };
+      document.querySelectorAll('.cc-preset-addon').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const i = parseInt(btn.dataset.i, 10);
+          addonOn[i] = !addonOn[i];
+          btn.classList.toggle('active', addonOn[i]);
+          if (!bearEdited) bearInput.value = _presetBear(preset, addonOn);
+          syncPreset();
+        });
+      });
+      bearInput.addEventListener('input', () => { bearEdited = true; syncPreset(); });
+      syncPreset();
+    }
 
     document.querySelectorAll('#cc-shared-chips .chip').forEach(btn => {
       btn.addEventListener('click', () => {

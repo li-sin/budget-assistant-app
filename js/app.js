@@ -31,12 +31,13 @@ const NoteChips = (() => {
     localStorage.setItem(LS_KEY, JSON.stringify(getCustom().filter(c => c !== label)));
   }
 
-  function render(inputId) {
+  // exclude：這頁已有其他入口的標籤（掃描確認頁的訂購平台）不重複顯示
+  function render(inputId, { exclude = [] } = {}) {
     const input = document.getElementById(inputId);
     if (!input) return;
     const next = input.nextElementSibling;
     if (next?.classList.contains('note-chip-row')) next.remove();
-    const chips = all();
+    const chips = all().filter(c => !exclude.includes(c));
     if (!chips.length) return;
     const row = document.createElement('div');
     row.className = 'note-chip-row chip-row';

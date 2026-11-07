@@ -959,15 +959,16 @@ select.field-input { height: 44px; }
 .sconf-ocr-row { grid-template-columns: minmax(0, 1fr) minmax(104px, 0.7fr) 28px; }
 .sconf-manual-add { grid-template-columns: minmax(0, 1.2fr) minmax(104px, 0.9fr) auto; }
 @media (max-width: 380px) { .sconf-manual-add { grid-template-columns: 1fr; } }
-/* 訂購平台：放在商店正下方，黃框提醒別忘了標；選了就跟其他 chip 一樣變綠 */
+/* 訂購平台：放在商店正下方；平常灰框，自動選好時（.is-auto）才亮黃框 */
 .sconf-platform {
   margin-top: 10px;
   padding: 10px 12px;
-  border: 1.5px solid #FFC107;
+  border: 1.5px solid var(--divider);
   border-radius: 10px;
-  background: rgba(255, 193, 7, 0.1);
 }
-.sconf-platform-title { font-size: 13px; font-weight: 600; color: #FFC107; margin-bottom: 8px; }
+.sconf-platform-title { font-size: 13px; font-weight: 600; color: var(--text-sub); margin-bottom: 8px; }
+.sconf-platform.is-auto { border-color: #FFC107; background: rgba(255, 193, 7, 0.1); }
+.sconf-platform.is-auto .sconf-platform-title { color: #FFC107; }
 .sconf-platform-chips { margin-bottom: 0; }
 .sconf-platform-chip { padding: 8px 16px; font-size: 14px; }
 .sconf-platform-hint { margin: 8px 0 0; font-size: 12px; color: var(--text-sub); }

@@ -1002,7 +1002,7 @@ const Scan = (() => {
     `;
 
     el.classList.remove('hidden');
-    NoteChips.render('sconf-note');
+    NoteChips.render('sconf-note', { exclude: CONFIG.DEFAULT_NOTE_CHIPS });
 
     // 訂購平台：備註標籤與按鈕雙向同步；使用者動過就不再自動選
     const platformNoteEl = document.getElementById('sconf-note');
@@ -1018,6 +1018,7 @@ const Scan = (() => {
     function setPlatformHint(text) {
       platformHintEl.textContent = text || '';
       platformHintEl.classList.toggle('hidden', !text);
+      el.querySelector('.sconf-platform')?.classList.toggle('is-auto', !!text);   // 只有自動選好才亮黃框
     }
     function refreshPlatformSuggestion() {
       if (platformTouched) return;

@@ -1,5 +1,5 @@
 const CONFIG = {
-  APP_VERSION: '3.20.8',
+  APP_VERSION: '3.20.9',
   CLIENT_ID: '320535010458-j5ud52freto8277f0qp0lr4919b86br4.apps.googleusercontent.com',
   SHEET_ID: '1T2G8leVwJ8EES1GzEcL1bD_NLHe46ylmPPijc-VoKmo',
   SCOPES: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.readonly',
@@ -24,11 +24,11 @@ const CONFIG = {
   DEFAULT_NOTE_CHIPS: ['UberEats', '蝦皮'],
   // App 建立的發票備註含以下關鍵字時，視為信用卡付款平台，自動比對信用卡明細
   CC_PAY_KEYWORDS: ['ubereats', '蝦皮'],
-  // 信用卡待填的常吃品項：刷卡店名含 match 就帶入；價格變動改這裡
+  // 信用卡待填的常吃品項：刷卡店名含 match 任一字串就帶入（比對時不分全半形、大小寫，忽略空白）；價格變動改這裡
   // who：'Sin'／'Bear'＝算那個人；'larger'＝算目前金額比較多的人（一樣多算 Sin）
   SHOP_PRESETS: [
     {
-      match: 'ounuo', name: 'One Poké', category: '🍴',
+      match: ['ounuo', 'onopoke', 'onepoke'], name: 'One Poké', category: '🍴',
       items:  [{ who: 'Sin', icon: '🍣', name: '鮭魚', price: 175 }, { who: 'Bear', icon: '🐟', name: '鮪魚', price: 155 }],
       addons: [{ icon: '🧈', name: '有加豆腐', price: 25, who: 'Sin' }, { icon: '🛍️', name: '有買袋子', price: 1, who: 'larger' }],
     },

@@ -1017,8 +1017,9 @@ const Pending = (() => {
 
   // 常吃品項：預計金額＝品項＋勾選的加購；Bear＝Bear 品項加總
   function _findShopPreset(shop) {
-    const s = String(shop || '').toLowerCase();
-    return (CONFIG.SHOP_PRESETS || []).find(p => s.includes(p.match)) || null;
+    // 帳單店名可能是全形（ＯＮＯ ＰＯＫＥ）或帶重音（Poké）
+    const s = String(shop || '').normalize('NFKD').replace(/[\u0300-\u036f\s]/g, '').toLowerCase();
+    return (CONFIG.SHOP_PRESETS || []).find(p => p.match.some(m => s.includes(m))) || null;
   }
   function _presetTotal(preset, addonOn) {
     return preset.items.reduce((sum, it) => sum + it.price, 0)
@@ -1051,7 +1052,9 @@ const Pending = (() => {
     const cands = item.invCandidates || [];   // 可連結的現有發票（CC 驅動）
     let selectedInv = null;
     const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
-    let selectedShared = cc.shared || (preset ? '部分' : '');   // CC 下載時若已自動填，預選供 double check
+    // 金額符合兩人常點的組合才自動選「部分」；一個人吃（$176）或 Uber Eats 價不同的訂單不預選，免得 Bear 被算 155
+    const presetMatched = preset && _presetTotal(preset, addonOn) === cc.amount;
+    let selectedShared = cc.shared || (presetMatched ? '部分' : '');   // CC 下載時若已自動填，預選供 double check
     let selectedCat    = cc.category || preset?.category || '';  // 類別：下載時 _lookupCategory 可能已自動填
     document.getElementById('pending-modal-title').textContent = `🔵 ${cc.shop}`;
 

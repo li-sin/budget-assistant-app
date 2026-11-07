@@ -56,6 +56,7 @@ const Calculator = (() => {
         </div>
       </div>`;
     document.body.appendChild(el);
+    document.addEventListener('keydown', _onKeydown, true);
 
     el.querySelectorAll('.calc-key').forEach(btn => btn.addEventListener('click', () => _press(btn.dataset.key)));
     document.getElementById('calc-close').addEventListener('click', close);
@@ -66,6 +67,20 @@ const Calculator = (() => {
       if (_onApply && isFinite(v)) _onApply(v);
       close();
     });
+  }
+
+  // 電腦鍵盤（含數字鍵盤）：Enter＝帶入、Esc＝取消；攔在捕捉階段，不讓按鍵打進後面的輸入框
+  const _KEY_MAP = { '+': '+', '-': '−', '*': '×', '/': '÷', x: '×', X: '×', '=': '=', '.': '.', Backspace: '⌫', Delete: 'C', c: 'C', C: 'C' };
+  function _onKeydown(e) {
+    const modal = document.getElementById('calc-modal');
+    if (!modal || modal.classList.contains('hidden') || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'Enter') document.getElementById('calc-apply').click();
+    else if (e.key === 'Escape') close();
+    else if (/^[0-9]$/.test(e.key)) _press(e.key);
+    else if (_KEY_MAP[e.key]) _press(_KEY_MAP[e.key]);
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
   }
 
   function _press(k) {
@@ -104,6 +119,7 @@ const Calculator = (() => {
     _expr = initial && parseFloat(initial) > 0 ? String(parseFloat(initial)) : '0';
     _onApply = onApply;
     _render();
+    document.activeElement?.blur?.();   // 避免按鍵同時打進原本的輸入框
     document.getElementById('calc-modal').classList.remove('hidden');
   }
 

@@ -81,6 +81,44 @@ const Scan = (() => {
     return { invNum, dateForSheet, rand, total };
   }
 
+  // ── 訂購平台（UberEats／蝦皮）：備註標籤 [平台] 是唯一來源，配對信用卡靠它 ──
+  const _PLATFORM_ICONS = { UberEats: '🛵', 蝦皮: '🛒' };
+  const _compact = v => String(v || '').toLowerCase().replace(/\s+/g, '');
+
+  // 判定方式與 CC_PAY_KEYWORDS 配對一致（不壓空白）：「UBER EATS訂單」這種標示列不算已標，要補 [UberEats]
+  function _platformOfNote(note) {
+    const n = String(note || '').toLowerCase();
+    return CONFIG.DEFAULT_NOTE_CHIPS.find(p => n.includes(p.toLowerCase())) || '';
+  }
+
+  function _setPlatformTag(note, platform) {
+    let out = String(note || '');
+    CONFIG.DEFAULT_NOTE_CHIPS.forEach(p => { out = out.split(`[${p}]`).join(''); });
+    out = out.replace(/\s{2,}/g, ' ').trim();
+    if (!platform) return out;
+    return out ? `${out} [${platform}]` : `[${platform}]`;
+  }
+
+  // 店名可能一邊是簡稱、一邊是公司全名（徠品饌堂／徠品饌堂有限公司），短於 3 字只比完全相同
+  function _sameShop(a, b) {
+    const x = _compact(a), y = _compact(b);
+    if (!x || !y) return false;
+    if (x === y) return true;
+    return Math.min(x.length, y.length) >= 3 && (x.includes(y) || y.includes(x));
+  }
+
+  // rows：[{ date, shop, note }]；只看這家店最近 5 筆，偶爾一次外送不會讓之後每張都被選上太久
+  function _platformFromHistory(rows, shop) {
+    const recent = (rows || [])
+      .filter(r => _sameShop(r.shop, shop))
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+      .slice(0, 5);
+    const tagged = recent.map(r => _platformOfNote(r.note)).filter(Boolean);
+    return tagged.length ? { platform: tagged[0], tagged: tagged.filter(p => p === tagged[0]).length, total: recent.length } : null;
+  }
+
+  const _calcBtnHtml = '<button type="button" class="ne-calc-btn sconf-calc" aria-label="計算機">🧮</button>';
+
   function _escapeHtml(value) {
     return String(value ?? '')
       .replace(/&/g, '&amp;')
@@ -916,7 +954,15 @@ const Scan = (() => {
           <div class="modal-body">
           ${invoiceInfoRows}
           <div class="sconf-row"><span class="sconf-label">商店</span><input type="text" id="sconf-shop" class="field-input" style="flex:1;margin-left:8px" value="${_escapeHtml(shop)}"></div>
-          ${isQueryDetailMode ? `<div class="sconf-row"><span class="sconf-label">金額</span><input type="number" id="sconf-total" class="field-input" min="1" step="1" inputmode="decimal" style="flex:1;margin-left:8px" value="${total ? Number(total) : ''}" placeholder="可由查詢明細合計"></div>` : ''}
+          ${isQueryDetailMode ? `<div class="sconf-row"><span class="sconf-label">金額</span><input type="number" id="sconf-total" class="field-input" min="1" step="1" inputmode="decimal" style="flex:1;margin-left:8px" value="${total ? Number(total) : ''}" placeholder="可由查詢明細合計">${_calcBtnHtml}</div>` : ''}
+
+          <div class="sconf-platform">
+            <div class="sconf-platform-title">訂購平台</div>
+            <div class="chip-row sconf-platform-chips">
+              ${CONFIG.DEFAULT_NOTE_CHIPS.map(p => `<button type="button" class="chip sconf-platform-chip" data-platform="${_escapeHtml(p)}">${_PLATFORM_ICONS[p] || ''} ${_escapeHtml(p)}</button>`).join('')}
+            </div>
+            <p class="sconf-platform-hint hidden" id="sconf-platform-hint"></p>
+          </div>
 
           <div id="sconf-missing-wrap"></div>
           <div id="sconf-items-wrap"></div>
@@ -958,6 +1004,71 @@ const Scan = (() => {
     el.classList.remove('hidden');
     NoteChips.render('sconf-note');
 
+    // 訂購平台：備註標籤與按鈕雙向同步；使用者動過就不再自動選
+    const platformNoteEl = document.getElementById('sconf-note');
+    const platformHintEl = document.getElementById('sconf-platform-hint');
+    let platformTouched  = false;
+    let platformAuto     = '';    // 目前是系統自動選的平台
+    let platformHistory  = null;  // 發票明細歷史（讀取完才有）
+
+    function syncPlatformChips() {
+      const cur = _platformOfNote(platformNoteEl.value);
+      el.querySelectorAll('.sconf-platform-chip').forEach(c => c.classList.toggle('active', c.dataset.platform === cur));
+    }
+    function setPlatformHint(text) {
+      platformHintEl.textContent = text || '';
+      platformHintEl.classList.toggle('hidden', !text);
+    }
+    function refreshPlatformSuggestion() {
+      if (platformTouched) return;
+      const existing = _platformOfNote(platformNoteEl.value);
+      if (existing && existing !== platformAuto) { syncPlatformChips(); return; }   // 備註本來就有標籤
+      const shop = document.getElementById('sconf-shop')?.value || '';
+      const hit = /uber\s*eats/i.test(orderNote)
+        ? { platform: 'UberEats', hint: '發票上有 UBER EATS 訂單標示，已自動選好' }
+        : (() => {
+            const h = _platformFromHistory(platformHistory, shop);
+            return h && { platform: h.platform, hint: `這家店最近 ${h.total} 筆有 ${h.tagged} 筆標 ${h.platform}，已自動選好，不對可以再按一次取消` };
+          })();
+      platformNoteEl.value = _setPlatformTag(platformNoteEl.value, hit?.platform || '');
+      platformAuto = hit?.platform || '';
+      setPlatformHint(hit?.hint || '');
+      syncPlatformChips();
+    }
+    el.querySelectorAll('.sconf-platform-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        platformTouched = true;
+        const cur = _platformOfNote(platformNoteEl.value);
+        platformNoteEl.value = _setPlatformTag(platformNoteEl.value, cur === chip.dataset.platform ? '' : chip.dataset.platform);
+        setPlatformHint('');
+        syncPlatformChips();
+      });
+    });
+    platformNoteEl.addEventListener('input', () => { platformTouched = true; setPlatformHint(''); syncPlatformChips(); });
+    platformNoteEl.nextElementSibling?.addEventListener('click', e => {
+      if (e.target.closest('.note-chip')) { platformTouched = true; setPlatformHint(''); syncPlatformChips(); }
+    });
+    document.getElementById('sconf-shop')?.addEventListener('input', refreshPlatformSuggestion);
+    refreshPlatformSuggestion();
+    // 歷史只是輔助：讀不到就照常手選，不擋掃描流程
+    Sheets.getRange(`${CONFIG.TABS.INVOICE}!B:I`).then(data => {
+      platformHistory = (data.values || []).slice(1).map(r => ({ date: r[0] || '', shop: r[2] || '', note: r[7] || '' }));
+      refreshPlatformSuggestion();
+    }).catch(() => {});
+
+    if (!el.dataset.calcBound) {
+      el.dataset.calcBound = '1';
+      el.addEventListener('click', e => {
+        const btn = e.target.closest('.sconf-calc');
+        if (!btn) return;
+        const inp = btn.previousElementSibling;
+        Calculator.open(inp.value, v => {
+          inp.value = v;
+          inp.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+      });
+    }
+
     function getOcrCountNote() {
       if (!ocrRawText) return '';
       if (!ocrFoundTable) return '未明確找到「消費明細」表格，請裁切截圖或改用手動補品項。';
@@ -986,6 +1097,7 @@ const Scan = (() => {
 
       if (meta.shopName && shopEl && !shopEl.value.trim()) {
         shopEl.value = meta.shopName;
+        refreshPlatformSuggestion();
       }
       if (meta.total > 0 && !(total > 0) && totalEl && !Number(totalEl.value || 0)) {
         total = meta.total;
@@ -1144,7 +1256,7 @@ const Scan = (() => {
             </div>
             <div class="sconf-manual-add">
               <input type="text" id="sconf-manual-name" class="field-input" placeholder="缺漏品項名稱">
-              <input type="number" id="sconf-manual-amount" class="field-input" placeholder="金額" min="1" step="1" inputmode="decimal">
+              <div class="sconf-amount-calc"><input type="number" id="sconf-manual-amount" class="field-input" placeholder="金額" min="1" step="1" inputmode="decimal">${_calcBtnHtml}</div>
               <button class="btn-secondary" id="sconf-add-item">新增品項</button>
             </div>
             <div class="sconf-ocr-box">
@@ -1177,7 +1289,7 @@ const Scan = (() => {
                   ${ocrItems.map((it, idx) => `
                     <div class="sconf-ocr-row" data-ocr-idx="${idx}">
                       <input type="text" class="field-input sconf-ocr-name" value="${_escapeHtml(it.name)}" placeholder="品項名稱">
-                      <input type="number" class="field-input sconf-ocr-amount" value="${Number(it.amount || 0)}" step="1" inputmode="decimal" placeholder="金額">
+                      <div class="sconf-amount-calc"><input type="number" class="field-input sconf-ocr-amount" value="${Number(it.amount || 0)}" step="1" inputmode="decimal" placeholder="金額">${_calcBtnHtml}</div>
                       <button class="sconf-item-remove sconf-ocr-remove" data-ocr-remove="${idx}" aria-label="移除 OCR 品項">✕</button>
                     </div>
                   `).join('')}

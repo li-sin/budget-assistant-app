@@ -356,6 +356,56 @@ const Sheets = (() => {
     if (ym) invalidateMonth(ym);
   }
 
+  // ── 明細 inline 編輯：決定 G/H 怎麼處理（純邏輯，不碰 Sheets）──────
+  // keep    ＝不動 G/H（金額／付款人／共用都沒變，保留公式或手動覆蓋）
+  // formula ＝還原逐列公式，依新值重算（矩陣見 decisions.md「月度帳本 G/H 計算矩陣」）
+  // static  ＝「部分」：Bear 金額來自備註，只能寫靜態值（K 空白時公式算不出來）
+  function resolveEditShares(orig, next) {
+    const changed = next.amount !== orig.amount || next.payer !== orig.payer || next.shared !== orig.shared;
+    if (next.shared !== '部分') return { mode: changed ? 'formula' : 'keep' };
+
+    const note = String(next.note || '').replace(/,/g, '').trim();
+    let bear = null;
+    if (next.amount < 0) {
+      // 中獎獎金列（負金額）：自訂分配記在備註「自訂：Bear 分 N」，H＝-N
+      const m = note.match(/Bear 分 (\d+(?:\.\d+)?)/);
+      if (m) bear = -parseFloat(m[1]) || 0;
+    } else if (/^\d+(\.\d+)?$/.test(note)) {
+      bear = parseFloat(note);
+    }
+    if (bear === null) {
+      // 舊資料的備註不是金額且這次沒動到分帳相關欄位：不擋、也不動 G/H
+      if (!changed && next.note === orig.note) return { mode: 'keep' };
+      return { error: '選「部分」時，備註請只填 Bear 要負擔的金額（數字）' };
+    }
+    if (next.amount >= 0 && bear > next.amount) return { error: 'Bear 負擔金額不能大於總金額' };
+    return { mode: 'static', sin: next.amount - bear, bear };
+  }
+
+  // 與 ensure_capacity.py _monthly_g_formula／_monthly_h_formula 同一份公式，改動要一起改
+  function _monthlyGHFormulas(r) {
+    const bear = '🐨 Bear';
+    const items = _sheetRef(CONFIG.TABS.ITEMS);
+    const g = `=IF(C${r}="","",IF(E${r}="是",ROUNDDOWN(C${r}/2,0),IF(E${r}="否",IF(D${r}="${bear}",C${r},0),IF(E${r}="-",C${r},IF(E${r}="部分",IF(K${r}="","",IF(K${r}="→",IFERROR(C${r}-VALUE(I${r}),""),C${r}-SUMPRODUCT((${items}!$L:$L=K${r})*IFERROR(VALUE(${items}!$H:$H),0)))),"")))))`;
+    const h = `=IF(C${r}="","",IF(E${r}="是",C${r}-G${r},IF(E${r}="否",IF(D${r}="${bear}",0,C${r}),IF(E${r}="-",0,IF(E${r}="部分",IF(K${r}="","",C${r}-G${r}),"")))))`;
+    return [g, h];
+  }
+
+  // 只寫有編輯的欄位：C 沒改就不碰（保留 =16500+3693 這種算式），J:L 來源／連結／匯入時間一律不碰
+  async function updateMonthlyEdit(rowIndex, { date, item, amount, payer, shared, category, note }, { writeAmount, shares }) {
+    const tab = CONFIG.TABS.MONTHLY;
+    const data = [
+      { range: `${tab}!A${rowIndex}:B${rowIndex}`, values: [[date, item]] },
+      { range: `${tab}!D${rowIndex}:F${rowIndex}`, values: [[payer, shared, category]] },
+      { range: `${tab}!I${rowIndex}`, values: [[note]] },
+    ];
+    if (writeAmount) data.push({ range: `${tab}!C${rowIndex}`, values: [[amount]] });
+    if (shares.mode === 'formula') data.push({ range: `${tab}!G${rowIndex}:H${rowIndex}`, values: [_monthlyGHFormulas(rowIndex)] });
+    if (shares.mode === 'static')  data.push({ range: `${tab}!G${rowIndex}:H${rowIndex}`, values: [[shares.sin, shares.bear]] });
+    await _batchUpdate(data);
+    invalidateMonth(date.slice(0, 7));
+  }
+
   // ── 刪除月度帳本指定列 ────────────────────────────
   async function deleteMonthlyRow(rowIndex, ym) {
     const url = `${BASE}:batchUpdate`;
@@ -1638,7 +1688,7 @@ const Sheets = (() => {
   return {
     getRange: _get,  // 原始範圍讀取（含 5xx/429 重試），給需要整表資料的模組用
     getMonthlyData, getCreditCardImportStatus, invalidateCCStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
-    updateMonthlyRow, deleteMonthlyRow,
+    updateMonthlyRow, updateMonthlyEdit, resolveEditShares, deleteMonthlyRow,
     getInvoiceData, getItemData, updateItemRow,
     checkDuplicateInvoice, appendInvoiceRow, appendItemRows, appendSyntheticItemRow,
     markInvoiceImported, setInvoiceImported, appendMonthlyFromInvoice, appendMonthlyFromScan,

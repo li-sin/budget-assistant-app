@@ -945,13 +945,8 @@ const Pending = (() => {
       btn.disabled = true;
       btn.textContent = '儲存中…';
       try {
-        const row = [
-          r.date, r.item, r.amount, r.payer, r.shared, r.category,
-          parseFloat(sin), parseFloat(bear), r.note,
-          r.source, r.sourceLink, r.importedAt,
-        ];
-        await Sheets.updateMonthlyRow(r.rowIndex, row);
-        Sheets.invalidateMonth(r.date.slice(0, 7));
+        // 只寫 G/H：整列寫回會把 C/E 公式和 K 連結蓋成靜態值
+        await Sheets.updateMonthlyGH(r.rowIndex, parseFloat(sin), parseFloat(bear), r.date.slice(0, 7));
         _saveClose();
         await _reload();
         window.Home?.reload();

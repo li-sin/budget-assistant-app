@@ -1174,6 +1174,9 @@ const Ledger = (() => {
 
     let currentPayer  = rowPayer;
     let currentShared = row.shared || '是';
+    const _syncNoteHint = () => {
+      detail.querySelector('.ne-note').placeholder = currentShared === '部分' ? 'Bear 要負擔的金額' : '';
+    };
 
     // 🧮 計算機（如房租加電費：16500＋電費 → 帶入）
     detail.querySelector('.ne-calc-btn').addEventListener('click', e => {
@@ -1195,8 +1198,10 @@ const Ledger = (() => {
         detail.querySelectorAll('.ne-shared-chip').forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
         currentShared = chip.dataset.val;
+        _syncNoteHint();
       });
     });
+    _syncNoteHint();
 
     detail.querySelector('.ne-save').addEventListener('click', async () => {
       const date   = detail.querySelector('.ne-date').value;
@@ -1213,20 +1218,21 @@ const Ledger = (() => {
         return;
       }
 
+      const next   = { date, item, amount, payer: currentPayer, shared: currentShared, category: cat, note };
+      const shares = Sheets.resolveEditShares(
+        { amount: row.amount, payer: rowPayer, shared: row.shared || '是', note: row.note || '' }, next);
+      if (shares.error) {
+        errEl.textContent = shares.error;
+        errEl.classList.remove('hidden');
+        return;
+      }
+
       btn.disabled = true;
       btn.textContent = '儲存中…';
       errEl.classList.add('hidden');
 
       try {
-        await Sheets.updateMonthlyRow(row.rowIndex, [
-          date, item, amount, currentPayer, currentShared, cat,
-          row.sinShare  !== undefined && row.sinShare  !== '' ? row.sinShare  : '',
-          row.bearShare !== undefined && row.bearShare !== '' ? row.bearShare : '',
-          note,
-          row.source     || '手動記帳',
-          row.sourceLink || '',
-          row.importedAt || '',
-        ]);
+        await Sheets.updateMonthlyEdit(row.rowIndex, next, { writeAmount: amount !== row.amount, shares });
         const ymOrig = row.date.slice(0, 7);
         const ymNew  = date.slice(0, 7);
         Sheets.invalidateMonth(ymOrig);

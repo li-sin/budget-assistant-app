@@ -70,17 +70,24 @@ const Calculator = (() => {
 
   function _press(k) {
     const last = _expr.slice(-1);
-    if (k === 'C') _expr = '';
-    else if (k === '⌫') _expr = _expr.slice(0, -1);
-    else if (k === '=') { const v = _evaluate(_expr); _expr = isFinite(v) ? String(Math.round(v * 100) / 100) : ''; }
+    if (k === 'C') _expr = '0';
+    else if (k === '⌫') _expr = _expr.slice(0, -1) || '0';
+    else if (k === '=') { const v = _evaluate(_expr); _expr = isFinite(v) ? String(Math.round(v * 100) / 100) : '0'; }
     else if (OPS[k]) {
-      if (!_expr) return;
       _expr = OPS[last] ? _expr.slice(0, -1) + k : _expr + k;   // 連按運算子＝替換
     } else if (k === '.') {
       const cur = _expr.split(/[+−×÷]/).pop();
       if (cur.includes('.')) return;
       _expr += cur ? '.' : '0.';
-    } else _expr += k;
+    } else {
+      // 開頭的 0 直接被取代（預設 0 再按 5 是 5，不是 05）
+      const cur = _expr.split(/[+−×÷]/).pop();
+      if (cur === '0') {
+        if (k === '00') return;
+        _expr = _expr.slice(0, -1);
+      }
+      _expr += k;
+    }
     _render();
   }
 
@@ -93,7 +100,8 @@ const Calculator = (() => {
 
   function open(initial, onApply) {
     _build();
-    _expr = initial && parseFloat(initial) > 0 ? String(parseFloat(initial)) : '';
+    // 帶入欄位原本的金額；沒有就從 0 開始
+    _expr = initial && parseFloat(initial) > 0 ? String(parseFloat(initial)) : '0';
     _onApply = onApply;
     _render();
     document.getElementById('calc-modal').classList.remove('hidden');

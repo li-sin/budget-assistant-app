@@ -1683,10 +1683,12 @@ const Scan = (() => {
             const wrapEl = document.getElementById(`partial-wrap-${idx}`);
             if (wrapEl) wrapEl.classList.toggle('hidden', itemOwners[idx] !== '部分');
             if (itemOwners[idx] !== '部分') delete itemCustomAmounts[idx];
+            else Calculator.promptFor(document.getElementById(`partial-input-${idx}`));
           });
         });
 
         wrap.querySelectorAll('.partial-bear-input').forEach(input => {
+          Calculator.attach(input);
           input.addEventListener('input', () => {
             itemCustomAmounts[parseInt(input.dataset.idx)] = parseFloat(input.value);
           });

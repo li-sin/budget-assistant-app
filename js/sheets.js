@@ -376,7 +376,7 @@ const Sheets = (() => {
     if (bear === null) {
       // 舊資料的備註不是金額且這次沒動到分帳相關欄位：不擋、也不動 G/H
       if (!changed && next.note === orig.note) return { mode: 'keep' };
-      return { error: '選「部分」時，備註請只填 Bear 要負擔的金額（數字）' };
+      return { error: '選「部分」時，請填 Bear 負擔金額（數字）' };
     }
     if (next.amount >= 0 && bear > next.amount) return { error: 'Bear 負擔金額不能大於總金額' };
     return { mode: 'static', sin: next.amount - bear, bear };

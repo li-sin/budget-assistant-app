@@ -843,11 +843,13 @@ const Pending = (() => {
         const wrapEl = document.getElementById(`partial-wrap-${i}`);
         if (wrapEl) wrapEl.classList.toggle('hidden', attrMap[i] !== '部分');
         if (attrMap[i] !== '部分') delete customAmountMap[i];
+        else Calculator.promptFor(document.getElementById(`partial-input-${i}`));
       });
     });
 
     // 部分金額輸入
     document.querySelectorAll('.partial-bear-input').forEach(input => {
+      Calculator.attach(input);
       input.addEventListener('input', () => {
         customAmountMap[parseInt(input.dataset.i, 10)] = parseFloat(input.value);
       });
@@ -1050,7 +1052,10 @@ const Pending = (() => {
         </div>
         <div id="cc-bear-row" class="hidden">
           <label class="field-label">Bear 負擔金額</label>
-          <input type="number" id="cc-bear" class="field-input" inputmode="decimal" placeholder="Bear 負擔多少（總額 ${cc.amount}）">
+          <div class="amount-wrap">
+            <span class="amount-prefix">$</span>
+            <input type="number" id="cc-bear" class="field-input amount-input" inputmode="decimal" placeholder="Bear 負擔多少（總額 ${cc.amount}）">
+          </div>
         </div>
       </div>
       <div id="cc-link-pane" class="hidden">
@@ -1141,6 +1146,7 @@ const Pending = (() => {
       document.getElementById('cc-note-row').classList.toggle('hidden', isPartial);
     };
     _updatePartialUI();
+    Calculator.attach(document.getElementById('cc-bear'));
 
     document.querySelectorAll('#cc-shared-chips .chip').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1148,6 +1154,7 @@ const Pending = (() => {
         document.querySelectorAll('#cc-shared-chips .chip')
           .forEach(b => b.classList.toggle('active', b.dataset.opt === selectedShared));
         _updatePartialUI();
+        if (selectedShared === '部分') Calculator.promptFor(document.getElementById('cc-bear'));
       });
     });
 
@@ -1222,6 +1229,7 @@ const Pending = (() => {
         <div class="chip-row" id="inv-shared-chips" style="margin-bottom:12px">
           ${SHARED_OPTS.map(opt => `<button class="chip${selectedShared === opt ? ' active' : ''}" data-opt="${opt}">${opt}</button>`).join('')}
         </div>
+        <p class="list-item-sub hidden" id="inv-partial-hint" style="margin:-4px 0 12px;color:var(--teal)">${item.invItems.length ? '下一步逐項選，Bear 的金額填在品項上' : '這張沒有品項明細，下一步直接填 Bear 負擔金額'}</p>
         <label class="field-label">負責人</label>
         <div class="chip-row" id="inv-payer-chips" style="margin-bottom:12px">
           ${[['🌟 Star', '🌟 Sin 付'], ['🐨 Bear', '🐨 Bear 付']].map(([v, l]) =>
@@ -1238,6 +1246,13 @@ const Pending = (() => {
         <button class="btn-secondary" id="inv-cancel">取消</button>
         <button class="btn-primary" id="inv-save">儲存</button>
       `;
+      const _syncPartialHint = () => {
+        const isPartial = selectedShared === '部分';
+        document.getElementById('inv-partial-hint').classList.toggle('hidden', !isPartial);
+        document.getElementById('inv-save').textContent = isPartial
+          ? (item.invItems.length ? '下一步：分品項' : '下一步：填金額') : '儲存';
+      };
+      _syncPartialHint();
 
       document.querySelectorAll('#inv-cat-chips .chip').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1260,6 +1275,7 @@ const Pending = (() => {
           selectedShared = btn.dataset.opt;
           document.querySelectorAll('#inv-shared-chips .chip')
             .forEach(b => b.classList.toggle('active', b.dataset.opt === selectedShared));
+          _syncPartialHint();
         });
       });
 
@@ -1297,7 +1313,65 @@ const Pending = (() => {
       });
     }
 
+    // 沒有品項明細：直接填整張的 Bear 金額，建一筆整體品項讓公式鏈算（同明細的 _promptNoItemsPartial）
+    function _showStep2NoItems() {
+      document.getElementById('pending-modal-body').innerHTML = `
+        <p class="list-item-sub" style="margin-bottom:12px">${inv.date}　${_fmt(inv.amount)}</p>
+        <label class="field-label">Bear 負擔金額</label>
+        <div class="amount-wrap">
+          <span class="amount-prefix">$</span>
+          <input type="number" id="inv-bear-whole" class="field-input amount-input" min="0" step="1" inputmode="decimal" placeholder="整張發票 Bear 負擔多少">
+        </div>
+        <p id="inv-attr-error" class="add-error hidden"></p>
+      `;
+      document.getElementById('pending-modal-footer').innerHTML = `
+        <button class="btn-secondary" id="inv-back">← 上一步</button>
+        <button class="btn-primary" id="inv-attr-save">儲存並匯入帳本</button>
+      `;
+      const bearEl = document.getElementById('inv-bear-whole');
+      Calculator.attach(bearEl);
+      Calculator.promptFor(bearEl);
+      document.getElementById('inv-back').addEventListener('click', _showStep1);
+      document.getElementById('inv-attr-save').addEventListener('click', async () => {
+        const errEl = document.getElementById('inv-attr-error');
+        const bear = parseFloat(bearEl.value);
+        if (isNaN(bear) || bear < 0 || bear > inv.amount) {
+          errEl.textContent = `請輸入 Bear 負擔金額（0 ~ ${inv.amount}）`;
+          errEl.classList.remove('hidden');
+          return;
+        }
+        const btn = document.getElementById('inv-attr-save');
+        btn.disabled = true;
+        btn.textContent = '儲存中…';
+        try {
+          await Sheets.appendSyntheticItemRow(
+            { carrier: inv.carrier, date: inv.date, invNum: inv.invNum, shop: inv.shop },
+            { itemName: inv.shop || '（整體）', itemAmount: inv.amount, attribution: '共用',
+              customAmount: String(bear), note: '新增此欄用以修改自訂Bear負擔金額' }
+          );
+          const _finalCat = selectedCat || inv.category || '';
+          await Sheets.updateInvoiceFields(inv.rowIndex, { ...(_finalCat ? { category: _finalCat } : {}), shared: '部分', note: PayerTag.apply(noteVal, selectedPayer) });
+          await Sheets.appendMonthlyFromInvoice({
+            date: inv.date, shop: inv.shop, amount: inv.amount, shared: '部分', category: _finalCat,
+            note: PayerTag.apply(noteVal, selectedPayer), invNum: inv.invNum, invRowIndex: inv.rowIndex,
+            source: _sourceFromCarrier(inv.carrier), payer: selectedPayer,
+          });
+          Sheets.invalidateMonth(inv.date.slice(0, 7));
+          _saveClose();
+          await _reload();
+          window.Home?.reload();
+          window.Ledger?.reload();
+        } catch (e) {
+          errEl.textContent = '儲存失敗：' + e.message;
+          errEl.classList.remove('hidden');
+          btn.disabled = false;
+          btn.textContent = '儲存並匯入帳本';
+        }
+      });
+    }
+
     function _showStep2() {
+      if (!item.invItems.length) { _showStep2NoItems(); return; }
       const ATTR_OPTS = ['🌟 Sin', '🐨 Bear', '共用', '部分'];
 
       // 預先建立 attrMap（偵測既有「部分」：G=共用 且 I 欄有自訂金額）
@@ -1353,10 +1427,12 @@ const Pending = (() => {
           const wrapEl = document.getElementById(`partial-wrap-${i}`);
           if (wrapEl) wrapEl.classList.toggle('hidden', attrMap[i] !== '部分');
           if (attrMap[i] !== '部分') delete customAmountMap[i];
+          else Calculator.promptFor(document.getElementById(`partial-input-${i}`));
         });
       });
 
       document.querySelectorAll('.partial-bear-input').forEach(input => {
+        Calculator.attach(input);
         input.addEventListener('input', () => {
           customAmountMap[parseInt(input.dataset.i, 10)] = parseFloat(input.value);
         });

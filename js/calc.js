@@ -99,11 +99,38 @@ const Calculator = (() => {
     document.getElementById('calc-modal').classList.remove('hidden');
   }
 
+  // 把金額帶回輸入框；發 input 事件讓各頁面原本的狀態同步（如 customAmountMap）
+  function openFor(input) {
+    open(input.value, v => {
+      input.value = v;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
+  // 「部分」的 Bear 金額欄：選了就跳計算機（已有金額就不打擾）
+  function promptFor(input) {
+    if (input && !input.value) openFor(input);
+  }
+
+  // 在 .amount-wrap 裡的金額欄加 🧮（重複呼叫不會重複加）
+  function attach(input) {
+    if (!input || input.dataset.calcAttached) return;
+    input.dataset.calcAttached = '1';
+    input.style.paddingRight = '44px';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'amount-calc-btn';
+    btn.setAttribute('aria-label', '計算機');
+    btn.textContent = '🧮';
+    btn.addEventListener('click', e => { e.stopPropagation(); openFor(input); });
+    input.after(btn);
+  }
+
   function close() {
     document.getElementById('calc-modal')?.classList.add('hidden');
   }
 
-  return { open, close };
+  return { open, close, openFor, promptFor, attach };
 })();
 
 window.Calculator = Calculator;

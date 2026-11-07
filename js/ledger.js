@@ -1161,10 +1161,16 @@ const Ledger = (() => {
           <span class="inv-edit-label">共用</span>
           <div class="chip-row ne-shared-chips" style="margin-bottom:0;">${sharedChips}</div>
         </div>
-        <div class="inv-edit-row">
+        <div class="inv-edit-row ne-note-row">
           <span class="inv-edit-label">備註</span>
-          <input type="text" id="ne-note-${row.rowIndex}" class="ne-note field-input" data-notechips="true" style="height:36px;font-size:13px;padding:4px 8px;" value="${row.note || ''}">
+          <input type="text" id="ne-note-${row.rowIndex}" class="ne-note field-input" data-notechips="true" style="height:36px;font-size:13px;padding:4px 8px;" value="">
         </div>
+        <div class="inv-edit-row ne-bear-row hidden">
+          <span class="inv-edit-label">Bear 負擔</span>
+          <input type="number" class="ne-bear field-input" min="0" step="1" inputmode="decimal" placeholder="Bear 要負擔的金額" style="height:36px;font-size:13px;padding:4px 8px;flex:1;min-width:0;">
+          <button type="button" class="ne-calc-btn ne-bear-calc" aria-label="計算機">🧮</button>
+        </div>
+        <p class="ne-bear-warn hidden" style="font-size:12px;color:var(--salmon);margin:0;"></p>
         <div class="inv-edit-actions">
           <button class="ne-save btn-primary" style="padding:7px 18px;font-size:13px;">儲存</button>
           <span class="ne-save-msg" style="font-size:12px;color:var(--teal);display:none;">✓ 已儲存</span>
@@ -1174,8 +1180,23 @@ const Ledger = (() => {
 
     let currentPayer  = rowPayer;
     let currentShared = row.shared || '是';
-    const _syncNoteHint = () => {
-      detail.querySelector('.ne-note').placeholder = currentShared === '部分' ? 'Bear 要負擔的金額' : '';
+    // 「部分」的 Bear 金額存在備註欄（I）。畫面上分開成兩欄，就不用在備註裡填金額。
+    // 例外：中獎獎金（負金額，備註記自訂分配）與舊資料的文字備註，維持備註欄
+    const noteIsAmount = /^\d+(\.\d+)?$/.test(String(row.note || '').replace(/,/g, '').trim());
+    const keepNoteField = row.amount < 0 || (row.shared === '部分' && !!row.note && !noteIsAmount);
+    const noteEl = detail.querySelector('.ne-note');
+    const bearEl = detail.querySelector('.ne-bear');
+    if (row.shared === '部分' && noteIsAmount) bearEl.value = String(row.note).replace(/,/g, '').trim();
+    else noteEl.value = row.note || '';
+    const _bearMode = () => currentShared === '部分' && !keepNoteField;
+    const _syncBearField = () => {
+      const on = _bearMode();
+      detail.querySelector('.ne-note-row').classList.toggle('hidden', on);
+      detail.querySelector('.ne-bear-row').classList.toggle('hidden', !on);
+      const warn = detail.querySelector('.ne-bear-warn');
+      const text = noteEl.value.trim();
+      warn.textContent = on && text ? `儲存後，原本的備註「${text}」會被 Bear 負擔金額取代` : '';
+      warn.classList.toggle('hidden', !warn.textContent);
     };
 
     // 🧮 計算機（如房租加電費：16500＋電費 → 帶入）
@@ -1198,17 +1219,22 @@ const Ledger = (() => {
         detail.querySelectorAll('.ne-shared-chip').forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
         currentShared = chip.dataset.val;
-        _syncNoteHint();
+        _syncBearField();
+        if (_bearMode()) Calculator.promptFor(bearEl);
       });
     });
-    _syncNoteHint();
+    _syncBearField();
+    detail.querySelector('.ne-bear-calc').addEventListener('click', e => {
+      e.stopPropagation();
+      Calculator.openFor(bearEl);
+    });
 
     detail.querySelector('.ne-save').addEventListener('click', async () => {
       const date   = detail.querySelector('.ne-date').value;
       const item   = detail.querySelector('.ne-item').value.trim();
       const amount = parseFloat(detail.querySelector('.ne-amount').value);
       const cat    = detail.querySelector('.ne-cat').value;
-      const note   = detail.querySelector('.ne-note').value.trim();
+      const note   = _bearMode() ? bearEl.value.trim() : noteEl.value.trim();
       const errEl  = detail.querySelector('.ne-edit-error');
       const btn    = detail.querySelector('.ne-save');
 
@@ -1538,6 +1564,7 @@ const Ledger = (() => {
           </div>
         </div>`;
       document.body.appendChild(overlay);
+      Calculator.attach(overlay.querySelector('#pnp-bear'));
 
       overlay.querySelector('#pnp-cancel').addEventListener('click', () => {
         overlay.remove(); resolve(null);
@@ -1605,12 +1632,14 @@ const Ledger = (() => {
 
     // chip 互動
     overlay.querySelectorAll('.item-attr-block').forEach(block => {
+      Calculator.attach(block.querySelector('.bear-amt-input'));
       block.querySelectorAll('.item-attr-chip').forEach(chip => {
         chip.addEventListener('click', () => {
           block.querySelectorAll('.item-attr-chip').forEach(c => c.classList.remove('active'));
           chip.classList.add('active');
           const partialWrap = block.querySelector('.bear-partial-wrap');
           partialWrap.style.display = chip.dataset.opt === '部分' ? 'block' : 'none';
+          if (chip.dataset.opt === '部分') Calculator.promptFor(block.querySelector('.bear-amt-input'));
         });
       });
     });
@@ -1725,11 +1754,13 @@ const Ledger = (() => {
       </div>`;
 
     // chip 互動
+    Calculator.attach(wrap.querySelector('.bear-amt-input'));
     wrap.querySelectorAll('.item-attr-chip').forEach(chip => {
       chip.addEventListener('click', () => {
         wrap.querySelectorAll('.item-attr-chip').forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
         wrap.querySelector('.bear-partial-wrap').style.display = chip.dataset.opt === '部分' ? 'block' : 'none';
+        if (chip.dataset.opt === '部分') Calculator.promptFor(wrap.querySelector('.bear-amt-input'));
       });
     });
 

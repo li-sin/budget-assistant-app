@@ -142,9 +142,9 @@ const Settings = (() => {
         <div class="section-title">CC 帳單密碼</div>
         <div class="card">
           <p class="settings-label-sub" style="margin-bottom:8px">儲存於本機，不會上傳。各家銀行 PDF 解密密碼。</p>
-          ${[['台新','taishin'],['星展','dbs'],['永豐','sinopac'],['富邦','fubon']].map(([name,key]) =>
+          ${[['台新','taishin','ID2+BRD4'],['星展','dbs','ID4+BRD4'],['永豐','sinopac','ID'],['富邦','fubon','ID']].map(([name,key,hint]) =>
             `<div class="settings-row">
-              <span class="settings-label">${name}</span>
+              <span class="settings-label">${name}<span class="settings-label-sub" style="display:block">${hint}</span></span>
               <input type="password" id="cc-pwd-${key}" class="field-input" style="flex:1;max-width:200px" autocomplete="off" placeholder="輸入密碼">
             </div>`
           ).join('')}

@@ -73,6 +73,15 @@ const Add = (() => {
                    placeholder="0" min="0" step="1" inputmode="decimal">
             <button type="button" class="amount-calc-btn" id="add-calc" aria-label="計算機">🧮</button>
           </div>
+          <div id="add-coupon-wrap">
+            <label class="field-label">🎟️ 我的優惠券折抵（選填）</label>
+            <div class="amount-wrap">
+              <span class="amount-prefix">$</span>
+              <input type="number" id="add-coupon" class="field-input amount-input" placeholder="0"
+                     min="0" step="1" inputmode="decimal" data-calc-label="🎟️ 我的優惠券折抵多少">
+            </div>
+            <p class="settings-label-sub" id="add-coupon-hint" style="margin:4px 0 0">金額填原價；優惠券是你的，折掉的錢算你的，共用照原價分</p>
+          </div>
 
           <label class="field-label">項目 <span class="required">*</span></label>
           <input type="text" id="add-item" class="field-input" placeholder="商店或品項名稱">
@@ -155,6 +164,7 @@ const Add = (() => {
       btn.addEventListener('click', () => _setSrc(btn.dataset.src));
     });
     Calculator.attach(document.getElementById('add-bear-share'));
+    Calculator.attach(document.getElementById('add-coupon'));
 
     document.getElementById('add-calc').addEventListener('click', () => {
       Calculator.open(document.getElementById('add-amount').value, result => {
@@ -203,6 +213,7 @@ const Add = (() => {
     document.querySelectorAll('#add-modal .chip[data-mode]')
       .forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
     document.getElementById('add-income-wrap').classList.toggle('hidden', !income);
+    document.getElementById('add-coupon-wrap').classList.toggle('hidden', income);   // 優惠券只用在支出
     if (income) { _setSrc(_src); return; }
     document.getElementById('add-amount-label').textContent = '金額';
     document.getElementById('add-payer-label').textContent  = '負責人';
@@ -268,6 +279,7 @@ const Add = (() => {
     document.getElementById('add-item').value   = '';
     document.getElementById('add-cat').value    = '';
     document.getElementById('add-note').value   = '';
+    document.getElementById('add-coupon').value = '';
     document.querySelectorAll('#add-modal .cat-chip')
       .forEach(b => b.classList.toggle('active', b.dataset.cat === ''));
 
@@ -359,12 +371,30 @@ const Add = (() => {
       ];
     }
 
+    // 我的優惠券（2026-11-08 Sin）：支出照原價記、共用照原價分，另記一筆 −折抵（共用「-」＝全算 Sin），
+    //   同一天、同項目；「先記的帳」比對時用實付（原價－折抵）去對發票／刷卡
+    let couponRow = null;
+    const coupon = _mode === 'expense' ? parseFloat(document.getElementById('add-coupon').value) : NaN;
+    if (coupon > 0) {
+      if (coupon > amount) return _showError('優惠券折抵不能大於金額');
+      if (!cat) return _showError('用優惠券時請選類別（折抵會扣那個類別的花費）');
+      couponRow = [
+        date, item, -coupon, _payer, '-', cat,
+        '', '', `🎟️ 我的優惠券折抵（原價 ${amount}，實付 ${amount - coupon}）`,
+        '手動記帳', '', _nowStr(),
+      ];
+    }
+
     const btn = document.getElementById('add-submit');
     btn.disabled    = true;
     btn.textContent = '新增中…';
 
     try {
       await Sheets.appendMonthlyRow(row, gh);
+      if (couponRow) {
+        try { await Sheets.appendMonthlyRow(couponRow, null); }
+        catch (e) { return _showError('支出已記，但優惠券折抵沒記到：' + e.message + '（請用收入／抵銷補一筆）'); }
+      }
       if (custody) {
         try { await Sheets.appendCustody(custody); }
         catch (e) { return _showError('帳本已記，但媽媽禮金餘額沒扣到：' + e.message + '（請到設定頁手動補一筆）'); }

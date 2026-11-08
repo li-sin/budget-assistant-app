@@ -375,8 +375,19 @@ const Sheets = (() => {
   }
 
   // rows：月度帳本列（含 date/item/amount/source/sourceLink/importedAt）
+  const _COUPON_TAG = '🎟️ 我的優惠券折抵';
   function manualRowsForMatch(rows) {
-    return rows.filter(r => r.source === '手動記帳' && r.amount > 0 && !_MANUAL_EXCLUDE_RE.test(r.item || '') && _dayIdx(r.date) !== null);
+    // 同一天、同項目的「我的優惠券折抵」負數列：發票／刷卡是實付，所以用原價＋折抵去比
+    const coupons = {};
+    rows.forEach(r => {
+      if (r.source === '手動記帳' && r.amount < 0 && (r.note || '').includes(_COUPON_TAG)) {
+        const k = `${r.date}|${r.item}`;
+        coupons[k] = (coupons[k] || 0) + r.amount;
+      }
+    });
+    return rows
+      .filter(r => r.source === '手動記帳' && r.amount > 0 && !_MANUAL_EXCLUDE_RE.test(r.item || '') && _dayIdx(r.date) !== null)
+      .map(r => ({ ...r, matchAmount: r.amount + (coupons[`${r.date}|${r.item}`] || 0) }));
   }
 
   // 這筆發票／信用卡要不要先問：還沒決定過，且有同金額、日期差 1 天內、還沒跟同類配過的手記帳 → 回傳候選手記
@@ -386,13 +397,13 @@ const Sheets = (() => {
     if (d === null || !(amount > 0)) return [];
     const paired = new Set(Object.entries(links)
       .filter(([k, v]) => k.startsWith(kind + '|') && v.decision === 'same').map(([, v]) => v.manualKey));
-    return manualRows.filter(m => m.amount === amount && Math.abs(_dayIdx(m.date) - d) <= 1 && !paired.has(manualKeyOf(m)));
+    return manualRows.filter(m => (m.matchAmount ?? m.amount) === amount && Math.abs(_dayIdx(m.date) - d) <= 1 && !paired.has(manualKeyOf(m)));
   }
 
   async function _manualMatchContext() {
     const [mData, links] = await Promise.all([_get(`${CONFIG.TABS.MONTHLY}!A:L`), getManualLinks()]);
     const rows = (mData.values || []).slice(1).map(r => ({
-      date: r[0] || '', item: r[1] || '', amount: parseFloat(r[2]) || 0, source: r[9] || '', sourceLink: r[10] || '', importedAt: r[11] || '',
+      date: r[0] || '', item: r[1] || '', amount: parseFloat(r[2]) || 0, note: r[8] || '', source: r[9] || '', sourceLink: r[10] || '', importedAt: r[11] || '',
     }));
     return { manualRows: manualRowsForMatch(rows), links };
   }

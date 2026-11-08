@@ -103,7 +103,7 @@ const Pending = (() => {
   // ── 資料收集 ──────────────────────────────────────────────────
 
   async function _collect() {
-    const [monthlyRaw, invoices, items, ccPendingRows, ccAllRows, platformMap, refundPairs] = await Promise.all([
+    const [monthlyRaw, invoices, items, ccPendingRows, ccAllRows, platformMap, refundPairs, manualLinks] = await Promise.all([
       _getAllMonthly(),
       Sheets.getInvoiceData(),
       Sheets.getItemData(),
@@ -111,6 +111,7 @@ const Pending = (() => {
       Sheets.getCCAllData(),
       Sheets.getRulesData(),
       Sheets.getRefundPairs(),
+      Sheets.getManualLinks(),
     ]);
 
     const result = [];
@@ -334,8 +335,38 @@ const Pending = (() => {
         });
       });
 
-    // 排序：🔴 > 🟠 > 🟡 > 🟣 > 🔵 > 🟤 > 🔗 > ⚠（🟣 發票待填排在 🔵 信用卡待填之前，2026-10-10 Sin 指定）
-    const order = { anomaly: 0, duplicate: 1, cc_inv_suspect: 2, untagged: 3, inv_pending: 4, cc_pending: 5, platform_unlinked: 6, scan_cc_dup: 7, cc_refund: 8 };
+    // 🔗 先記的帳：手動記帳先記，之後到的發票／信用卡同金額、日期差 1 天內 → 問是不是同一筆（確認前不匯入）
+    const manualRows = Sheets.manualRowsForMatch(monthlyRaw);
+    const heldInv = new Set(), heldCC = new Set();
+    invoices
+      .filter(inv => inv.invNum && inv.status !== '作廢' && inv.shared !== 'x' && inv.imported !== 'TRUE'
+        && !CONFIG.CC_PAY_KEYWORDS.some(kw => (inv.note || '').toLowerCase().includes(kw.toLowerCase())))
+      .forEach(inv => {
+        const manuals = Sheets.manualCandidates('inv', inv.invNum, inv.date, inv.amount, manualRows, manualLinks);
+        if (!manuals.length) return;
+        heldInv.add(inv.invNum);
+        result.push({ type: 'manual_link', label: '先記的帳', color: '#2D9CDB', kind: 'inv', key: inv.invNum,
+          inv, invItems: items.filter(it => it.invNum === inv.invNum), manuals });
+      });
+    ccAllRows
+      .filter(cc => cc.imported !== 'TRUE' && cc.imported !== 'True' && !cc.matched && cc.shared !== 'x' && cc.shared !== '略過')
+      .forEach(cc => {
+        const key = Sheets.ccKeyOf(cc.txDate, cc.shop, cc.amount);
+        const manuals = Sheets.manualCandidates('cc', key, cc.txDate, cc.amount, manualRows, manualLinks);
+        if (!manuals.length) return;
+        heldCC.add(key);
+        result.push({ type: 'manual_link', label: '先記的帳', color: '#2D9CDB', kind: 'cc', key, cc, manuals });
+      });
+    // 先記的帳還沒確認前，同一筆不再出現在發票待填／信用卡待填，免得被先填掉
+    for (let i = result.length - 1; i >= 0; i--) {
+      const it = result[i];
+      if ((it.type === 'inv_pending' && heldInv.has(it.inv.invNum))
+        || (it.type === 'cc_pending' && heldCC.has(Sheets.ccKeyOf(it.cc.txDate, it.cc.shop, it.cc.amount)))) result.splice(i, 1);
+    }
+
+    // 排序：🔴 > 🟠 > 🔗先記 > ⚠ > 🟡 > 🟣 > 掃描配對 > 🔄 > 🟤 平台待配對 > 🔵 信用卡待填
+    //   （🟣 發票待填在信用卡之前，2026-10-10；信用卡待填放最下面、平台待配對在它上面，2026-11-08 Sin 指定）
+    const order = { anomaly: 0, duplicate: 1, manual_link: 2, cc_inv_suspect: 3, untagged: 4, inv_pending: 5, scan_cc_dup: 6, cc_refund: 7, platform_unlinked: 8, cc_pending: 9 };
     result.sort((a, b) => (order[a.type] ?? 99) - (order[b.type] ?? 99));
     _items = result;
   }
@@ -468,6 +499,11 @@ const Pending = (() => {
           title  = it.inv.shop || it.inv.invNum;
           sub    = `${it.inv.date}　${it.candidates.length} 筆候選 CC`;
           amount = it.inv.amount;
+        } else if (it.type === 'manual_link') {
+          const src = it.kind === 'inv' ? it.inv : it.cc;
+          title  = it.kind === 'inv' ? (src.shop || src.invNum) : src.shop;
+          sub    = `${it.kind === 'inv' ? src.date : src.txDate}　可能是先記的「${it.manuals[0].item}」`;
+          amount = src.amount;
         } else if (it.type === 'cc_inv_suspect') {
           title  = it.cc.shop;
           sub    = `${it.cc.bank}　${it.cc.txDate}　${it.suspects.length} 筆候選發票`;
@@ -615,6 +651,70 @@ const Pending = (() => {
     else if (item.type === 'scan_cc_dup')      _renderScanCCDup(item);
     else if (item.type === 'cc_inv_suspect')  _renderCCInvSuspect(item);
     else if (item.type === 'cc_refund')        _renderCCRefund(item);
+    else if (item.type === 'manual_link')      _renderManualLink(item);
+  }
+
+  // ── 🔗 先記的帳：發票／信用卡是不是先記的那筆 ─────────────────
+  function _renderManualLink(item) {
+    const isInv = item.kind === 'inv';
+    const src = isInv ? item.inv : item.cc;
+    let picked = item.manuals.length === 1 ? item.manuals[0] : null;
+    document.getElementById('pending-modal-title').textContent = `🔗 ${isInv ? (src.shop || src.invNum) : src.shop}`;
+    const split = m => m.sinShare !== null || m.bearShare !== null
+      ? `Sin ${_fmt(m.sinShare || 0)}／Bear ${_fmt(m.bearShare || 0)}` : '';
+    document.getElementById('pending-modal-body').innerHTML = `
+      <p class="list-item-sub" style="margin-bottom:8px">這${isInv ? '張發票' : '筆刷卡'}跟你先記的帳金額相同、日期差 1 天內，是同一筆嗎？</p>
+      <div class="card" style="margin-bottom:10px">
+        <div class="settings-label">${isInv ? '🧾 發票' : `💳 ${src.bank} 刷卡`}</div>
+        <div class="list-item-title">${isInv ? (src.shop || src.invNum) : src.shop}</div>
+        <div class="list-item-sub">${isInv ? src.date : src.txDate}　${_fmt(src.amount)}${isInv ? `　${src.invNum}` : ''}</div>
+        ${isInv && item.invItems.length ? `<div class="list-item-sub" style="margin-top:4px">${item.invItems.map(it => `${it.itemName} ${_fmt(parseFloat(it.itemAmount) || 0)}`).join('、')}</div>` : ''}
+      </div>
+      <div class="settings-label" style="margin-bottom:4px">✏️ 先記的帳${item.manuals.length > 1 ? '（選一筆）' : ''}</div>
+      <div id="ml-list">
+        ${item.manuals.map((m, i) => `
+          <div class="list-item ml-item${picked === m ? ' selected' : ''}" data-i="${i}" style="cursor:pointer;border-radius:8px;margin-bottom:4px">
+            <div class="list-item-body">
+              <div class="list-item-title">${m.item}</div>
+              <div class="list-item-sub">${m.date}　${m.shared || ''}　${split(m)}${m.note && m.shared !== '部分' ? `　${m.note}` : ''}</div>
+            </div>
+            <div class="list-item-right amount-expense">${_fmt(m.amount)}</div>
+          </div>`).join('')}
+      </div>
+      <p class="list-item-sub" style="margin-top:6px">按「是同一筆」：這${isInv ? '張發票' : '筆刷卡'}不會再匯入，分帳用你先記的那筆。</p>
+      <p id="ml-error" class="add-error hidden"></p>
+    `;
+    document.getElementById('pending-modal-footer').innerHTML = `
+      <button class="btn-secondary" id="ml-not">不是，照常處理</button>
+      <button class="btn-primary" id="ml-same"${picked ? '' : ' disabled'}>是同一筆</button>
+    `;
+    document.querySelectorAll('.ml-item').forEach(el => el.addEventListener('click', () => {
+      picked = item.manuals[parseInt(el.dataset.i, 10)];
+      document.querySelectorAll('.ml-item').forEach(x => x.classList.toggle('selected', x === el));
+      document.getElementById('ml-same').disabled = false;
+    }));
+    const run = async (btnId, fn) => {
+      const btn = document.getElementById(btnId), errEl = document.getElementById('ml-error');
+      btn.disabled = true;
+      try {
+        await fn();
+        _saveClose();
+        await _reload();
+        window.Home?.reload();
+        window.Ledger?.reload();
+      } catch (e) {
+        errEl.textContent = '儲存失敗：' + e.message;
+        errEl.classList.remove('hidden');
+        btn.disabled = false;
+      }
+    };
+    document.getElementById('ml-same').addEventListener('click', () => run('ml-same', async () => {
+      if (isInv) await Sheets.updateInvoiceImported(src.rowIndex, true);
+      else await Sheets.setCCImported(src.rowIndex, true);
+      await Sheets.appendManualLink({ kind: item.kind, key: item.key, decision: 'same', manualKey: Sheets.manualKeyOf(picked) });
+    }));
+    document.getElementById('ml-not').addEventListener('click', () => run('ml-not', () =>
+      Sheets.appendManualLink({ kind: item.kind, key: item.key, decision: 'not' })));
   }
 
   // ── 🟠 CC 疑似與發票重複 ────────────────────────────────────────

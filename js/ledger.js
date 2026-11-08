@@ -564,7 +564,10 @@ const Ledger = (() => {
   function _openManualDeleteModal(row) {
     if (!confirm(`確定刪除「${row.item || '此筆'}」？此操作無法復原。`)) return;
     const ym = row.date.slice(0, 7);
-    Sheets.deleteMonthlyRow(row.rowIndex, ym)
+    // 先記的帳若已和發票／信用卡配成同一筆，刪掉前把那筆改回未匯入，否則那筆消費就從帳上消失
+    Sheets.revertManualLinks(row)
+      .then(n => { if (n) alert(`這筆先記的帳連著 ${n} 筆發票／刷卡，已改回未匯入，之後會回到待處理。`); })
+      .then(() => Sheets.deleteMonthlyRow(row.rowIndex, ym))
       .then(() => { _load(); window.Home?.reload(); window.Pending?.reload?.(); })
       .catch(e => alert('刪除失敗：' + e.message));
   }

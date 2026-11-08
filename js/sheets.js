@@ -348,6 +348,81 @@ const Sheets = (() => {
     if (ym) invalidateMonth(ym);
   }
 
+  // ── 先記再連發票（手記配對）───────────────────────────────
+  //  手動記帳先記（當下分好帳），之後發票／信用卡到了：同金額、日期差 1 天內 → 待處理問「是不是同一筆」。
+  //  還沒回答的發票／信用卡匯入時跳過（避免記兩次）；「是」＝發票 J／信用卡 K 標已匯入、用手記那筆的分帳；
+  //  「不是」＝之後照常匯入。決定記在「手記配對」頁，同一個鍵以最後一筆為準。Python import_to_monthly.py 同規則。
+  const _MANUAL_EXCLUDE_RE = /房租|交通費/;   // 每月固定帳，不會有對應發票
+  function _dayIdx(s) {
+    const m = _normalizeDate(s).replace(/\//g, '-').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) / 864e5 : null;
+  }
+  function manualKeyOf(m) { return [m.date, m.item, Math.round(m.amount), m.importedAt || ''].join('|'); }
+  function ccKeyOf(date, shop, amount) { return [_normalizeDate(date).replace(/\//g, '-'), shop, Math.round(amount)].join('|'); }
+
+  async function getManualLinks() {
+    try {
+      const data = await _get(`${CONFIG.TABS.MANUAL_LINK}!A:D`);
+      const map = {};
+      (data.values || []).slice(1).forEach(r => { if (r[0] && r[1]) map[`${r[0]}|${r[1]}`] = { decision: r[2] || '', manualKey: r[3] || '' }; });
+      return map;
+    } catch { return {}; }   // 頁面不存在時當作沒有任何決定
+  }
+
+  async function appendManualLink({ kind, key, decision, manualKey = '' }) {
+    const d = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString();
+    await _append(`${CONFIG.TABS.MANUAL_LINK}!A:E`, [[kind, key, decision, manualKey, d.slice(0, 16).replace('T', ' ')]]);
+  }
+
+  // rows：月度帳本列（含 date/item/amount/source/sourceLink/importedAt）
+  function manualRowsForMatch(rows) {
+    return rows.filter(r => r.source === '手動記帳' && r.amount > 0 && !_MANUAL_EXCLUDE_RE.test(r.item || '') && _dayIdx(r.date) !== null);
+  }
+
+  // 這筆發票／信用卡要不要先問：還沒決定過，且有同金額、日期差 1 天內、還沒跟同類配過的手記帳 → 回傳候選手記
+  function manualCandidates(kind, key, date, amount, manualRows, links) {
+    if (links[`${kind}|${key}`]) return [];
+    const d = _dayIdx(date);
+    if (d === null || !(amount > 0)) return [];
+    const paired = new Set(Object.entries(links)
+      .filter(([k, v]) => k.startsWith(kind + '|') && v.decision === 'same').map(([, v]) => v.manualKey));
+    return manualRows.filter(m => m.amount === amount && Math.abs(_dayIdx(m.date) - d) <= 1 && !paired.has(manualKeyOf(m)));
+  }
+
+  async function _manualMatchContext() {
+    const [mData, links] = await Promise.all([_get(`${CONFIG.TABS.MONTHLY}!A:L`), getManualLinks()]);
+    const rows = (mData.values || []).slice(1).map(r => ({
+      date: r[0] || '', item: r[1] || '', amount: parseFloat(r[2]) || 0, source: r[9] || '', sourceLink: r[10] || '', importedAt: r[11] || '',
+    }));
+    return { manualRows: manualRowsForMatch(rows), links };
+  }
+
+  async function setCCImported(rowIndex, value) {
+    await _update(`${CONFIG.TABS.CC}!K${rowIndex}`, [[!!value]]);
+  }
+
+  // 刪手動記帳前呼叫：若它已和發票／信用卡配成同一筆，把那筆改回未匯入並記 reverted，回傳還原了幾筆
+  async function revertManualLinks(manualRow) {
+    const links = await getManualLinks();
+    const mk = manualKeyOf(manualRow);
+    const hits = Object.entries(links).filter(([, v]) => v.decision === 'same' && v.manualKey === mk);
+    if (!hits.length) return 0;
+    const [invData, ccData] = await Promise.all([_get(`${CONFIG.TABS.INVOICE}!C:C`), _get(`${CONFIG.TABS.CC}!A:E`)]);
+    for (const [k] of hits) {
+      const [kind, ...rest] = k.split('|');
+      const key = rest.join('|');
+      if (kind === 'inv') {
+        const idx = (invData.values || []).findIndex(r => (r[0] || '') === key);
+        if (idx > 0) await updateInvoiceImported(idx + 1, false);
+      } else {
+        const idx = (ccData.values || []).findIndex((r, i) => i > 0 && ccKeyOf(r[1], r[3] || '', parseFloat(r[4]) || 0) === key);
+        if (idx > 0) await setCCImported(idx + 1, false);
+      }
+      await appendManualLink({ kind, key, decision: 'reverted', manualKey: mk });
+    }
+    return hits.length;
+  }
+
   // ── 代管款（媽媽禮金）：A 日期、B 對象、C 項目、D 金額（存入＋／用掉－）、E 備註、F 建立時間 ──
   async function getCustodyRecords() {
     const data = await _get(`${CONFIG.TABS.CUSTODY}!A:F`);
@@ -844,6 +919,9 @@ const Sheets = (() => {
 
     // ── Step 1: 發票明細 → 月度帳本 ───────────────────────────
     log('[Step 1] 讀取發票明細 + 品項明細…');
+    let manualCtx = { manualRows: [], links: {} };
+    try { manualCtx = await _manualMatchContext(); } catch { /* 讀不到就不擋 */ }
+    let heldManual = 0;   // 對到先記的手動帳、還沒在待處理確認的筆數
     const [invRaw, itemRaw] = await Promise.all([
       _get(`${CONFIG.TABS.INVOICE}!A:K`),
       _get(`${CONFIG.TABS.ITEMS}!A:K`),
@@ -869,6 +947,7 @@ const Sheets = (() => {
         const its = itemMap[r[2]] || [];
         if (!its.length || its.some(it => !(it[6] || '').trim())) continue;
       }
+      if (manualCandidates('inv', r[2] || '', date, parseFloat(r[4]) || 0, manualCtx.manualRows, manualCtx.links).length) { heldManual++; continue; }
       toImportInv.push({ rowIndex: i + 2, r });
     }
     log(`[Step 1] 待匯入 ${toImportInv.length} 筆`);
@@ -920,6 +999,7 @@ const Sheets = (() => {
       if (r[10]==='TRUE' || r[10]==='True') continue;
       if (_asInvoiceNumber(r[8])) continue;
       if (!date.startsWith(ym)) continue;
+      if (manualCandidates('cc', ccKeyOf(r[1], r[3] || '', parseFloat(r[4]) || 0), date, parseFloat(r[4]) || 0, manualCtx.manualRows, manualCtx.links).length) { heldManual++; continue; }
       if (r[7] === '部分') {
         const bearAmt = parseFloat((r[9]||'').replace(',',''));
         if (isNaN(bearAmt)) { unresPartial++; continue; }
@@ -929,6 +1009,7 @@ const Sheets = (() => {
       }
     }
     if (unresPartial) log(`[Step 2] ⚠ ${unresPartial} 筆「部分」備註未填金額，略過`);
+    if (heldManual) log(`⚠ ${heldManual} 筆對到先記的手動帳，先跳過；請到待處理「先記的帳」確認是不是同一筆`);
     log(`[Step 2] 待匯入（篩前）${toImportCC.length} 筆`);
 
     const ccMonthlyRows = [];
@@ -1703,6 +1784,7 @@ const Sheets = (() => {
     getMonthlyData, getCreditCardImportStatus, invalidateCCStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, updateMonthlyEdit, resolveEditShares, deleteMonthlyRow,
     getCustodyRecords, appendCustody,
+    getManualLinks, appendManualLink, manualRowsForMatch, manualCandidates, manualKeyOf, ccKeyOf, setCCImported, revertManualLinks,
     getInvoiceData, getItemData, updateItemRow,
     checkDuplicateInvoice, appendInvoiceRow, appendItemRows, appendSyntheticItemRow,
     markInvoiceImported, setInvoiceImported, appendMonthlyFromInvoice, appendMonthlyFromScan,

@@ -1327,16 +1327,18 @@ const Pending = (() => {
       const syncDelivery = () => {
         if (sinEl.value === '' || bearEl.value === '') return;
         const s = parseFloat(sinEl.value) || 0, b = parseFloat(bearEl.value) || 0;
+        // 剩下的是外送費等；負數＝用了優惠券（2026-11-08 Sin），一樣兩人平分
         const fee = cc.amount - s - b;
-        if (fee < 0) {
-          checkEl.textContent = `⚠️ 兩人加起來比刷卡多 ${_fmt(-fee)}，請再確認`;
+        // 有零頭時 Sin 無條件捨去、零頭算 Bear（同共用對分）
+        const bear = cc.amount - Math.floor(cc.amount - (b + fee / 2));
+        if (bear < 0 || bear > cc.amount) {
+          checkEl.textContent = `⚠️ 算出來 Bear 要分擔 ${_fmt(bear)}，超出刷卡金額，請再確認兩人吃的金額`;
           checkEl.classList.add('is-off');
           return;
         }
-        // 外送費平分；有零頭時 Sin 無條件捨去、零頭算 Bear（同共用對分）
-        const bear = cc.amount - Math.floor(cc.amount - (b + fee / 2));
         document.getElementById('cc-bear').value = bear;
-        checkEl.textContent = `外送費等 ${_fmt(fee)} 兩人平分 → Bear 要分擔 ${_fmt(bear)}、Sin ${_fmt(cc.amount - bear)}`;
+        const feeText = fee >= 0 ? `外送費等 ${_fmt(fee)}` : `優惠 ${_fmt(-fee)}`;
+        checkEl.textContent = `${feeText} 兩人平分 → Bear 要分擔 ${_fmt(bear)}、Sin ${_fmt(cc.amount - bear)}`;
         checkEl.classList.remove('is-off');
       };
       sinEl.addEventListener('input', syncDelivery);
@@ -1355,10 +1357,11 @@ const Pending = (() => {
         const checkEl = document.getElementById('cc-preset-check');
         if (preset.fees === 'half') {
           // Uber Eats：刷卡多出來的是外送費、服務費，兩人平分；少於品項代表價格或優惠對不上
+          // 刷卡比品項少＝用了優惠券，優惠一樣兩人平分
           checkEl.textContent = diff >= 0
             ? `品項 ${_fmt(expected)}＋外送費等 ${_fmt(diff)}（兩人平分）`
-            : `⚠️ 品項 ${_fmt(expected)} 比刷卡多 ${_fmt(-diff)}，價格或優惠可能不一樣，請直接改 Bear 金額`;
-          checkEl.classList.toggle('is-off', diff < 0);
+            : `品項 ${_fmt(expected)}－優惠 ${_fmt(-diff)}（兩人平分）`;
+          checkEl.classList.remove('is-off');
         } else {
           checkEl.textContent = diff === 0
             ? `✓ 金額對得起來：預計 ${_fmt(expected)}`

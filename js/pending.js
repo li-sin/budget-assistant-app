@@ -1119,25 +1119,42 @@ const Pending = (() => {
   function _findShopPreset(shop) {
     // 帳單店名可能是全形（ＯＮＯ ＰＯＫＥ）或帶重音（Poké）
     const s = String(shop || '').normalize('NFKD').replace(/[\u0300-\u036f\s]/g, '').toLowerCase();
-    return (CONFIG.SHOP_PRESETS || []).find(p => p.match.some(m => s.includes(m))) || null;
+    return (CONFIG.SHOP_PRESETS || []).find(p => p.match.some(m => s.includes(m))
+      && (p.requires || []).every(r => s.includes(r))) || null;
   }
-  function _presetTotal(preset, addonOn) {
-    return preset.items.reduce((sum, it) => sum + it.price, 0)
-      + preset.addons.reduce((sum, a, i) => sum + (addonOn[i] ? a.price : 0), 0);
+  // 依 who 分堆：品項＋選了的加購；打折（scaleOf）算給被打折那項的人
+  function _presetParts(preset, addonOn) {
+    const p = { Sin: 0, Bear: 0, half: 0, larger: 0 };
+    preset.items.forEach(it => { p[it.who] += it.price; });
+    preset.addons.forEach((a, i) => {
+      if (!addonOn[i]) return;
+      if (a.scaleOf) {
+        const t = preset.addons.find((b, j) => addonOn[j] && b.group === a.scaleOf.group);
+        if (t) p[t.who] += t.price * (a.scaleOf.factor - 1);
+        return;
+      }
+      p[a.who] += a.price;
+    });
+    p.total = p.Sin + p.Bear + p.half + p.larger;
+    return p;
+  }
+  function _presetTotal(preset, addonOn) { return _presetParts(preset, addonOn).total; }
+
+  // Bear 負擔：Bear 的＋平分的一半；larger 算給目前比較多的人；fees:'half' 再加外送費等的一半。
+  //   有小數時 Sin 無條件捨去、零頭算 Bear（同共用對分規則）
+  function _presetBear(preset, addonOn, amount) {
+    const p = _presetParts(preset, addonOn);
+    let bear = p.Bear + p.half / 2;
+    const sin = p.Sin + p.half / 2;
+    if (bear > sin) bear += p.larger;
+    if (preset.fees === 'half') bear += (amount - p.total) / 2;
+    return amount - Math.floor(amount - bear);
   }
 
-  // Bear 負擔：先加指定給 Bear 的品項與加購，再把 who:'larger' 的加購算給目前金額比較多的人
-  function _presetBear(preset, addonOn) {
-    const on = preset.addons.filter((_, i) => addonOn[i]);
-    const sum = (list, who) => list.filter(x => x.who === who).reduce((s, x) => s + x.price, 0);
-    const sin  = sum(preset.items, 'Sin')  + sum(on, 'Sin');
-    const bear = sum(preset.items, 'Bear') + sum(on, 'Bear');
-    return bear > sin ? bear + sum(on, 'larger') : bear;
-  }
-
-  // 刷卡金額剛好等於某種加購組合就先選好，對不上就都不選
+  // 刷卡金額剛好等於某種加購組合就先選好，對不上就都不選（Uber Eats 含外送費，不自動選）
   function _presetAutoAddons(preset, amount) {
     const n = preset.addons.length;
+    if (preset.fees) return preset.addons.map(() => false);
     for (let mask = 0; mask < (1 << n); mask++) {
       const on = preset.addons.map((_, i) => !!(mask & (1 << i)));
       if (_presetTotal(preset, on) === amount) return on;
@@ -1153,7 +1170,7 @@ const Pending = (() => {
     let selectedInv = null;
     const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
     // 金額符合兩人常點的組合才自動選「部分」；一個人吃（$176）或 Uber Eats 價不同的訂單不預選，免得 Bear 被算 155
-    const presetMatched = preset && _presetTotal(preset, addonOn) === cc.amount;
+    const presetMatched = preset && !preset.fees && _presetTotal(preset, addonOn) === cc.amount;
     let selectedShared = cc.shared || (presetMatched ? '部分' : '');   // CC 下載時若已自動填，預選供 double check
     let selectedCat    = cc.category || preset?.category || '';  // 類別：下載時 _lookupCategory 可能已自動填
     document.getElementById('pending-modal-title').textContent = `🔵 ${cc.shop}`;
@@ -1190,7 +1207,7 @@ const Pending = (() => {
             <div class="cc-preset-title">${preset.name} 常吃品項</div>
             ${preset.items.map(it => `<div class="cc-preset-row"><span>${it.icon} ${it.who} ${it.name}</span><span>${_fmt(it.price)}</span></div>`).join('')}
             <div class="chip-row cc-preset-addons">
-              ${preset.addons.map((a, i) => `<button type="button" class="chip cc-preset-addon${addonOn[i] ? ' active' : ''}" data-i="${i}">${a.icon} ${a.name} +${_fmt(a.price)}</button>`).join('')}
+              ${preset.addons.map((a, i) => `<button type="button" class="chip cc-preset-addon${addonOn[i] ? ' active' : ''}" data-i="${i}">${a.icon} ${a.name}${a.scaleOf ? '' : ` +${_fmt(a.price)}`}</button>`).join('')}
             </div>
             <div class="cc-preset-check" id="cc-preset-check"></div>
             <div class="cc-preset-split" id="cc-preset-split"></div>
@@ -1294,15 +1311,23 @@ const Pending = (() => {
     if (preset) {
       const bearInput = document.getElementById('cc-bear');
       let bearEdited = false;   // 自己改過 Bear 金額後，按加購就不再蓋掉
-      bearInput.value = _presetBear(preset, addonOn);
+      bearInput.value = _presetBear(preset, addonOn, cc.amount);
       const syncPreset = () => {
         const expected = _presetTotal(preset, addonOn);
         const diff = cc.amount - expected;
         const checkEl = document.getElementById('cc-preset-check');
-        checkEl.textContent = diff === 0
-          ? `✓ 金額對得起來：預計 ${_fmt(expected)}`
-          : `⚠️ 差 ${_fmt(Math.abs(diff))}：預計 ${_fmt(expected)}，刷卡${diff > 0 ? '多' : '少'} ${_fmt(Math.abs(diff))}`;
-        checkEl.classList.toggle('is-off', diff !== 0);
+        if (preset.fees === 'half') {
+          // Uber Eats：刷卡多出來的是外送費、服務費，兩人平分；少於品項代表價格或優惠對不上
+          checkEl.textContent = diff >= 0
+            ? `品項 ${_fmt(expected)}＋外送費等 ${_fmt(diff)}（兩人平分）`
+            : `⚠️ 品項 ${_fmt(expected)} 比刷卡多 ${_fmt(-diff)}，價格或優惠可能不一樣，請直接改 Bear 金額`;
+          checkEl.classList.toggle('is-off', diff < 0);
+        } else {
+          checkEl.textContent = diff === 0
+            ? `✓ 金額對得起來：預計 ${_fmt(expected)}`
+            : `⚠️ 差 ${_fmt(Math.abs(diff))}：預計 ${_fmt(expected)}，刷卡${diff > 0 ? '多' : '少'} ${_fmt(Math.abs(diff))}`;
+          checkEl.classList.toggle('is-off', diff !== 0);
+        }
         const bear = parseFloat(bearInput.value) || 0;
         document.getElementById('cc-preset-split').textContent = `Sin ${_fmt(cc.amount - bear)}／Bear ${_fmt(bear)}`;
       };
@@ -1310,8 +1335,10 @@ const Pending = (() => {
         btn.addEventListener('click', () => {
           const i = parseInt(btn.dataset.i, 10);
           addonOn[i] = !addonOn[i];
-          btn.classList.toggle('active', addonOn[i]);
-          if (!bearEdited) bearInput.value = _presetBear(preset, addonOn);
+          // 同組（例如兩種味噌湯）只能選一個
+          if (addonOn[i] && preset.addons[i].group) preset.addons.forEach((a, j) => { if (j !== i && a.group === preset.addons[i].group) addonOn[j] = false; });
+          document.querySelectorAll('.cc-preset-addon').forEach(b => b.classList.toggle('active', !!addonOn[parseInt(b.dataset.i, 10)]));
+          if (!bearEdited) bearInput.value = _presetBear(preset, addonOn, cc.amount);
           syncPreset();
         });
       });

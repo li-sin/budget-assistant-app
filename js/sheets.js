@@ -1311,7 +1311,7 @@ const Sheets = (() => {
       invRows.push([
         inv.carrier, "'" + inv.date, inv.invNum,
         inv.seller, inv.amount, inv.status,
-        _cat, inv.shared, '', false,
+        _cat, inv.shared, inv.note || '', false,
       ]);
     }
     const invStart = invLastRow - invRows.length + 1;

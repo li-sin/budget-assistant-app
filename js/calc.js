@@ -13,21 +13,26 @@ const Calculator = (() => {
   ];
   const OPS = { '+': (a, b) => a + b, '−': (a, b) => a - b, '×': (a, b) => a * b, '÷': (a, b) => a / b };
 
+  // 由左到右依序算（同一般計算機）：351−15÷2 ＝ (351−15)÷2 ＝ 168，方便先算總額再除以 2 分帳（2026-11-08 Sin）
   function _evaluate(expr) {
     const tokens = expr.match(/\d+\.?\d*|\.\d+|[+−×÷]/g) || [];
     if (!tokens.length) return 0;
     if (OPS[tokens[tokens.length - 1]]) tokens.pop();   // 結尾多打的運算子忽略
-    // 第一輪：乘除
-    const stack = [parseFloat(tokens[0])];
-    for (let i = 1; i < tokens.length; i += 2) {
-      const op = tokens[i], n = parseFloat(tokens[i + 1]);
-      if (op === '×' || op === '÷') stack.push(OPS[op](stack.pop(), n));
-      else stack.push(op, n);
-    }
-    // 第二輪：加減
-    let result = stack[0];
-    for (let i = 1; i < stack.length; i += 2) result = OPS[stack[i]](result, stack[i + 1]);
+    let result = parseFloat(tokens[0]);
+    for (let i = 1; i < tokens.length; i += 2) result = OPS[tokens[i]](result, parseFloat(tokens[i + 1]));
     return result;
+  }
+
+  // 顯示用：乘除前面有加減時補括號，看得出是先算加減（351−15÷2 → (351−15)÷2）
+  function _pretty(expr) {
+    const tokens = expr.match(/\d+\.?\d*|\.\d+|[+−×÷]/g) || [];
+    let out = '', low = false;
+    for (const t of tokens) {
+      if (t === '×' || t === '÷') { if (low) out = `(${out})`; low = false; out += t; }
+      else if (t === '+' || t === '−') { low = true; out += t; }
+      else out += t;
+    }
+    return out;
   }
 
   function _build() {
@@ -107,7 +112,7 @@ const Calculator = (() => {
   }
 
   function _render() {
-    document.getElementById('calc-expr').textContent = _expr;
+    document.getElementById('calc-expr').textContent = _pretty(_expr);
     const v = _evaluate(_expr);
     document.getElementById('calc-result').textContent =
       isFinite(v) ? '$' + (Math.round(v * 100) / 100).toLocaleString('zh-TW') : '—';

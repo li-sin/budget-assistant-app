@@ -124,8 +124,16 @@ const Gmail = (() => {
     return _FEE_KEYWORDS.some(k => n.includes(k)) || n.includes('優惠') || /^discount/i.test(n);
   }
 
+  // 蝦皮平台開的發票：金額和「樂購蝦皮」刷卡一樣，記帳用信用卡那筆；發票自動帶 [蝦皮] 並跳過，避免記兩次（2026-11-08 Sin）
+  //   賣家自己開的發票（例如匠仁五金）看不出是蝦皮，仍要手動標
+  const _PLATFORM_SELLERS = [{ kw: '蝦皮', tag: '[蝦皮]' }];
+  function _platformTag(seller) {
+    return (_PLATFORM_SELLERS.find(p => (seller || '').includes(p.kw)) || {}).tag || '';
+  }
+
   function _autoShared(seller, status, itemNames = []) {
     if (status === '作廢') return 'x';
+    if (_platformTag(seller)) return 'x';
     if (_AUTO_SKIP.some(k => seller.includes(k))) {
       const hasFood = itemNames.length > 0 && itemNames.some(n => !_isFeeItem(n));
       return hasFood ? '' : 'x';
@@ -192,6 +200,7 @@ const Gmail = (() => {
     }
     for (const inv of allInvoices) {
       inv.shared = _autoShared(inv.seller, inv.status, itemNamesMap[inv.invNum] || []);
+      inv.note   = _platformTag(inv.seller) ? `${_platformTag(inv.seller)} 用信用卡那筆記帳` : '';
     }
 
     return { invoices: allInvoices, items: allItems };

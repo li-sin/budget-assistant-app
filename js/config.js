@@ -1,5 +1,5 @@
 const CONFIG = {
-  APP_VERSION: '3.22.0',
+  APP_VERSION: '3.23.0',
   CLIENT_ID: '320535010458-j5ud52freto8277f0qp0lr4919b86br4.apps.googleusercontent.com',
   SHEET_ID: '1T2G8leVwJ8EES1GzEcL1bD_NLHe46ylmPPijc-VoKmo',
   SCOPES: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.readonly',
@@ -27,12 +27,23 @@ const CONFIG = {
   // App 建立的發票備註含以下關鍵字時，視為信用卡付款平台，自動比對信用卡明細
   CC_PAY_KEYWORDS: ['ubereats', '蝦皮'],
   // 信用卡待填的常吃品項：刷卡店名含 match 任一字串就帶入（比對時不分全半形、大小寫，忽略空白）；價格變動改這裡
-  // who：'Sin'／'Bear'＝算那個人；'larger'＝算目前金額比較多的人（一樣多算 Sin）
+  // who：'Sin'／'Bear'＝算那個人；'half'＝兩人平分；'larger'＝算目前金額比較多的人（一樣多算 Sin）
+  // group：同組只能選一個；scaleOf：打折（同組已選那項的價格 × factor，算給同一個人）
+  // requires：店名還要含這些字才套用（Uber Eats 版放前面）；fees:'half'＝刷卡扣掉品項後的外送費、服務費兩人平分
   SHOP_PRESETS: [
+    {
+      match: ['ounuo', 'onopoke', 'onepoke'], requires: ['優步'], name: 'One Poké（Uber Eats）', category: '🍴', fees: 'half',
+      items:  [{ who: 'Sin', icon: '🍣', name: '鮭魚', price: 240 }, { who: 'Bear', icon: '🐟', name: '鮪魚', price: 215 }],
+      addons: [
+        // Uber Eats 的味噌湯固定買一送一、兩碗共 45（2026-11-08 Sin）：只有 Bear 喝算 Bear，兩人都喝就平分
+        { icon: '🍲', name: '味噌湯 Bear 喝', price: 45, who: 'Bear', group: 'soup' },
+        { icon: '🍲', name: '味噌湯兩人都喝', price: 45, who: 'half', group: 'soup' },
+      ],
+    },
     {
       match: ['ounuo', 'onopoke', 'onepoke'], name: 'One Poké', category: '🍴',
       items:  [{ who: 'Sin', icon: '🍣', name: '鮭魚', price: 175 }, { who: 'Bear', icon: '🐟', name: '鮪魚', price: 155 }],
-      addons: [{ icon: '🧈', name: '有加豆腐', price: 25, who: 'Sin' }, { icon: '🛍️', name: '有買袋子', price: 1, who: 'larger' }],
+      addons: [{ icon: '🧈', name: '有加豆腐', price: 25, who: 'Sin' }, { icon: '🍲', name: '加味噌湯', price: 30, who: 'Bear' }, { icon: '🛍️', name: '有買袋子', price: 1, who: 'larger' }],
     },
   ],
 };

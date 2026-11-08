@@ -43,7 +43,7 @@ const Calculator = (() => {
     el.innerHTML = `
       <div class="modal-sheet calc-sheet">
         <div class="modal-header">
-          <span class="modal-title">🧮 計算機</span>
+          <span class="modal-title" id="calc-title">🧮 計算機</span>
           <button class="modal-close" id="calc-close">✕</button>
         </div>
         <div class="modal-body">
@@ -124,11 +124,13 @@ const Calculator = (() => {
       isFinite(v) ? '$' + (Math.round(v * 100) / 100).toLocaleString('zh-TW') : '—';
   }
 
-  function open(initial, onApply) {
+  // label：這次要算什麼（例如「🌟 Sin 吃了多少」），顯示在標題，避免不知道正在填哪一欄
+  function open(initial, onApply, label = '') {
     _build();
     // 帶入欄位原本的金額；沒有就從 0 開始
     _expr = initial && parseFloat(initial) > 0 ? String(parseFloat(initial)) : '0';
     _onApply = onApply;
+    document.getElementById('calc-title').textContent = label ? `🧮 ${label}` : '🧮 計算機';
     _lastEnter = 0;
     _render();
     document.activeElement?.blur?.();   // 避免按鍵同時打進原本的輸入框
@@ -136,11 +138,15 @@ const Calculator = (() => {
   }
 
   // 把金額帶回輸入框；發 input 事件讓各頁面原本的狀態同步（如 customAmountMap）
+  // 標題：欄位的 data-calc-label → aria-label → placeholder
+  function _labelOf(input) {
+    return input.dataset.calcLabel || input.getAttribute('aria-label') || input.placeholder || '';
+  }
   function openFor(input) {
     open(input.value, v => {
       input.value = v;
       input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    }, _labelOf(input));
   }
 
   // 「部分」的 Bear 金額欄：選了就跳計算機（已有金額就不打擾）

@@ -1206,7 +1206,7 @@ const Ledger = (() => {
     detail.querySelector('.ne-calc-btn').addEventListener('click', e => {
       e.stopPropagation();
       const amtEl = detail.querySelector('.ne-amount');
-      Calculator.open(amtEl.value, result => { amtEl.value = result; });
+      Calculator.open(amtEl.value, result => { amtEl.value = result; }, `金額：${row.item || ''}`);
     });
 
     detail.querySelectorAll('.ne-payer-chip').forEach(chip => {
@@ -1619,7 +1619,7 @@ const Ledger = (() => {
               <div class="bear-partial-wrap" style="display:${(it.attribution === '共用' && it.custom !== '') ? 'block' : 'none'};margin-top:4px;">
                 <div class="amount-wrap">
                   <span class="amount-prefix">$</span>
-                  <input type="number" class="field-input amount-input bear-amt-input" style="font-size:13px;padding:6px 6px 6px 24px;" min="0" step="1" inputmode="decimal" placeholder="Bear 負擔金額" value="${it.custom || ''}">
+                  <input type="number" data-calc-label="Bear 負擔：${it.itemName || ''} $${it.itemAmount}" class="field-input amount-input bear-amt-input" style="font-size:13px;padding:6px 6px 6px 24px;" min="0" step="1" inputmode="decimal" placeholder="Bear 負擔金額" value="${it.custom || ''}">
                 </div>
               </div>
             </div>`).join('')}
@@ -1746,7 +1746,7 @@ const Ledger = (() => {
       <div class="bear-partial-wrap" style="display:${isPartial ? 'block' : 'none'};margin-bottom:4px;">
         <div class="amount-wrap">
           <span class="amount-prefix">$</span>
-          <input type="number" class="field-input amount-input bear-amt-input" style="font-size:12px;padding:5px 5px 5px 22px;" min="0" step="1" inputmode="decimal" placeholder="Bear 負擔金額" value="${currentCustom}">
+          <input type="number" data-calc-label="Bear 負擔：${it.itemName || ''} $${it.itemAmount}" class="field-input amount-input bear-amt-input" style="font-size:12px;padding:5px 5px 5px 22px;" min="0" step="1" inputmode="decimal" placeholder="Bear 負擔金額" value="${currentCustom}">
         </div>
       </div>
       <div class="item-note-wrap" style="display:none;margin-top:4px;">

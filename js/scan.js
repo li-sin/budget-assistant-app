@@ -954,7 +954,7 @@ const Scan = (() => {
           <div class="modal-body">
           ${invoiceInfoRows}
           <div class="sconf-row"><span class="sconf-label">商店</span><input type="text" id="sconf-shop" class="field-input" style="flex:1;margin-left:8px" value="${_escapeHtml(shop)}"></div>
-          ${isQueryDetailMode ? `<div class="sconf-row"><span class="sconf-label">金額</span><input type="number" id="sconf-total" class="field-input" min="1" step="1" inputmode="decimal" style="flex:1;margin-left:8px" value="${total ? Number(total) : ''}" placeholder="可由查詢明細合計">${_calcBtnHtml}</div>` : ''}
+          ${isQueryDetailMode ? `<div class="sconf-row"><span class="sconf-label">金額</span><input type="number" id="sconf-total" data-calc-label="發票金額" class="field-input" min="1" step="1" inputmode="decimal" style="flex:1;margin-left:8px" value="${total ? Number(total) : ''}" placeholder="可由查詢明細合計">${_calcBtnHtml}</div>` : ''}
 
           <div class="sconf-platform">
             <div class="sconf-platform-title">訂購平台</div>
@@ -1063,10 +1063,7 @@ const Scan = (() => {
         const btn = e.target.closest('.sconf-calc');
         if (!btn) return;
         const inp = btn.previousElementSibling;
-        Calculator.open(inp.value, v => {
-          inp.value = v;
-          inp.dispatchEvent(new Event('input', { bubbles: true }));
-        });
+        Calculator.openFor(inp);
       });
     }
 
@@ -1257,7 +1254,7 @@ const Scan = (() => {
             </div>
             <div class="sconf-manual-add">
               <input type="text" id="sconf-manual-name" class="field-input" placeholder="缺漏品項名稱">
-              <div class="sconf-amount-calc"><input type="number" id="sconf-manual-amount" class="field-input" placeholder="金額" min="1" step="1" inputmode="decimal">${_calcBtnHtml}</div>
+              <div class="sconf-amount-calc"><input type="number" id="sconf-manual-amount" data-calc-label="缺漏品項的金額" class="field-input" placeholder="金額" min="1" step="1" inputmode="decimal">${_calcBtnHtml}</div>
               <button class="btn-secondary" id="sconf-add-item">新增品項</button>
             </div>
             <div class="sconf-ocr-box">
@@ -1290,7 +1287,7 @@ const Scan = (() => {
                   ${ocrItems.map((it, idx) => `
                     <div class="sconf-ocr-row" data-ocr-idx="${idx}">
                       <input type="text" class="field-input sconf-ocr-name" value="${_escapeHtml(it.name)}" placeholder="品項名稱">
-                      <div class="sconf-amount-calc"><input type="number" class="field-input sconf-ocr-amount" value="${Number(it.amount || 0)}" step="1" inputmode="decimal" placeholder="金額">${_calcBtnHtml}</div>
+                      <div class="sconf-amount-calc"><input type="number" data-calc-label="OCR 品項：${_escapeHtml(it.name)}" class="field-input sconf-ocr-amount" value="${Number(it.amount || 0)}" step="1" inputmode="decimal" placeholder="金額">${_calcBtnHtml}</div>
                       <button class="sconf-item-remove sconf-ocr-remove" data-ocr-remove="${idx}" aria-label="移除 OCR 品項">✕</button>
                     </div>
                   `).join('')}
@@ -1667,7 +1664,7 @@ const Scan = (() => {
               <div class="amount-wrap" style="margin-top:6px">
                 <span class="amount-prefix">$</span>
                 <input type="number" id="partial-input-${idx}" class="field-input amount-input partial-bear-input"
-                       data-idx="${idx}" value="${itemCustomAmounts[idx] ?? ''}" min="0" step="1" inputmode="decimal"
+                       data-idx="${idx}" data-calc-label="Bear 負擔：${_escapeHtml(it.name)} $${it.amount}" value="${itemCustomAmounts[idx] ?? ''}" min="0" step="1" inputmode="decimal"
                        placeholder="Bear 負擔">
               </div>
             </div>

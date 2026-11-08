@@ -159,7 +159,7 @@ const Add = (() => {
     document.getElementById('add-calc').addEventListener('click', () => {
       Calculator.open(document.getElementById('add-amount').value, result => {
         document.getElementById('add-amount').value = result;
-      });
+      }, document.getElementById('add-amount-label').textContent);
     });
 
     document.getElementById('add-close').addEventListener('click',  close);
@@ -183,6 +183,7 @@ const Add = (() => {
       .forEach(b => b.classList.toggle('active', b.dataset.shared === _shared));
     document.getElementById('add-bear-share-wrap').classList.toggle('hidden', !partial);
     document.getElementById('add-note-wrap').classList.toggle('hidden', partial && _mode === 'expense');
+    document.getElementById('add-bear-share').dataset.calcLabel = document.getElementById('add-bear-label').textContent;
     if (partial && prompt) Calculator.promptFor(document.getElementById('add-bear-share'));
   }
 

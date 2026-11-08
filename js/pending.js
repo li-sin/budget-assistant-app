@@ -918,7 +918,7 @@ const Pending = (() => {
               <div class="amount-wrap" style="margin-top:6px">
                 <span class="amount-prefix">$</span>
                 <input type="number" id="partial-input-${i}" class="field-input amount-input partial-bear-input"
-                       data-i="${i}" value="${customAmountMap[i] ?? ''}" min="0" step="1" inputmode="decimal"
+                       data-i="${i}" data-calc-label="Bear 負擔：${it.itemName} ${_fmt(parseFloat(it.itemAmount) || 0)}" value="${customAmountMap[i] ?? ''}" min="0" step="1" inputmode="decimal"
                        placeholder="Bear 負擔">
               </div>
             </div>
@@ -1218,9 +1218,9 @@ const Pending = (() => {
           <div class="cc-preset">
             <div class="cc-preset-title">外送分帳：各吃多少</div>
             <div class="cc-delivery-row"><span>🌟 Sin 吃了</span>
-              <div class="amount-wrap"><span class="amount-prefix">$</span><input type="number" id="cc-del-sin" class="field-input amount-input" min="0" step="1" inputmode="decimal"></div></div>
+              <div class="amount-wrap"><span class="amount-prefix">$</span><input type="number" id="cc-del-sin" class="field-input amount-input" min="0" step="1" inputmode="decimal" data-calc-label="🌟 Sin 吃了多少（刷卡 ${_fmt(cc.amount)}）"></div></div>
             <div class="cc-delivery-row"><span>🐨 Bear 吃了</span>
-              <div class="amount-wrap"><span class="amount-prefix">$</span><input type="number" id="cc-del-bear" class="field-input amount-input" min="0" step="1" inputmode="decimal"></div></div>
+              <div class="amount-wrap"><span class="amount-prefix">$</span><input type="number" id="cc-del-bear" class="field-input amount-input" min="0" step="1" inputmode="decimal" data-calc-label="🐨 Bear 吃了多少（刷卡 ${_fmt(cc.amount)}）"></div></div>
             <div class="cc-preset-check" id="cc-del-check">兩欄都填，剩下的就是外送費、服務費，兩人平分</div>
           </div>` : ''}
           <label class="field-label">Bear 負擔金額</label>
@@ -1639,7 +1639,7 @@ const Pending = (() => {
                 <div class="amount-wrap" style="margin-top:6px">
                   <span class="amount-prefix">$</span>
                   <input type="number" id="partial-input-${i}" class="field-input amount-input partial-bear-input"
-                         data-i="${i}" value="${customAmountMap[i] ?? ''}" min="0" step="1" inputmode="decimal"
+                         data-i="${i}" data-calc-label="Bear 負擔：${it.itemName} ${_fmt(parseFloat(it.itemAmount) || 0)}" value="${customAmountMap[i] ?? ''}" min="0" step="1" inputmode="decimal"
                          placeholder="Bear 負擔">
                 </div>
               </div>

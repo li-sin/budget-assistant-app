@@ -1,5 +1,5 @@
 const CONFIG = {
-  APP_VERSION: '3.20.10',
+  APP_VERSION: '3.21.0',
   CLIENT_ID: '320535010458-j5ud52freto8277f0qp0lr4919b86br4.apps.googleusercontent.com',
   SHEET_ID: '1T2G8leVwJ8EES1GzEcL1bD_NLHe46ylmPPijc-VoKmo',
   SCOPES: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.readonly',
@@ -16,6 +16,7 @@ const CONFIG = {
     INVOICE:    '發票明細',
     ITEMS:      '品項明細',
     RULES:      '商店分類規則',
+    CUSTODY:    '代管款',   // 家人放在 Sin 這邊的錢（媽媽禮金）：存入正數、用掉負數，加總＝餘額
   },
   SETTLEMENT_CELL: 'D3',  // 淨額 = B3(Bear欠Sin) - C3(Sin欠Bear)
   MONTHLY_SHEET_ID: 1410303165,   // 月度帳本工作表的數字 ID（從 Sheets URL #gid= 取得）

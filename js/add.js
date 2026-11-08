@@ -3,7 +3,17 @@ const Add = (() => {
 
   let _payer  = '🌟 Star';
   let _shared = '是';
-  let _mode   = 'expense';   // expense＝一般支出；prize＝中獎獎金（寫負金額，沿用 G/H 矩陣沖抵結算）
+  let _mode   = 'expense';   // expense＝一般支出；income＝收入／抵銷（寫負金額，沿用 G/H 矩陣）
+  let _src    = 'prize';     // 收入來源：prize＝中獎（不算花費）；其餘＝抵銷某類別的花費
+  let _giftBalance = null;   // 媽媽禮金餘額（代管款加總），讀到才有
+  // 收入來源。gift＝從媽媽禮金扣（同時寫一筆代管款支出）
+  const INCOME_SRCS = [
+    { k: 'prize',  label: '🎉 中獎',       tag: '' },
+    { k: 'mom',    label: '👩 媽媽給',     tag: '媽媽給' },
+    { k: 'gift',   label: '🧧 用媽媽禮金', tag: '媽媽禮金' },
+    { k: 'refund', label: '↩️ 退款',       tag: '退款' },
+  ];
+  const GIFT_WHO = '媽媽';
 
   // 用本地時間（toISOString 是 UTC，台灣早上 8 點前會差一天）
   function _localIso() {
@@ -44,7 +54,13 @@ const Add = (() => {
         <div class="modal-body">
           <div class="chip-row" id="add-mode-chips">
             <button class="chip active" data-mode="expense">💸 支出</button>
-            <button class="chip" data-mode="prize">🎉 中獎獎金</button>
+            <button class="chip" data-mode="income">💰 收入／抵銷</button>
+          </div>
+          <div id="add-income-wrap" class="hidden">
+            <div class="chip-row" id="add-src-chips">
+              ${INCOME_SRCS.map(s => `<button class="chip" data-src="${s.k}">${s.label}</button>`).join('')}
+            </div>
+            <p class="settings-label-sub" id="add-src-hint" style="margin:-4px 0 8px"></p>
           </div>
 
           <label class="field-label">日期</label>
@@ -79,12 +95,12 @@ const Add = (() => {
           <label class="field-label" id="add-shared-label">是否共用</label>
           <div class="chip-row">
             <button class="chip active" data-shared="是">是（各半）</button>
-            <button class="chip expense-only" data-shared="否">否（對方全欠）</button>
-            <button class="chip expense-only" data-shared="-">- 個人</button>
-            <button class="chip prize-only hidden" data-shared="部分">自訂</button>
+            <button class="chip" data-shared="否">否（對方全欠）</button>
+            <button class="chip" data-shared="-">- 個人</button>
+            <button class="chip" data-shared="部分">部分</button>
           </div>
           <div id="add-bear-share-wrap" class="hidden">
-            <label class="field-label">Bear 分到</label>
+            <label class="field-label" id="add-bear-label">Bear 負擔</label>
             <div class="amount-wrap">
               <span class="amount-prefix">$</span>
               <input type="number" id="add-bear-share" class="field-input amount-input"
@@ -92,8 +108,10 @@ const Add = (() => {
             </div>
           </div>
 
-          <label class="field-label">備註</label>
-          <input type="text" id="add-note" class="field-input" placeholder="（選填）">
+          <div id="add-note-wrap">
+            <label class="field-label">備註</label>
+            <input type="text" id="add-note" class="field-input" placeholder="（選填）">
+          </div>
 
           <p id="add-error" class="add-error hidden"></p>
         </div>
@@ -126,13 +144,17 @@ const Add = (() => {
 
     // Shared chips
     el.querySelectorAll('.chip[data-shared]').forEach(btn => {
-      btn.addEventListener('click', () => _setShared(btn.dataset.shared));
+      btn.addEventListener('click', () => _setShared(btn.dataset.shared, { prompt: true }));
     });
 
-    // Mode chips（支出 / 中獎獎金）
+    // Mode chips（支出 / 收入抵銷）
     el.querySelectorAll('.chip[data-mode]').forEach(btn => {
       btn.addEventListener('click', () => _setMode(btn.dataset.mode));
     });
+    el.querySelectorAll('.chip[data-src]').forEach(btn => {
+      btn.addEventListener('click', () => _setSrc(btn.dataset.src));
+    });
+    Calculator.attach(document.getElementById('add-bear-share'));
 
     document.getElementById('add-calc').addEventListener('click', () => {
       Calculator.open(document.getElementById('add-amount').value, result => {
@@ -153,30 +175,76 @@ const Add = (() => {
     });
   }
 
-  function _setShared(val) {
+  // 支出「部分」：Bear 金額存備註欄（與明細編輯一致），所以備註欄換成 Bear 負擔欄
+  function _setShared(val, { prompt = false } = {}) {
     _shared = val;
+    const partial = _shared === '部分';
     document.querySelectorAll('#add-modal .chip[data-shared]')
       .forEach(b => b.classList.toggle('active', b.dataset.shared === _shared));
-    document.getElementById('add-bear-share-wrap').classList.toggle('hidden', _shared !== '部分');
+    document.getElementById('add-bear-share-wrap').classList.toggle('hidden', !partial);
+    document.getElementById('add-note-wrap').classList.toggle('hidden', partial && _mode === 'expense');
+    if (partial && prompt) Calculator.promptFor(document.getElementById('add-bear-share'));
   }
 
-  // 中獎模式：負責人＝領獎人；共用只留「各半／自訂」；類別不適用
+  // 各模式能選的共用方式：支出全部；中獎＝各半／自訂；其他收入＝個人／各半／自訂
+  const _SHARED_OPTS = { expense: ['是', '否', '-', '部分'], prize: ['是', '部分'], offset: ['-', '是', '部分'] };
+  function _applySharedOpts(kind, def) {
+    document.querySelectorAll('#add-modal .chip[data-shared]').forEach(b => {
+      b.classList.toggle('hidden', !_SHARED_OPTS[kind].includes(b.dataset.shared));
+      if (b.dataset.shared === '部分') b.textContent = kind === 'expense' ? '部分' : '自訂';
+    });
+    _setShared(def);
+  }
+
   function _setMode(mode) {
     _mode = mode;
-    const prize = mode === 'prize';
+    const income = mode === 'income';
     document.querySelectorAll('#add-modal .chip[data-mode]')
       .forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+    document.getElementById('add-income-wrap').classList.toggle('hidden', !income);
+    if (income) { _setSrc(_src); return; }
+    document.getElementById('add-amount-label').textContent = '金額';
+    document.getElementById('add-payer-label').textContent  = '負責人';
+    document.getElementById('add-shared-label').textContent = '是否共用';
+    document.getElementById('add-bear-label').textContent   = 'Bear 負擔';
+    document.getElementById('add-cat-wrap').classList.remove('hidden');
+    document.querySelectorAll('#add-modal .payer-suffix').forEach(s => s.textContent = ' 付');
+    const itemEl = document.getElementById('add-item');
+    if (itemEl.value === '🎉 發票中獎') itemEl.value = '';
+    _applySharedOpts('expense', '是');
+  }
+
+  // 收入來源：中獎＝領獎人、不選類別、不算花費；其他＝選要抵銷的類別，會扣掉那個類別的花費
+  function _setSrc(k) {
+    _src = k;
+    const prize = k === 'prize';
+    document.querySelectorAll('#add-modal .chip[data-src]')
+      .forEach(b => b.classList.toggle('active', b.dataset.src === k));
     document.getElementById('add-amount-label').textContent = prize ? '獎金金額' : '金額';
-    document.getElementById('add-payer-label').textContent  = prize ? '誰領的獎' : '負責人';
-    document.getElementById('add-shared-label').textContent = prize ? '怎麼分' : '是否共用';
+    document.getElementById('add-payer-label').textContent  = prize ? '誰領的獎' : '誰收到';
+    document.getElementById('add-shared-label').textContent = '怎麼分';
+    document.getElementById('add-bear-label').textContent   = 'Bear 分到';
     document.getElementById('add-cat-wrap').classList.toggle('hidden', prize);
-    document.querySelectorAll('#add-modal .payer-suffix').forEach(s => s.textContent = prize ? ' 領' : ' 付');
-    document.querySelectorAll('#add-modal .expense-only').forEach(b => b.classList.toggle('hidden', prize));
-    document.querySelectorAll('#add-modal .prize-only').forEach(b => b.classList.toggle('hidden', !prize));
+    document.querySelectorAll('#add-modal .payer-suffix').forEach(s => s.textContent = prize ? ' 領' : ' 收');
     const itemEl = document.getElementById('add-item');
     if (prize && !itemEl.value) itemEl.value = '🎉 發票中獎';
     if (!prize && itemEl.value === '🎉 發票中獎') itemEl.value = '';
-    _setShared('是');
+    _applySharedOpts(prize ? 'prize' : 'offset', prize ? '是' : '-');
+    _renderSrcHint();
+    if (k === 'gift' && _giftBalance === null) {
+      Sheets.getCustodyRecords()
+        .then(rs => { _giftBalance = rs.filter(r => r.who === GIFT_WHO).reduce((s, r) => s + r.amount, 0); _renderSrcHint(); })
+        .catch(() => { _giftBalance = null; document.getElementById('add-src-hint').textContent = '讀不到媽媽禮金餘額'; });
+    }
+  }
+
+  function _fmtMoney(n) { return '$' + Math.round(n).toLocaleString('zh-TW'); }
+  function _renderSrcHint() {
+    const el = document.getElementById('add-src-hint');
+    if (!el) return;
+    el.textContent = _src === 'prize' ? '中獎只影響結算，不算進花費'
+      : _src === 'gift' ? (_giftBalance === null ? '媽媽禮金餘額讀取中…' : `媽媽禮金剩 ${_fmtMoney(_giftBalance)}，記了會從餘額扣`)
+      : '選要抵銷的類別，會扣掉那個類別的花費';
   }
 
   // ── Open / Close ───────────────────────────────────────────────
@@ -207,6 +275,8 @@ const Add = (() => {
     _payer  = _defaultPayer();
     document.querySelectorAll('#add-modal .chip[data-payer]')
       .forEach(b => b.classList.toggle('active', b.dataset.payer === _payer));
+    _src = 'prize';
+    _giftBalance = null;   // 每次打開重讀，避免用到舊餘額
     _setMode('expense');
 
     _hideError();
@@ -237,7 +307,27 @@ const Add = (() => {
 
     let row;
     let gh = null;
-    if (_mode === 'prize') {
+    let custody = null;   // 用媽媽禮金時，另寫一筆代管款支出
+    const srcInfo = INCOME_SRCS.find(s => s.k === _src);
+    if (_mode === 'income' && _src !== 'prize') {
+      if (!cat) return _showError('請選要抵銷的類別（例如衣服就選 👗）');
+      if (_src === 'gift') {
+        if (_giftBalance === null) return _showError('還讀不到媽媽禮金餘額，請稍等再按');
+        if (amount > _giftBalance) return _showError(`媽媽禮金只剩 ${_fmtMoney(_giftBalance)}`);
+        custody = { date, who: GIFT_WHO, item, amount: -amount, note: `抵銷：${item}` };
+      }
+      if (_shared === '部分') {
+        const bearShare = parseFloat(document.getElementById('add-bear-share').value);
+        if (isNaN(bearShare) || bearShare < 0 || bearShare > amount) return _showError('Bear 分到的金額需介於 0 ～ 金額');
+        gh = [-(amount - bearShare), -bearShare];
+      }
+      const incomeNote = `💰 收入：${srcInfo.tag}` + (gh ? `（自訂：Bear 分 ${-gh[1]}）` : '') + (note ? ' ' + note : '');
+      row = [
+        date, item, -amount, _payer, _shared, cat,
+        '', '', incomeNote,
+        '手動記帳', '', _nowStr(),
+      ];
+    } else if (_mode === 'income') {
       // 獎金＝負支出：C 寫負數，G/H 照矩陣變負值 → 領獎人那邊的應收自動沖抵對方的一半
       // 自訂分配：G/H 寫靜態值＋備註註明（audit_monthly_gh.py 視為已註記例外）
       let shared = _shared;
@@ -253,9 +343,17 @@ const Add = (() => {
         '手動記帳', '', _nowStr(),
       ];
     } else {
+      let rowNote = note;
+      if (_shared === '部分') {
+        // 與明細編輯／信用卡一致：Bear 金額存備註欄，G/H 寫靜態值
+        const bearShare = parseFloat(document.getElementById('add-bear-share').value);
+        if (isNaN(bearShare) || bearShare < 0 || bearShare > amount) return _showError('Bear 負擔金額需介於 0 ～ 金額');
+        gh = [amount - bearShare, bearShare];
+        rowNote = String(bearShare);
+      }
       row = [
         date, item, amount, _payer, _shared, cat,
-        '', '', note,
+        '', '', rowNote,
         '手動記帳', '', _nowStr(),
       ];
     }
@@ -266,6 +364,10 @@ const Add = (() => {
 
     try {
       await Sheets.appendMonthlyRow(row, gh);
+      if (custody) {
+        try { await Sheets.appendCustody(custody); }
+        catch (e) { return _showError('帳本已記，但媽媽禮金餘額沒扣到：' + e.message + '（請到設定頁手動補一筆）'); }
+      }
       close();
       window.Home?.reload();
       window.Ledger?.reload();

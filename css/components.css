@@ -327,7 +327,7 @@ select.field-input { height: 44px; }
 }
 #add-amount { padding-right: 44px; }
 .ne-calc-btn { background: none; border: none; font-size: 20px; padding: 0 4px; cursor: pointer; flex-shrink: 0; }
-.hidden.prize-only, .hidden.expense-only { display: none; }
+#add-modal .chip.hidden { display: none; }
 
 /* 🧮 計算機 modal */
 .calc-display {
@@ -973,6 +973,14 @@ select.field-input { height: 44px; }
 .sconf-platform-chip { padding: 8px 16px; font-size: 14px; }
 .sconf-platform-hint { margin: 8px 0 0; font-size: 12px; color: var(--text-sub); }
 #calc-modal { z-index: 400; }
+.custody-list { margin: 4px 0 8px; }
+.custody-row { display: grid; grid-template-columns: 86px minmax(0, 1fr) auto; gap: 8px; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--divider); }
+.custody-row:last-child { border-bottom: none; }
+.custody-date { color: var(--text-sub); }
+.custody-item { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.custody-add-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.custody-add-row #custody-item { grid-column: 1 / -1; }
+.custody-add-row .btn-primary { grid-column: 1 / -1; }
 .cc-preset { border: 1px solid var(--divider); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
 .cc-preset-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
 .cc-preset-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-sub); padding: 2px 0; }

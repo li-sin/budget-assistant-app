@@ -149,6 +149,22 @@ const Settings = (() => {
             </div>`
           ).join('')}
         </div>
+        <div class="section-title">媽媽禮金（代管款）</div>
+        <div class="card" id="custody-card">
+          <div class="settings-row">
+            <span class="settings-label">目前餘額</span>
+            <span class="settings-val" id="custody-balance">讀取中…</span>
+          </div>
+          <div id="custody-list" class="custody-list"></div>
+          <div class="custody-add-row">
+            <input type="date" id="custody-date" class="field-input">
+            <div class="amount-wrap"><span class="amount-prefix">$</span><input type="number" id="custody-amount" class="field-input amount-input" min="1" step="1" inputmode="decimal" placeholder="存入金額"></div>
+            <input type="text" id="custody-item" class="field-input" placeholder="說明（例如：媽媽給，車票沒買）">
+            <button class="btn-primary" id="custody-add">存入</button>
+          </div>
+          <p class="settings-label-sub" style="margin-top:6px">要用這筆錢付東西：新增支出 → 💰 收入／抵銷 → 🧧 用媽媽禮金，會自動扣。</p>
+          <p class="add-error hidden" id="custody-error"></p>
+        </div>
         <div class="section-title">備註快速選項</div>
         <div class="card" id="note-chips-card">
           <div class="note-chip-manage-row">
@@ -291,8 +307,58 @@ const Settings = (() => {
       });
     });
 
+    if (document.getElementById('custody-card')) {
+      const dEl = document.getElementById('custody-date');
+      dEl.value = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+      Calculator.attach(document.getElementById('custody-amount'));
+      document.getElementById('custody-add').addEventListener('click', async () => {
+        const errEl = document.getElementById('custody-error');
+        const amount = parseFloat(document.getElementById('custody-amount').value);
+        const item = document.getElementById('custody-item').value.trim();
+        errEl.classList.add('hidden');
+        if (!dEl.value || !(amount > 0) || !item) {
+          errEl.textContent = '請填日期、金額和說明';
+          errEl.classList.remove('hidden');
+          return;
+        }
+        const btn = document.getElementById('custody-add');
+        btn.disabled = true;
+        try {
+          await Sheets.appendCustody({ date: dEl.value, who: '媽媽', item, amount });
+          document.getElementById('custody-amount').value = '';
+          document.getElementById('custody-item').value = '';
+          await _loadCustody();
+        } catch (e) {
+          errEl.textContent = '存入失敗：' + e.message;
+          errEl.classList.remove('hidden');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+      _loadCustody();
+    }
+
     _loadSettlement();
     _loadCardStatus();
+  }
+
+  async function _loadCustody() {
+    const balEl = document.getElementById('custody-balance');
+    const listEl = document.getElementById('custody-list');
+    if (!balEl) return;
+    try {
+      const rows = (await Sheets.getCustodyRecords()).filter(r => r.who === '媽媽');
+      const bal = rows.reduce((s, r) => s + r.amount, 0);
+      balEl.textContent = '$' + Math.round(bal).toLocaleString('zh-TW');
+      listEl.innerHTML = rows.slice().reverse().map(r => `
+        <div class="custody-row">
+          <span class="custody-date">${r.date}</span>
+          <span class="custody-item">${r.item}</span>
+          <span class="${r.amount < 0 ? 'amount-expense' : 'amount-income'}">${r.amount < 0 ? '−' : '+'}$${Math.abs(r.amount).toLocaleString('zh-TW')}</span>
+        </div>`).join('') || '<p class="settings-chip-empty">還沒有紀錄</p>';
+    } catch (e) {
+      balEl.textContent = '讀取失敗';
+    }
   }
 
   function close() {

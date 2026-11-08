@@ -348,6 +348,19 @@ const Sheets = (() => {
     if (ym) invalidateMonth(ym);
   }
 
+  // ── 代管款（媽媽禮金）：A 日期、B 對象、C 項目、D 金額（存入＋／用掉－）、E 備註、F 建立時間 ──
+  async function getCustodyRecords() {
+    const data = await _get(`${CONFIG.TABS.CUSTODY}!A:F`);
+    return (data.values || []).slice(1)
+      .filter(r => r[0] && r[3] !== undefined && r[3] !== '')
+      .map(r => ({ date: r[0], who: r[1] || '', item: r[2] || '', amount: parseFloat(String(r[3]).replace(/,/g, '')) || 0, note: r[4] || '' }));
+  }
+
+  async function appendCustody({ date, who, item, amount, note = '' }) {
+    const d = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString();
+    await _append(`${CONFIG.TABS.CUSTODY}!A:F`, [[date, who, item, amount, note, d.slice(0, 16).replace('T', ' ')]]);
+  }
+
   // ── 修改月度帳本指定列 ────────────────────────────
   async function updateMonthlyRow(rowIndex, row) {
     const range = `${CONFIG.TABS.MONTHLY}!A${rowIndex}:L${rowIndex}`;
@@ -1689,6 +1702,7 @@ const Sheets = (() => {
     getRange: _get,  // 原始範圍讀取（含 5xx/429 重試），給需要整表資料的模組用
     getMonthlyData, getCreditCardImportStatus, invalidateCCStatus, getSettlement, getRepayments, appendMonthlyRow, invalidateMonth,
     updateMonthlyRow, updateMonthlyEdit, resolveEditShares, deleteMonthlyRow,
+    getCustodyRecords, appendCustody,
     getInvoiceData, getItemData, updateItemRow,
     checkDuplicateInvoice, appendInvoiceRow, appendItemRows, appendSyntheticItemRow,
     markInvoiceImported, setInvoiceImported, appendMonthlyFromInvoice, appendMonthlyFromScan,

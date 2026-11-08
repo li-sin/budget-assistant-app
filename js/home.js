@@ -21,8 +21,8 @@ const Home = (() => {
   }
 
   function _renderSummary(rows, settlement, paid) {
-    // 花費卡排除中獎獎金（負金額）；結算 net 仍用全部列
-    const spend    = rows.filter(r => r.amount >= 0);
+    // 花費卡排除中獎等收入（負金額、沒有類別）；抵銷（有類別）照扣；結算 net 仍用全部列
+    const spend    = rows.filter(r => r.amount >= 0 || !!r.category);
     const total    = spend.reduce((s, r) => s + r.amount,    0);
     const sinTotal = spend.reduce((s, r) => s + r.sinShare,  0);
     _bearMonthly   = spend.reduce((s, r) => s + r.bearShare, 0);

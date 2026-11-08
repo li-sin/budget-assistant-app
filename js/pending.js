@@ -1201,7 +1201,14 @@ const Pending = (() => {
         </div>
         <div id="cc-note-row">
           <label class="field-label">備注</label>
-          <input type="text" id="cc-note" class="field-input" value="${cc.note}" placeholder="選填">
+          <input type="text" id="cc-note" class="field-input" value="${CouponTag.strip(cc.note)}" placeholder="選填">
+        <label class="field-label">🎟️ 我的優惠券折抵（選填）</label>
+        <div class="amount-wrap">
+          <span class="amount-prefix">$</span>
+          <input type="number" id="cc-coupon" class="field-input amount-input" min="0" step="1" inputmode="decimal" placeholder="0"
+                 data-calc-label="🎟️ 我的優惠券折抵多少">
+        </div>
+        <p class="settings-label-sub" style="margin:4px 0 12px">刷卡是實付；填了會照原價（實付＋折抵）分帳，折掉的錢算你的</p>
         </div>
         <div id="cc-bear-row" class="hidden">
           ${preset ? `
@@ -1319,6 +1326,8 @@ const Pending = (() => {
     };
     _updatePartialUI();
     Calculator.attach(document.getElementById('cc-bear'));
+    document.getElementById('cc-coupon').value = CouponTag.of(cc.note) || '';
+    Calculator.attach(document.getElementById('cc-coupon'));
     if (isDelivery) {
       const sinEl = document.getElementById('cc-del-sin'), bearEl = document.getElementById('cc-del-bear');
       const checkEl = document.getElementById('cc-del-check');
@@ -1414,7 +1423,13 @@ const Pending = (() => {
         }
         note = String(Math.round(bearAmt));   // 寫入備註(J欄)，importToMonthly 讀此值算 Bear 負擔
       } else {
-        note = document.getElementById('cc-note').value;
+        const coupon = Math.max(0, parseFloat(document.getElementById('cc-coupon').value) || 0);
+        if (coupon && !selectedCat) {
+          errEl.textContent = '用優惠券時請選類別';
+          errEl.classList.remove('hidden');
+          return;
+        }
+        note = CouponTag.apply(document.getElementById('cc-note').value, coupon);
       }
       const btn = document.getElementById('cc-save');
       btn.disabled = true;
@@ -1439,7 +1454,8 @@ const Pending = (() => {
     const SHARED_OPTS = ['是', '否', '部分', '-', 'x'];
     let selectedShared = inv.shared || '';
     let selectedCat = inv.category || '';
-    let noteVal = PayerTag.strip(inv.note);          // 備註框不顯示負責人標籤
+    let noteVal = CouponTag.strip(PayerTag.strip(inv.note));   // 備註框不顯示負責人、優惠券標籤
+    let couponVal = CouponTag.of(inv.note);
     let selectedPayer = PayerTag.payerOf(inv.note);  // 匯入前負責人（存備註標籤，匯入時帶入月度 D 欄）
     const needCat = !inv.category;
     document.getElementById('pending-modal-title').textContent = `🟣 ${inv.shop}`;
@@ -1475,10 +1491,20 @@ const Pending = (() => {
         </div>
         <label class="field-label">備注</label>
         <input type="text" id="inv-note" class="field-input" placeholder="選填">
+        <label class="field-label">🎟️ 我的優惠券折抵（選填）</label>
+        <div class="amount-wrap">
+          <span class="amount-prefix">$</span>
+          <input type="number" id="inv-coupon" class="field-input amount-input" min="0" step="1" inputmode="decimal" placeholder="0"
+                 data-calc-label="🎟️ 我的優惠券折抵多少">
+        </div>
+        <p class="settings-label-sub" style="margin:4px 0 12px">發票是實付；填了會照原價（實付＋折抵）分帳，折掉的錢算你的</p>
         <p id="inv-error" class="add-error hidden"></p>
       `;
       const noteEl = document.getElementById('inv-note');
       noteEl.value = noteVal;
+      const couponEl = document.getElementById('inv-coupon');
+      couponEl.value = couponVal || '';
+      Calculator.attach(couponEl);
       NoteChips.render('inv-note');
       document.getElementById('pending-modal-footer').innerHTML = `
         <button class="btn-secondary" id="inv-cancel">取消</button>
@@ -1521,6 +1547,18 @@ const Pending = (() => {
       document.getElementById('inv-save').addEventListener('click', async () => {
         const errEl = document.getElementById('inv-error');
         noteVal = document.getElementById('inv-note').value.trim();
+        couponVal = parseFloat(document.getElementById('inv-coupon').value) || 0;
+        if (couponVal < 0) couponVal = 0;
+        if (couponVal && selectedShared === '部分') {
+          errEl.textContent = '逐項分帳（部分）暫不支援優惠券，請改選是／否／-，或清掉優惠券';
+          errEl.classList.remove('hidden');
+          return;
+        }
+        if (couponVal && !selectedCat && !inv.category) {
+          errEl.textContent = '用優惠券時請選類別';
+          errEl.classList.remove('hidden');
+          return;
+        }
         if (needCat && !selectedCat) {
           errEl.textContent = '請選擇類別';
           errEl.classList.remove('hidden');
@@ -1539,7 +1577,7 @@ const Pending = (() => {
         btn.disabled = true;
         btn.textContent = '儲存中…';
         try {
-          await Sheets.updateInvoiceFields(inv.rowIndex, { category: selectedCat, shared: selectedShared, note: PayerTag.apply(noteVal, selectedPayer) });
+          await Sheets.updateInvoiceFields(inv.rowIndex, { category: selectedCat, shared: selectedShared, note: CouponTag.apply(PayerTag.apply(noteVal, selectedPayer), couponVal) });
           _saveClose();
           await _reload();
         } catch (e) {

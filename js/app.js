@@ -62,6 +62,18 @@ window.NoteChips = NoteChips;
 
 // 匯入前的負責人暫存：發票明細沒有 payer 欄，Bear 代付以備註標籤 [🐨Bear付] 記錄，
 // 「匯入月度帳本」（JS importToMonthly / import_to_monthly.py）讀到標籤就寫 D=🐨 Bear
+// 我的優惠券折抵（2026-11-08 Sin）：看到發票／刷卡才知道用了券時，在待處理填，存成備註標籤 [🎟️折抵100]；
+//   匯入月度帳本時（App importToMonthly／importSingleCC、import_to_monthly.py 同規則）主列記原價（實付＋折抵）、
+//   另記一筆 −折抵（共用「-」＝算 Sin）。品項逐項分帳（部分）不支援
+window.CouponTag = (() => {
+  const RE = /\s*\[🎟️折抵(\d+(?:\.\d+)?)\]/;
+  const of    = note => { const m = String(note || '').match(RE); return m ? parseFloat(m[1]) : 0; };
+  const strip = note => String(note || '').replace(RE, '').trim();
+  const apply = (note, n) => { const base = strip(note); return n > 0 ? (base ? `${base} [🎟️折抵${n}]` : `[🎟️折抵${n}]`) : base; };
+  const rowNote = (paid, coupon) => `🎟️ 我的優惠券折抵（原價 ${paid + coupon}，實付 ${paid}）`;
+  return { of, strip, apply, rowNote };
+})();
+
 window.PayerTag = (() => {
   const TAG = '[🐨Bear付]';
   const has   = note => (note || '').includes(TAG);

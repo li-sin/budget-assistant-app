@@ -968,7 +968,11 @@ const Sheets = (() => {
     for (const { rowIndex, r } of toImportInv) {
       const date = r[1].replace(/^'/, '');
       const link = _dynamicInvoiceLink(r[2] || '→');
-      invMonthlyRows.push([date, r[3]||'', r[4]||'0', PayerTag.payerOf(r[8]), r[7], r[6]||'', r[8]||'', '發票', link, importedAt]);
+      const payer = PayerTag.payerOf(r[8]);
+      const coupon = r[7] !== '部分' ? CouponTag.of(r[8]) : 0;   // 我的優惠券：主列記原價，另記 −折抵算 Sin
+      const paid = parseFloat(r[4]) || 0;
+      invMonthlyRows.push([date, r[3]||'', coupon ? paid + coupon : (r[4]||'0'), payer, r[7], r[6]||'', CouponTag.strip(r[8]), '發票', link, importedAt]);
+      if (coupon) invMonthlyRows.push([date, r[3]||'', -coupon, payer, '-', r[6]||'', CouponTag.rowNote(paid, coupon), '手動記帳', '', importedAt]);
       invMarkRanges.push({ range: `${CONFIG.TABS.INVOICE}!J${rowIndex}`, values: [[true]] });
     }
     if (invMonthlyRows.length) {
@@ -1039,7 +1043,9 @@ const Sheets = (() => {
         bear = String(bearOverride);
       }
       const link = _dynamicCCLink(ccGid, date, r[3] || '', r[4] || 0);
-      ccMonthlyRows.push([date, r[3]||'', r[4]||'0', '🌟 Star', r[7], r[6]||'', sin, bear, r[9]||'', '信用卡', link, importedAt]);
+      const coupon = bearOverride === null ? CouponTag.of(r[9]) : 0;   // 我的優惠券：主列記原價，另記 −折抵算 Sin
+      ccMonthlyRows.push([date, r[3]||'', coupon ? amt + coupon : (r[4]||'0'), '🌟 Star', r[7], r[6]||'', sin, bear, coupon ? CouponTag.strip(r[9]) : (r[9]||''), '信用卡', link, importedAt]);
+      if (coupon) ccMonthlyRows.push([date, r[3]||'', -coupon, '🌟 Star', '-', r[6]||'', '', '', CouponTag.rowNote(amt, coupon), '手動記帳', '', importedAt]);
       ccMarkRanges.push({ range: `${CONFIG.TABS.CC}!K${rowIndex}`, values: [[true]] });
     }
     if (ccMonthlyRows.length) {
@@ -1774,7 +1780,8 @@ const Sheets = (() => {
     const gids = await _fetchSheetIds();
     const ccGid = gids[CONFIG.TABS.CC];
     const link = _dynamicCCLink(ccGid, date, r[3] || '', r[4] || 0);
-    const row = [date, r[3]||'', r[4]||'0', '🌟 Star', shared, r[6]||'', sin, bear, r[9]||'', '信用卡', link, importedAt];
+    const coupon = shared !== '部分' ? CouponTag.of(r[9]) : 0;   // 我的優惠券：主列記原價，另記 −折抵算 Sin
+    const row = [date, r[3]||'', coupon ? amt + coupon : (r[4]||'0'), '🌟 Star', shared, r[6]||'', sin, bear, coupon ? CouponTag.strip(r[9]) : (r[9]||''), '信用卡', link, importedAt];
     const colA = await _get(`${CONFIG.TABS.MONTHLY}!A:A`);
     const next = (colA.values || []).length + 1;
     const tab = CONFIG.TABS.MONTHLY;
@@ -1782,6 +1789,12 @@ const Sheets = (() => {
       { range: `${tab}!A${next}:F${next}`, values: [row.slice(0, 6)] },
       { range: `${tab}!I${next}:L${next}`, values: [row.slice(8)] },
     ];
+    if (coupon) {
+      batchData.push(
+        { range: `${tab}!A${next + 1}:F${next + 1}`, values: [[date, r[3]||'', -coupon, '🌟 Star', '-', r[6]||'']] },
+        { range: `${tab}!I${next + 1}:L${next + 1}`, values: [[CouponTag.rowNote(amt, coupon), '手動記帳', '', importedAt]] },
+      );
+    }
     if (sin !== '' || bear !== '') {
       batchData.push({ range: `${tab}!G${next}:H${next}`, values: [[sin, bear]] });
     }

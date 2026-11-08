@@ -1165,6 +1165,8 @@ const Pending = (() => {
   function _renderCCPending(item) {
     const cc = item.cc;
     const preset = _findShopPreset(cc.shop);
+    // 外送（沒有常吃品項設定的）：填各吃多少，剩下的是外送費、服務費，兩人平分 → 自動算 Bear 負擔（2026-11-08 Sin）
+    const isDelivery = !preset && /優步|優食|uber|foodpanda|熊貓/i.test(cc.shop);
     const addonOn = preset ? _presetAutoAddons(preset, cc.amount) : [];
     const cands = item.invCandidates || [];   // 可連結的現有發票（CC 驅動）
     let selectedInv = null;
@@ -1211,6 +1213,15 @@ const Pending = (() => {
             </div>
             <div class="cc-preset-check" id="cc-preset-check"></div>
             <div class="cc-preset-split" id="cc-preset-split"></div>
+          </div>` : ''}
+          ${isDelivery ? `
+          <div class="cc-preset">
+            <div class="cc-preset-title">外送分帳：各吃多少</div>
+            <div class="cc-delivery-row"><span>🌟 Sin 吃了</span>
+              <div class="amount-wrap"><span class="amount-prefix">$</span><input type="number" id="cc-del-sin" class="field-input amount-input" min="0" step="1" inputmode="decimal"></div></div>
+            <div class="cc-delivery-row"><span>🐨 Bear 吃了</span>
+              <div class="amount-wrap"><span class="amount-prefix">$</span><input type="number" id="cc-del-bear" class="field-input amount-input" min="0" step="1" inputmode="decimal"></div></div>
+            <div class="cc-preset-check" id="cc-del-check">兩欄都填，剩下的就是外送費、服務費，兩人平分</div>
           </div>` : ''}
           <label class="field-label">Bear 負擔金額</label>
           <div class="amount-wrap">
@@ -1308,6 +1319,32 @@ const Pending = (() => {
     };
     _updatePartialUI();
     Calculator.attach(document.getElementById('cc-bear'));
+    if (isDelivery) {
+      const sinEl = document.getElementById('cc-del-sin'), bearEl = document.getElementById('cc-del-bear');
+      const checkEl = document.getElementById('cc-del-check');
+      Calculator.attach(sinEl);
+      Calculator.attach(bearEl);
+      const syncDelivery = () => {
+        if (sinEl.value === '' || bearEl.value === '') return;
+        const s = parseFloat(sinEl.value) || 0, b = parseFloat(bearEl.value) || 0;
+        const fee = cc.amount - s - b;
+        if (fee < 0) {
+          checkEl.textContent = `⚠️ 兩人加起來比刷卡多 ${_fmt(-fee)}，請再確認`;
+          checkEl.classList.add('is-off');
+          return;
+        }
+        // 外送費平分；有零頭時 Sin 無條件捨去、零頭算 Bear（同共用對分）
+        const bear = cc.amount - Math.floor(cc.amount - (b + fee / 2));
+        document.getElementById('cc-bear').value = bear;
+        checkEl.textContent = `外送費等 ${_fmt(fee)} 兩人平分 → Bear 要分擔 ${_fmt(bear)}、Sin ${_fmt(cc.amount - bear)}`;
+        checkEl.classList.remove('is-off');
+      };
+      sinEl.addEventListener('input', syncDelivery);
+      bearEl.addEventListener('input', syncDelivery);
+      // 先跳 Sin 的計算機；帶入後接著跳 Bear 的
+      // 計算機按「帶入」會先回填再關閉，所以等它關完再開下一個
+      sinEl.addEventListener('input', () => { if (bearEl.value === '') setTimeout(() => Calculator.promptFor(bearEl), 0); }, { once: true });
+    }
     if (preset) {
       const bearInput = document.getElementById('cc-bear');
       let bearEdited = false;   // 自己改過 Bear 金額後，按加購就不再蓋掉
@@ -1352,7 +1389,7 @@ const Pending = (() => {
         document.querySelectorAll('#cc-shared-chips .chip')
           .forEach(b => b.classList.toggle('active', b.dataset.opt === selectedShared));
         _updatePartialUI();
-        if (selectedShared === '部分') Calculator.promptFor(document.getElementById('cc-bear'));
+        if (selectedShared === '部分') Calculator.promptFor(document.getElementById(isDelivery ? 'cc-del-sin' : 'cc-bear'));
       });
     });
 

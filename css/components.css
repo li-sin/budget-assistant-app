@@ -988,6 +988,7 @@ select.field-input { height: 44px; }
 .cc-preset-check { font-size: 13px; color: var(--teal); }
 .cc-preset-check.is-off { color: var(--salmon); }
 .cc-preset-split { font-size: 13px; font-weight: 600; margin-top: 4px; }
+.cc-delivery-row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 8px; align-items: center; margin-bottom: 8px; font-size: 13px; }
 .inv-edit-row.hidden { display: none; }
 
 /* ── Settings version ───────────────────────────── */

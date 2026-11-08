@@ -74,12 +74,18 @@ const Calculator = (() => {
     });
   }
 
-  // 電腦鍵盤（含數字鍵盤）：Enter＝帶入、Esc＝取消；攔在捕捉階段，不讓按鍵打進後面的輸入框
+  // 電腦鍵盤（含數字鍵盤）：Enter 按一下＝「=」、快速按兩下＝帶入（2026-11-08 Sin）、Esc＝取消；攔在捕捉階段，不讓按鍵打進後面的輸入框
+  const _ENTER_DOUBLE_MS = 500;
+  let _lastEnter = 0;
   const _KEY_MAP = { '+': '+', '-': '−', '*': '×', '/': '÷', x: '×', X: '×', '=': '=', '.': '.', Backspace: '⌫', Delete: 'C', c: 'C', C: 'C' };
   function _onKeydown(e) {
     const modal = document.getElementById('calc-modal');
     if (!modal || modal.classList.contains('hidden') || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key === 'Enter') document.getElementById('calc-apply').click();
+    if (e.key === 'Enter') {
+      const now = Date.now();
+      if (now - _lastEnter <= _ENTER_DOUBLE_MS) { _lastEnter = 0; document.getElementById('calc-apply').click(); }
+      else { _lastEnter = now; _press('='); }
+    }
     else if (e.key === 'Escape') close();
     else if (/^[0-9]$/.test(e.key)) _press(e.key);
     else if (_KEY_MAP[e.key]) _press(_KEY_MAP[e.key]);
@@ -123,6 +129,7 @@ const Calculator = (() => {
     // 帶入欄位原本的金額；沒有就從 0 開始
     _expr = initial && parseFloat(initial) > 0 ? String(parseFloat(initial)) : '0';
     _onApply = onApply;
+    _lastEnter = 0;
     _render();
     document.activeElement?.blur?.();   // 避免按鍵同時打進原本的輸入框
     document.getElementById('calc-modal').classList.remove('hidden');

@@ -118,7 +118,8 @@ const Gmail = (() => {
   // 含非費用品項（食物等）→ 留空由人工判斷。與 Python fetch_invoices.py 同規則。
   // 折扣類品項名稱 UberEats 會換（如 Discount on Multi Restaurant Ordering），
   // 故除了已知字串，再放寬成「含『優惠』或以 Discount 開頭」都算費用面。
-  const _FEE_KEYWORDS = ['外送費', '服務費和其他費用', '服務費優惠', '送餐優惠'];
+  // 優食台灣的發票只有外送費、服務費、折扣時自動跳過（費用已含在優步刷卡裡）；2026-11-08 補上「折扣」「額外費用」「退款」
+  const _FEE_KEYWORDS = ['外送費', '服務費和其他費用', '服務費優惠', '送餐優惠', '折扣', '額外費用', '退款'];
   function _isFeeItem(name) {
     const n = String(name || '').trim();
     return _FEE_KEYWORDS.some(k => n.includes(k)) || n.includes('優惠') || /^discount/i.test(n);
